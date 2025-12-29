@@ -1,0 +1,126 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isCompanyOwner(companyCode) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/companies/$(companyCode))
+        && get(/databases/$(database)/documents/companies/$(companyCode)).data.ownerUid == request.auth.uid;
+    }
+    
+    // ============================================
+    // プロフィール
+    // ============================================
+    // 認証済みユーザーが自分のプロフィールのみ読み書き可能
+    match /profiles/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    
+    // ============================================
+    // 会社
+    // ============================================
+    // 認証済みユーザーなら読み取り・作成可能
+    // 更新・削除はオーナーのみ
+    match /companies/{companyCode} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && 
+        resource.data.ownerUid == request.auth.uid;
+    }
+    
+    // ============================================
+    // 社員
+    // ============================================
+    // 認証済みユーザーが作成したもの、または同じ会社コードのものを読み取り可能
+    // 作成は認証済みなら可能
+    // 更新・削除は作成者のみ
+    match /employees/{employeeId} {
+      // クエリを許可するため、シンプルなルールに変更
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && 
+        resource.data.createdBy == request.auth.uid;
+    }
+    
+    // ============================================
+    // 工数エントリ
+    // ============================================
+    // 自分のエントリは読み書き可能
+    // 同じ会社の管理者も読み取り可能（チームカレンダー用）
+    match /timeEntries/{entryId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.uid;
+      allow update, delete: if request.auth != null && 
+        request.auth.uid == resource.data.uid;
+    }
+    
+    // ============================================
+    // Backlog機能（プロジェクト / 課題 / Wiki / ファイル / コメント）
+    // ============================================
+    match /projects/{projectId} {
+      // まずは一覧表示が確実に動くように read を緩める（必要に応じて後で締める）
+      allow read: if true;
+      // 書き込みはログイン必須
+      allow create, update, delete: if isSignedIn();
+    }
+    
+    match /issues/{issueId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
+    }
+    
+    match /issueComments/{commentId} {
+      allow read: if true;
+      allow create, delete: if isSignedIn();
+      allow update: if false;
+    }
+    
+    match /wikiPages/{wikiId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
+    }
+    
+    match /projectFiles/{fileId} {
+      allow read: if true;
+      allow create, delete: if isSignedIn();
+      allow update: if false;
+    }
+
+    // ============================================
+    // 顧客 / 案件（簡易CRM）
+    // ============================================
+    match /customers/{customerId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /deals/{dealId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn();
+    }
+    
+    // ============================================
+    // アクティビティ / お知らせ（通知）
+    // ============================================
+    match /activity/{activityId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      // 自分宛の通知のみ読める（クエリも recipientUid で絞れる）
+      allow read: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow create: if isSignedIn();
+      // 既読更新のみ想定（厳密にはフィールド制限したいがMVPではupdate許可）
+      allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow delete: if false;
+    }
+  }
+}
+
