@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
+import { ensureProfile } from "../lib/ensureProfile";
 
 type NavItem = {
   label: string;
@@ -44,38 +45,17 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
         return;
       }
       try {
-        const profSnap = await getDoc(doc(db, "profiles", u.uid));
-        if (profSnap.exists()) {
-          const prof = profSnap.data() as any;
-          setUserDisplayName((prof.displayName as string | undefined) || u.email?.split("@")[0] || "ユーザー");
+        const prof = await ensureProfile(u);
+        const displayName = (prof?.displayName as string | undefined) || u.email?.split("@")[0] || "ユーザー";
+        setUserDisplayName(displayName);
 
-          const code = (prof.companyCode as string | undefined) || "";
-          const fallback = (prof.companyName as string | undefined) || "会社未設定";
-          if (!code) {
-            setCompanyDisplayName(fallback);
-            return;
-          }
-          const compSnap = await getDoc(doc(db, "companies", code));
-          if (compSnap.exists()) {
-            const c = compSnap.data() as any;
-            setCompanyDisplayName((c.companyName as string | undefined) || fallback);
-          } else {
-            setCompanyDisplayName(fallback);
-          }
-          return;
-        }
-
-        // profiles が無い社員ログインを救済（employees.authUid から取得）
-        const empSnap = await getDocs(query(collection(db, "employees"), where("authUid", "==", u.uid)));
-        const emp = !empSnap.empty ? ({ ...empSnap.docs[0].data(), id: empSnap.docs[0].id } as any) : null;
-        setUserDisplayName((emp?.name as string | undefined) || u.email?.split("@")[0] || "ユーザー");
-
-        const code = (emp?.companyCode as string | undefined) || "";
-        const fallback = (emp?.companyName as string | undefined) || "会社未設定";
+        const code = (prof?.companyCode || "").trim();
+        const fallback = (prof?.companyName as string | undefined) || "会社未設定";
         if (!code) {
           setCompanyDisplayName(fallback);
           return;
         }
+
         const compSnap = await getDoc(doc(db, "companies", code));
         if (compSnap.exists()) {
           const c = compSnap.data() as any;
@@ -98,16 +78,21 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
         setUnreadNotifications(0);
         return;
       }
-      const q = query(
-        collection(db, "notifications"),
-        where("recipientUid", "==", u.uid),
-        where("read", "==", false),
-      );
-      return onSnapshot(
-        q,
-        (snap) => setUnreadNotifications(snap.size),
-        () => setUnreadNotifications(0),
-      );
+      // Ensure profile exists before starting notifications listener (rules depend on companyCode)
+      ensureProfile(u)
+        .then(() => {
+          const q = query(
+            collection(db, "notifications"),
+            where("recipientUid", "==", u.uid),
+            where("read", "==", false),
+          );
+          return onSnapshot(
+            q,
+            (snap) => setUnreadNotifications(snap.size),
+            () => setUnreadNotifications(0),
+          );
+        })
+        .catch(() => setUnreadNotifications(0));
     });
     return () => unsub();
   }, []);

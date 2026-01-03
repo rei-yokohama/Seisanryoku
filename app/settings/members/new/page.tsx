@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
 import { AppShell } from "../../../AppShell";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 
 type MemberProfile = {
   uid: string;
@@ -19,8 +20,6 @@ type Company = {
   ownerUid: string;
   companyName?: string;
 };
-
-type WorkspaceRole = "admin" | "member";
 
 type EmploymentType = "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託";
 
@@ -66,7 +65,6 @@ export default function MemberCreatePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<null | { email: string; password: string }>(null);
-  const [role, setRole] = useState<WorkspaceRole>("member");
 
   const [form, setForm] = useState<Employee>({
     name: "",
@@ -85,20 +83,18 @@ export default function MemberCreatePage() {
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "profiles", u.uid));
-        if (snap.exists()) {
-          const p = snap.data() as MemberProfile;
-          setProfile(p);
-          if (p.companyCode) {
-            try {
-              const compSnap = await getDoc(doc(db, "companies", p.companyCode));
-              setCompany(compSnap.exists() ? (compSnap.data() as Company) : null);
-            } catch {
-              setCompany(null);
-            }
-          } else {
+        const p = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!p) return;
+        setProfile(p);
+        if (p.companyCode) {
+          try {
+            const compSnap = await getDoc(doc(db, "companies", p.companyCode));
+            setCompany(compSnap.exists() ? (compSnap.data() as Company) : null);
+          } catch {
             setCompany(null);
           }
+        } else {
+          setCompany(null);
         }
       } finally {
         setLoading(false);
@@ -128,6 +124,7 @@ export default function MemberCreatePage() {
     e.preventDefault();
     if (!user) return;
     setError("");
+    if (!isOwner) return setError("メンバーの作成はワークスペースのオーナーのみ可能です。");
 
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
@@ -164,7 +161,7 @@ export default function MemberCreatePage() {
       // workspaceMemberships（権限）: オーナーのみ他人の権限を付与可能
       if (profile?.companyCode && authData.uid) {
         const membershipId = `${profile.companyCode}_${authData.uid}`;
-        const nextRole: "owner" | "admin" | "member" = isOwner ? role : "member";
+        const nextRole: "owner" | "admin" | "member" = "member"; // いったんロールは閲覧のみ（作成時は member 固定）
         await setDoc(
           doc(db, "workspaceMemberships", membershipId),
           {
@@ -256,31 +253,21 @@ export default function MemberCreatePage() {
               </Link>
             </div>
           </div>
+        ) : !isOwner ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6">
+            <div className="text-sm font-extrabold text-slate-900">メンバー作成</div>
+            <div className="mt-2 text-sm text-slate-700">
+              メンバーの作成/削除は <span className="font-extrabold">オーナーのみ</span> 実行できます。
+            </div>
+            <div className="mt-5">
+              <Link href="/settings/members" className="inline-flex rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700">
+                一覧へ戻る
+              </Link>
+            </div>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
-                <div className="mb-1 text-sm font-bold text-slate-700">権限（ロール）</div>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as WorkspaceRole)}
-                    disabled={!isOwner}
-                    className={clsx(
-                      "w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none",
-                      !isOwner && "opacity-60",
-                    )}
-                  >
-                    <option value="member">メンバー（標準）</option>
-                    <option value="admin">管理者（admin）</option>
-                  </select>
-                  <div className="text-xs font-bold text-slate-500 leading-relaxed">
-                    {isOwner
-                      ? "作成時に権限（admin/member）を付与できます。"
-                      : "権限の変更はワークスペースのオーナーのみ可能です。"}
-                  </div>
-                </div>
-              </div>
               <div>
                 <div className="mb-1 text-sm font-bold text-slate-700">名前 *</div>
                 <input

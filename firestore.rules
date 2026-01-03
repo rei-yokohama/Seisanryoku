@@ -90,8 +90,21 @@ service cloud.firestore {
     // 更新・削除は作成者のみ
     match /employees/{employeeId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
-      allow update, delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      // メンバー作成/削除はオーナーのみ
+      allow create: if isSignedIn()
+        && isInMyCompany(request.resource.data.companyCode)
+        && isCompanyOwner(request.resource.data.companyCode);
+      allow delete: if isSignedIn()
+        && isInMyCompany(resource.data.companyCode)
+        && isCompanyOwner(resource.data.companyCode);
+
+      // 自分の表示名などの更新は本人 or オーナーのみ（MVP: ロールは別コレクションで管理）
+      allow update: if isSignedIn()
+        && isInMyCompany(resource.data.companyCode)
+        && (
+          resource.data.authUid == request.auth.uid
+          || isCompanyOwner(resource.data.companyCode)
+        );
     }
     
     // ============================================

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
 import { AppShell } from "../../AppShell";
+import { ensureProfile } from "../../../lib/ensureProfile";
 
 type MemberProfile = {
   uid: string;
@@ -127,9 +128,8 @@ export default function MembersPage() {
         return;
       }
       try {
-        const profSnap = await getDoc(doc(db, "profiles", u.uid));
-        if (profSnap.exists()) {
-          const p = profSnap.data() as MemberProfile;
+        const p = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (p) {
           setProfile(p);
           await loadEmployees(u.uid, p.companyCode);
 
@@ -149,7 +149,6 @@ export default function MembersPage() {
             setIsSuperAdmin(false);
           }
         } else {
-          await loadEmployees(u.uid);
           setIsSuperAdmin(false);
         }
       } finally {
@@ -203,6 +202,10 @@ export default function MembersPage() {
   }, [employees, q, typeFilter, authFilter, isSuperAdmin, user, profile]);
 
   const handleDelete = async (id: string) => {
+    if (!isSuperAdmin) {
+      alert("メンバーの削除はオーナーのみ可能です。");
+      return;
+    }
     if (!confirm("このメンバーを削除してもよろしいですか？")) return;
     try {
       await deleteDoc(doc(db, "employees", id));

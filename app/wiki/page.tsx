@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
 import { logActivity } from "../../lib/activity";
 import { AppShell } from "../AppShell";
+import { ensureProfile } from "../../lib/ensureProfile";
 
 type MemberProfile = {
   uid: string;
@@ -99,13 +100,12 @@ export default function WikiHomePage() {
         return;
       }
       try {
-        const profSnap = await getDoc(doc(db, "profiles", u.uid));
-        if (!profSnap.exists()) {
+        const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!prof) {
           setProfile(null);
           setLoading(false);
           return;
         }
-        const prof = profSnap.data() as MemberProfile;
         setProfile(prof);
         await loadDocs(u, prof);
         await loadMeta(u, prof);

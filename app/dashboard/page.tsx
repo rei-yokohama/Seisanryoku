@@ -6,6 +6,7 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { auth, db } from "../../lib/firebase";
+import { ensureProfile } from "../../lib/ensureProfile";
 import { AppShell } from "../AppShell";
 import type { Issue } from "../../lib/backlog";
 import { type Activity } from "../../lib/activity";
@@ -86,13 +87,18 @@ function DashboardInner() {
       try {
         // profiles（サインアップ直後の反映遅延に備えて軽くリトライ）
         let p: MemberProfile | null = null;
-        for (let i = 0; i < 5; i++) {
-        const pSnap = await getDoc(doc(db, "profiles", u.uid));
-          if (pSnap.exists()) {
-            p = pSnap.data() as MemberProfile;
-            break;
+        // まず profiles が無い社員ログインを救済してから読む
+        p = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!p) {
+          // それでも無い場合は、反映遅延の可能性があるので軽くリトライ
+          for (let i = 0; i < 5; i++) {
+            const pSnap = await getDoc(doc(db, "profiles", u.uid));
+            if (pSnap.exists()) {
+              p = pSnap.data() as MemberProfile;
+              break;
+            }
+            await sleep(300);
           }
-          await sleep(300);
         }
 
         const companyCode = (p?.companyCode || "").trim();

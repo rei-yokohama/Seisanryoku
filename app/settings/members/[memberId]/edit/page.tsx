@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../../lib/firebase";
 import { AppShell } from "../../../../AppShell";
+import { ensureProfile } from "../../../../../lib/ensureProfile";
 
 type MemberProfile = {
   uid: string;
@@ -77,7 +78,6 @@ export default function MemberEditPage() {
   const [employmentType, setEmploymentType] = useState<EmploymentType>("正社員");
   const [joinDate, setJoinDate] = useState(new Date().toISOString().slice(0, 10));
   const [color, setColor] = useState<string>(EMPLOYEE_COLORS[0].value);
-  const [role, setRole] = useState<WorkspaceMembership["role"]>("member");
 
   const isOwner = useMemo(() => {
     return !!user && !!company && company.ownerUid === user.uid;
@@ -97,13 +97,12 @@ export default function MemberEditPage() {
         return;
       }
       try {
-        const profSnap = await getDoc(doc(db, "profiles", u.uid));
-        if (!profSnap.exists()) {
+        const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!prof) {
           setLoading(false);
           router.push("/login");
           return;
         }
-        const prof = profSnap.data() as MemberProfile;
         setProfile(prof);
 
         if (prof.companyCode) {
@@ -133,15 +132,12 @@ export default function MemberEditPage() {
             const mSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${emp.authUid}`));
             const m = mSnap.exists() ? (mSnap.data() as WorkspaceMembership) : null;
             setMembership(m);
-            setRole(m?.role || "member");
           } catch (e) {
             console.warn(e);
             setMembership(null);
-            setRole("member");
           }
         } else {
           setMembership(null);
-          setRole("member");
         }
       } finally {
         setLoading(false);
@@ -171,19 +167,6 @@ export default function MemberEditPage() {
         color,
         updatedAt: Timestamp.now(),
       } as any);
-
-      // 権限（workspaceMemberships.role）はオーナーのみ変更可能
-      if (isOwner && profile.companyCode && employee.authUid) {
-        const membershipId = `${profile.companyCode}_${employee.authUid}`;
-        const next: WorkspaceMembership = {
-          uid: employee.authUid,
-          companyCode: profile.companyCode,
-          role,
-          updatedAt: Timestamp.now(),
-          createdAt: membership?.createdAt || Timestamp.now(),
-        };
-        await setDoc(doc(db, "workspaceMemberships", membershipId), next, { merge: true });
-      }
 
       router.push(`/settings/members/${encodeURIComponent(employee.id)}`);
     } catch (e: any) {
@@ -327,44 +310,14 @@ export default function MemberEditPage() {
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-extrabold text-slate-900">権限設定</div>
-              <div className="mt-1 text-xs font-bold text-slate-500">ワークスペース内での操作権限を設定します。</div>
+              <div className="text-sm font-extrabold text-slate-900">権限（閲覧のみ）</div>
+              <div className="mt-1 text-xs font-bold text-slate-500">いったん権限変更は停止し、表示のみとします。</div>
             </div>
             <div className="text-xs font-bold text-slate-500">{company?.companyName ? company.companyName : profile.companyCode}</div>
           </div>
-
-          {!employee.authUid ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
-              まだ認証が完了していないため、権限を紐づけできません（認証後に設定できます）。
-            </div>
-          ) : !isOwner ? (
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-700">
-              権限（admin/member）の変更はワークスペースのオーナーのみ可能です。
-            </div>
-          ) : (
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
-              <div className="md:col-span-6">
-                <div className="text-xs font-extrabold text-slate-500">ロール</div>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as any)}
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
-                  disabled={employee.authUid === company?.ownerUid}
-                >
-                  <option value="member">メンバー</option>
-                  <option value="admin">管理者</option>
-                  <option value="owner">オーナー</option>
-                </select>
-                {employee.authUid === company?.ownerUid ? (
-                  <div className="mt-1 text-[11px] font-bold text-slate-500">※ オーナーは変更できません</div>
-                ) : null}
-              </div>
-              <div className="md:col-span-6">
-                <div className="text-xs font-extrabold text-slate-500">現在の設定</div>
-                <div className="mt-2 text-sm font-bold text-slate-900">{membership?.role ? membership.role : "未設定"}</div>
-              </div>
-            </div>
-          )}
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-700">
+            現在のロール: <span className="text-slate-900">{membership?.role ? membership.role : "未設定"}</span>
+          </div>
         </div>
       </div>
     </AppShell>

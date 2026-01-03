@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
+import { ensureProfile } from "../../lib/ensureProfile";
 import type { Issue, Project } from "../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../lib/backlog";
 import { AppShell } from "../AppShell";
@@ -122,13 +123,12 @@ export default function IssueHomePage() {
         return;
       }
 
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+      if (!prof) {
+        setProfile(null);
         setLoading(false);
-        router.push("/login");
         return;
       }
-      const prof = profSnap.data() as MemberProfile;
       setProfile(prof);
 
       try {
