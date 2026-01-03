@@ -258,6 +258,7 @@ export default function TeamCalendarPage() {
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [miniCalendarDate, setMiniCalendarDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
@@ -315,6 +316,7 @@ export default function TeamCalendarPage() {
   const [newRepeatUntil, setNewRepeatUntil] = useState("");
   const [newRepeatCount, setNewRepeatCount] = useState(13);
   const [newGuestUids, setNewGuestUids] = useState<string[]>([]);
+  const [memberSearch, setMemberSearch] = useState("");
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailEdit, setDetailEdit] = useState(false);
@@ -915,6 +917,13 @@ export default function TeamCalendarPage() {
 
   // 期間変更時にデータを再ロード
   useEffect(() => {
+    // メインのカレンダーの日付が変わったら、ミニカレンダーの表示月も合わせる
+    // ただし、ミニカレンダー側で月を切り替えている最中に上書きされないよう、
+    // currentDate の月/年が現在の miniCalendarDate と異なる場合のみ同期する
+    if (currentDate.getMonth() !== miniCalendarDate.getMonth() || currentDate.getFullYear() !== miniCalendarDate.getFullYear()) {
+      setMiniCalendarDate(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1));
+    }
+
     if (employees.length > 0) {
       void (async () => {
         const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
@@ -975,6 +984,103 @@ export default function TeamCalendarPage() {
     }
   };
 
+  const renderMiniCalendar = () => {
+    const year = miniCalendarDate.getFullYear();
+    const month = miniCalendarDate.getMonth();
+    
+    // 月の初日の曜日
+    const firstDay = new Date(year, month, 1);
+    const firstDayIdx = firstDay.getDay();
+    
+    // カレンダーに表示する日付の配列
+    const days: (Date | null)[] = [];
+    
+    // 前月の埋め
+    const prevMonthLastDay = new Date(year, month, 0).getDate();
+    for (let i = 0; i < firstDayIdx; i++) {
+      days.push(new Date(year, month - 1, prevMonthLastDay - firstDayIdx + 1 + i));
+    }
+    
+    // 今月の日付
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    for (let i = 1; i <= lastDay; i++) {
+      days.push(new Date(year, month, i));
+    }
+    
+    // 次月の埋め
+    const remaining = 42 - days.length; // 6行分
+    for (let i = 1; i <= remaining; i++) {
+      days.push(new Date(year, month + 1, i));
+    }
+
+    const prevMonth = () => {
+      setMiniCalendarDate(new Date(year, month - 1, 1));
+    };
+    const nextMonth = () => {
+      setMiniCalendarDate(new Date(year, month + 1, 1));
+    };
+
+    return (
+      <div className="mb-6 px-2">
+        <div className="mb-4 flex items-center justify-between px-1">
+          <span className="text-sm font-extrabold text-slate-700">
+            {year}年 {month + 1}月
+          </span>
+          <div className="flex gap-1">
+            <button
+              onClick={prevMonth}
+              className="rounded p-1 hover:bg-slate-100 text-slate-500 transition-colors"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <button
+              onClick={nextMonth}
+              className="rounded p-1 hover:bg-slate-100 text-slate-500 transition-colors"
+            >
+              <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="grid grid-cols-7 gap-y-1">
+          {["日", "月", "火", "水", "木", "金", "土"].map((d) => (
+            <div key={d} className="text-center text-[10px] font-bold text-slate-400 py-1">
+              {d}
+            </div>
+          ))}
+          {days.map((date, idx) => {
+            if (!date) return <div key={idx} />;
+            const isCurrentMonth = date.getMonth() === month;
+            const isSelected = 
+              date.getDate() === currentDate.getDate() &&
+              date.getMonth() === currentDate.getMonth() &&
+              date.getFullYear() === currentDate.getFullYear();
+            const isToday = 
+              date.getDate() === now.getDate() &&
+              date.getMonth() === now.getMonth() &&
+              date.getFullYear() === now.getFullYear();
+
+            return (
+              <button
+                key={idx}
+                onClick={() => setCurrentDate(new Date(date))}
+                className={clsx(
+                  "flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold transition-all mx-auto",
+                  !isCurrentMonth ? "text-slate-300" : isSelected ? "bg-blue-600 text-white" : isToday ? "text-blue-600 bg-blue-50" : "text-slate-600 hover:bg-slate-100"
+                )}
+              >
+                {date.getDate()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const renderSidebar = () => {
     return (
       <div
@@ -984,15 +1090,46 @@ export default function TeamCalendarPage() {
         )}
       >
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          {renderMiniCalendar()}
+          
+          <div className="mb-6 px-2">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="ユーザーを検索"
+                value={memberSearch}
+                onChange={(e) => setMemberSearch(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-9 pr-4 text-xs font-bold text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-100 transition-all shadow-inner"
+              />
+              <svg
+                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                />
+              </svg>
+            </div>
+          </div>
+
           <div className="mb-8">
-            <h3 className="mb-3 px-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">チームメンバー ({employees.length})</h3>
+            <h3 className="mb-3 px-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
+              チームメンバー ({employees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase())).length})
+            </h3>
             <div className="space-y-0.5">
-              {employees.length === 0 && (
+              {employees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase())).length === 0 && (
                 <div className="mx-2 rounded-lg bg-slate-50 p-3 text-center border border-dashed border-slate-200">
                   <p className="text-xs font-bold text-slate-400 italic">メンバーなし</p>
                 </div>
               )}
-              {employees.map((emp) => (
+              {employees
+                .filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase()))
+                .map((emp) => (
                 <label
                   key={emp.id}
                   className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50 cursor-pointer transition-colors group"
