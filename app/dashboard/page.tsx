@@ -19,8 +19,8 @@ type MemberProfile = {
 };
 
 type Company = {
-  code: string;
-  name: string;
+  companyName?: string;
+  phone?: string;
   ownerUid: string;
 };
 
@@ -40,6 +40,10 @@ type Employee = {
 
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function relativeFromNow(date: Date) {
@@ -80,80 +84,98 @@ function DashboardInner() {
       }
 
       try {
-        // profiles（管理者/オーナー想定）
+        // profiles（サインアップ直後の反映遅延に備えて軽くリトライ）
+        let p: MemberProfile | null = null;
+        for (let i = 0; i < 5; i++) {
         const pSnap = await getDoc(doc(db, "profiles", u.uid));
-        const p = pSnap.exists() ? (pSnap.data() as MemberProfile) : null;
+          if (pSnap.exists()) {
+            p = pSnap.data() as MemberProfile;
+            break;
+          }
+          await sleep(300);
+        }
 
-        // employees（社員想定）
-        const employeesQuery = query(collection(db, "employees"), where("authUid", "==", u.uid));
-        const employeesSnap = await getDocs(employeesQuery);
-        const emp = !employeesSnap.empty
-          ? ({ ...employeesSnap.docs[0].data(), id: employeesSnap.docs[0].id } as Employee)
-          : null;
-        setEmployee(emp);
-
-        // companyCode の決定（profiles優先、無ければ社員から）
-        const companyCode = (p?.companyCode || emp?.companyCode || "").trim();
+        const companyCode = (p?.companyCode || "").trim();
         if (!companyCode) {
-          setProfile(p); // null の可能性あり
+          setProfile(null);
           setLoading(false);
           return;
         }
 
+        // 先に profile を確定（以降のクエリが permission-denied でも画面は出す）
+        setProfile(p);
+
         // 会社情報を取得して管理者かどうかを判定
-        const compSnap = await getDoc(doc(db, "companies", companyCode));
-        if (compSnap.exists()) {
-          const companyData = compSnap.data() as Company;
-          setCompany(companyData);
-          setIsManager(companyData.ownerUid === u.uid);
-          // profileが無い社員でも描画できるよう、必要最低限の擬似profileをセット
-          setProfile(
-            p || {
-              uid: u.uid,
-              companyCode,
-              companyName: companyData.name,
-              displayName: emp?.name || u.email?.split("@")[0] || "ユーザー",
-              email: u.email || null,
-            },
-          );
-        } else {
+        try {
+          const compSnap = await getDoc(doc(db, "companies", companyCode));
+          if (compSnap.exists()) {
+            const companyData = compSnap.data() as Company;
+            setCompany(companyData);
+            setIsManager(companyData.ownerUid === u.uid);
+            // companyName 表示用（companies側が companyName を持つ）
+            setProfile((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    companyName: prev.companyName || companyData.companyName || null,
+                    displayName: prev.displayName || u.email?.split("@")[0] || "ユーザー",
+                    email: prev.email || u.email || null,
+                  }
+                : prev,
+            );
+          } else {
+            setCompany(null);
+            setIsManager(false);
+          }
+        } catch (e) {
+          console.warn("companies read failed:", e);
           setCompany(null);
           setIsManager(false);
-          setProfile(
-            p || {
-              uid: u.uid,
-              companyCode,
-              companyName: null,
-              displayName: emp?.name || u.email?.split("@")[0] || "ユーザー",
-              email: u.email || null,
-            },
-          );
         }
 
-        // Load deals (案件)
-        const dealsSnap = await getDocs(query(collection(db, "deals"), where("companyCode", "==", companyCode)));
-        const dealItems = dealsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Deal));
-        setDeals(dealItems);
+        // 以降は permission-denied が出ても画面を壊さない（新規ワークスペースでは空配列でOK）
+        try {
+          const dealsSnap = await getDocs(query(collection(db, "deals"), where("companyCode", "==", companyCode)));
+          const dealItems = dealsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Deal));
+          setDeals(dealItems);
+        } catch (e) {
+          console.warn("deals read failed:", e);
+          setDeals([]);
+        }
 
-        // Load issues (課題)
-        const issuesSnap = await getDocs(query(collection(db, "issues"), where("companyCode", "==", companyCode)));
-        const issueItems = issuesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Issue));
-        setIssues(issueItems);
+        try {
+          const issuesSnap = await getDocs(query(collection(db, "issues"), where("companyCode", "==", companyCode)));
+          const issueItems = issuesSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Issue));
+          setIssues(issueItems);
+        } catch (e) {
+          console.warn("issues read failed:", e);
+          setIssues([]);
+        }
 
-        // Load employees
-        const empsSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", companyCode)));
-        const empItems = empsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee));
-        setEmployees(empItems);
+        try {
+          const empsSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", companyCode)));
+          const empItems = empsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee));
+          setEmployees(empItems);
+          setEmployee(empItems.find((x) => x.authUid === u.uid) || null);
+        } catch (e) {
+          console.warn("employees read failed:", e);
+          setEmployees([]);
+          setEmployee(null);
+        }
 
-        // Load activities
-        const actSnap = await getDocs(query(collection(db, "activity"), where("companyCode", "==", companyCode)));
-        const actItems = actSnap.docs.map(d => ({ id: d.id, ...d.data() } as any)) as Activity[];
-        actItems.sort((a, b) => {
-          const am = (a.createdAt as any)?.toMillis?.() || 0;
-          const bm = (b.createdAt as any)?.toMillis?.() || 0;
-          return bm - am;
-        });
-        setActivities(actItems.slice(0, 50));
+        try {
+          const actSnap = await getDocs(query(collection(db, "activity"), where("companyCode", "==", companyCode)));
+          const actItems = actSnap.docs.map((d) => ({ id: d.id, ...d.data() } as any)) as Activity[];
+          actItems.sort((a, b) => {
+            const am = (a.createdAt as any)?.toMillis?.() || 0;
+            const bm = (b.createdAt as any)?.toMillis?.() || 0;
+            return bm - am;
+          });
+          setActivities(actItems.slice(0, 50));
+        } catch (e) {
+          console.warn("activity read failed:", e);
+          setActivities([]);
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -190,8 +212,18 @@ function DashboardInner() {
   if (!profile) {
     return (
       <AppShell title="ホーム" subtitle="Dashboard">
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900">
-          アカウントの所属情報（会社コード）が見つかりません。管理者に社員紐づけ（employees.authUid / companyCode）を依頼してください。
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900 space-y-3">
+          <div>初期設定がまだ完了していません。数秒後に自動で反映されます。</div>
+          <div className="text-xs font-bold text-amber-800">
+            もし解消しない場合は、ページを再読み込みするか、一度ログアウト→ログインをお試しください。
+          </div>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg bg-orange-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-orange-700"
+          >
+            再読み込み
+          </button>
         </div>
       </AppShell>
     );
