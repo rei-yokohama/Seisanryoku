@@ -219,13 +219,13 @@ export default function WikiHomePage() {
         <button
           onClick={createDoc}
           disabled={creating}
-          className="rounded-full bg-orange-500 px-4 py-2 text-sm font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
+          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition disabled:bg-orange-300"
         >
           {creating ? "作成中..." : "＋ 新規"}
         </button>
       }
     >
-      <div className="mx-auto w-full max-w-6xl">
+      <div className="px-0 py-1">
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
 
         {/* 検索条件（/issue と同じトーン） */}

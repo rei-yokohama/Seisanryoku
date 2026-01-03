@@ -53,6 +53,11 @@ const RELEASES: ReleaseEntry[] = [
       "ヘルプセンター（非ログイン向け）の上部ナビ（ログイン / 無料で始める）",
       "リリースノートを「日付降順の更新ログ（Added/Changed/Fixed）」として表示",
       "ドライブ：フォルダURLコピー（共有用）",
+      "SEO：重複URL対策として www.seisanryoku.jp に統一（web.app / firebaseapp.com / seisanryoku.jp → www へリダイレクト）",
+      "SEO：トップページ（/）をサイトマップに追加し、ヘルプ/リリースのみインデックス対象に調整（robots/sitemap/canonical）",
+      "課題一覧（/issue）：顧客名の列を追加（顧客名でも検索可能）",
+      "メンバー一覧（/settings/members）：管理者（オーナー）も表示し、権限（ロール）列を追加",
+      "メンバー作成（/settings/members/new）：作成時に権限（admin/member）を設定可能（オーナーのみ）",
     ],
     changed: [
       "サインアップ時に「ワークスペース名」を入力（例：採用代行事業、広告代理事業...etc）",
@@ -60,6 +65,8 @@ const RELEASES: ReleaseEntry[] = [
       "Firestoreルールでワークスペース分離を厳密化（companyCodeが一致するデータのみ読み書き）",
       "ドライブの見た目を課題（/issue）に合わせて統一（検索条件カード/テーブル/余白）",
       "請求管理/売上利益は一旦ナビから非表示",
+      "案件（/projects）・顧客（/customers）・Wiki（/wiki）の一覧UIを課題（/issue）の雛形に統一（検索条件カード＝デフォルト閉 + テーブル）",
+      "メンバー一覧（/settings/members）の見やすさを改善（横幅拡張、名前の折返し/崩れを抑止）",
     ],
     fixed: [
       "ヘルプでログイン用の左メニューが出てしまう問題を改善（AppShellを使わない専用レイアウトへ）",

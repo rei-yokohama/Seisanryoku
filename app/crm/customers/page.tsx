@@ -62,6 +62,7 @@ export default function CustomersPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [qText, setQText] = useState("");
   const [tab, setTab] = useState<"ALL" | "MINE">("ALL"); // MINE = 自分の顧客（担当）
+  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -213,161 +214,119 @@ export default function CustomersPage() {
         </div>
       }
     >
-      <div className="mx-auto w-full max-w-[1600px] px-4">
-        {/* HubSpot-style Tab Bar */}
-        <div className="mb-4 flex items-center border-b border-slate-200">
-          <button
-            onClick={() => setTab("ALL")}
-            className={clsx(
-              "px-4 py-2 text-sm font-bold transition-all border-b-2",
-              tab === "ALL" ? "border-orange-500 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-700"
-            )}
-          >
-            全ての顧客 <span className="ml-1 text-[10px] opacity-60 bg-slate-100 px-1.5 py-0.5 rounded-full">{customers.length}</span>
-          </button>
-          <button
-            onClick={() => setTab("MINE")}
-            className={clsx(
-              "px-4 py-2 text-sm font-bold transition-all border-b-2",
-              tab === "MINE" ? "border-orange-500 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-700"
-            )}
-          >
-            自分の顧客
-          </button>
-          <div className="ml-auto flex items-center gap-2 pb-2">
-             <div className="relative">
-                <input
-                  value={qText}
-                  onChange={(e) => setQText(e.target.value)}
-                  placeholder="検索..."
-                  className="w-64 rounded-md border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs text-slate-900 outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-100 transition"
-                />
-                <svg className="absolute left-2.5 top-2 h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-             </div>
+      <div className="px-0 py-1">
+        {/* 検索条件（/issue と同じ雛形） */}
+        <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="text-sm font-extrabold text-slate-900">検索条件</div>
+              <button
+                onClick={() => setIsFilterExpanded((v) => !v)}
+                className={clsx(
+                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition",
+                  isFilterExpanded ? "bg-slate-200 text-slate-700" : "bg-orange-600 text-white",
+                )}
+              >
+                {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
+              </button>
+            </div>
+            <div className="text-sm font-bold text-slate-700">全 {filtered.length} 件</div>
           </div>
+
+          {isFilterExpanded && (
+            <div className="mt-4 border-t border-slate-100 pt-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold text-slate-700">
+                <button
+                  onClick={() => setTab("ALL")}
+                  className={clsx("rounded-full px-3 py-1.5", tab === "ALL" ? "bg-orange-600 text-white" : "bg-slate-100")}
+                >
+                  すべて
+                </button>
+                <button
+                  onClick={() => setTab("MINE")}
+                  className={clsx("rounded-full px-3 py-1.5", tab === "MINE" ? "bg-orange-600 text-white" : "bg-slate-100")}
+                >
+                  自分の顧客
+                </button>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-12">
+                <div className="md:col-span-6">
+                  <div className="text-xs font-extrabold text-slate-500">キーワード</div>
+                  <input
+                    value={qText}
+                    onChange={(e) => setQText(e.target.value)}
+                    placeholder="顧客名 / メモ / 連絡先など"
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* HubSpot-style Filter Bar */}
-        <div className="mb-2 flex items-center gap-3 py-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
-          <button className="flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50">
-            会社の担当者 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </button>
-          <button className="flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50">
-            作成日 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 9l-7 7-7-7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </button>
-          <div className="h-4 w-[1px] bg-slate-200 mx-1" />
-          <button className="text-[11px] font-bold text-blue-600 hover:underline">＋ その他</button>
-          <button className="flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:underline">
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
-            詳細フィルター
-          </button>
-        </div>
-
-        {/* Table Area */}
-        <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden min-h-[400px]">
-          <table className="w-full table-fixed divide-y divide-slate-100">
-            <thead className="bg-slate-50/80 sticky top-0 z-10 backdrop-blur-sm">
-              <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                <th className="w-1/3 px-4 py-3 text-left">会社名</th>
-                <th className="w-1/4 px-4 py-3 text-left">会社の担当者</th>
-                <th className="w-1/4 px-4 py-3 text-left">作成日 (GMT+9)</th>
-                <th className="w-48 px-4 py-3 text-left">電話番号</th>
-                <th className="w-24 px-4 py-3 text-right"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {filtered.length === 0 ? (
+        <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="overflow-x-auto">
+            <table className="min-w-[1000px] w-full text-sm">
+              <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
-                  <td colSpan={5} className="px-6 py-20 text-center">
-                    <div className="flex flex-col items-center">
-                      <div className="h-12 w-12 rounded-full bg-slate-50 flex items-center justify-center mb-3 text-slate-300">
-                        <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      </div>
-                      <p className="text-sm font-bold text-slate-400 italic">該当する会社が見つかりませんでした</p>
-                    </div>
-                  </td>
+                  <th className="px-4 py-3 text-left">顧客</th>
+                  <th className="px-4 py-3 text-left">担当者</th>
+                  <th className="px-4 py-3 text-left">電話</th>
+                  <th className="px-4 py-3 text-left">更新</th>
+                  <th className="px-4 py-3 text-right">操作</th>
                 </tr>
-              ) : (
-                filtered.map((c) => {
-                  const creator = employeesByUid[c.createdBy];
-                  return (
-                    <tr key={c.id} className="group hover:bg-slate-50/80 transition-colors">
-                      <td className="px-4 py-3">
-                        <Link href={`/customers/${c.id}`} className="flex items-center gap-3">
-                          <div className="h-8 w-8 rounded bg-slate-100 flex items-center justify-center text-slate-400 group-hover:scale-110 transition-transform">
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-[13px] font-extrabold text-blue-600 truncate group-hover:underline">
-                              {c.name}
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                      該当する顧客がありません
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((c) => {
+                    const owner = (c.assigneeUid && employeesByUid[c.assigneeUid]) || employeesByUid[c.createdBy];
+                    const updated = (c.updatedAt as any) || c.createdAt;
+                    return (
+                      <tr key={c.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-900">
+                          <Link href={`/customers/${c.id}`} className="hover:underline">
+                            {c.name}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {owner?.name ? (
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-extrabold text-white"
+                                style={{ backgroundColor: owner.color || "#CBD5E1" }}
+                              >
+                                {owner.name.charAt(0).toUpperCase()}
+                              </div>
+                              <span>{owner.name}</span>
                             </div>
-                          </div>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        {creator ? (
-                          <div className="flex items-center gap-2">
-                             <div className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-sm" style={{ backgroundColor: creator.color || "#CBD5E1" }}>
-                                {creator.name.charAt(0)}
-                             </div>
-                             <div className="min-w-0">
-                               <div className="text-[11px] font-bold text-slate-700 truncate">{creator.name}</div>
-                               <div className="text-[10px] text-slate-400 truncate">{creator.email}</div>
-                             </div>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-slate-400">--</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-[11px] font-bold text-slate-600">
-                        {formatDateTime(c.createdAt)}
-                      </td>
-                      <td className="px-4 py-3 text-[11px] font-bold text-slate-600">
-                        {c.contactPhone || "--"}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">{c.contactPhone || "-"}</td>
+                        <td className="px-4 py-3 text-slate-700">{formatDateTime(updated)}</td>
+                        <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => openEdit(c)}
-                            className="p-1.5 rounded-md hover:bg-slate-200 text-slate-500 hover:text-slate-700 transition"
-                            title="編集"
+                            className="rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"
                           >
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
+                            編集
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination Footer */}
-        <div className="mt-4 flex items-center justify-center gap-4 text-xs font-bold text-slate-500">
-           <button className="flex items-center gap-1 hover:text-orange-500 transition disabled:opacity-30" disabled>
-             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 19l-7-7 7-7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
-             前へ
-           </button>
-           <div className="flex items-center gap-1">
-             <span className="px-2 py-1 rounded bg-orange-100 text-orange-700 border border-orange-200">1</span>
-           </div>
-           <button className="flex items-center gap-1 hover:text-orange-500 transition disabled:opacity-30" disabled>
-             次へ
-             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M9 5l7 7-7 7" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></svg>
-           </button>
-           <div className="h-4 w-[1px] bg-slate-200 mx-2" />
-           <div className="flex items-center gap-2">
-             <span>ページあたり</span>
-             <select className="bg-transparent outline-none cursor-pointer hover:text-orange-500 transition">
-               <option>25件</option>
-               <option>50件</option>
-               <option>100件</option>
-             </select>
-           </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

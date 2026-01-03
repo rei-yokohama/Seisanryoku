@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { addDoc, collection, doc, getDoc, Timestamp } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, setDoc, Timestamp } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
@@ -14,6 +14,13 @@ type MemberProfile = {
   email?: string | null;
   companyCode: string;
 };
+
+type Company = {
+  ownerUid: string;
+  companyName?: string;
+};
+
+type WorkspaceRole = "admin" | "member";
 
 type EmploymentType = "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託";
 
@@ -53,11 +60,13 @@ export default function MemberCreatePage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MemberProfile | null>(null);
+  const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<null | { email: string; password: string }>(null);
+  const [role, setRole] = useState<WorkspaceRole>("member");
 
   const [form, setForm] = useState<Employee>({
     name: "",
@@ -77,7 +86,20 @@ export default function MemberCreatePage() {
       }
       try {
         const snap = await getDoc(doc(db, "profiles", u.uid));
-        if (snap.exists()) setProfile(snap.data() as MemberProfile);
+        if (snap.exists()) {
+          const p = snap.data() as MemberProfile;
+          setProfile(p);
+          if (p.companyCode) {
+            try {
+              const compSnap = await getDoc(doc(db, "companies", p.companyCode));
+              setCompany(compSnap.exists() ? (compSnap.data() as Company) : null);
+            } catch {
+              setCompany(null);
+            }
+          } else {
+            setCompany(null);
+          }
+        }
       } finally {
         setLoading(false);
       }
@@ -88,6 +110,10 @@ export default function MemberCreatePage() {
   const canSubmit = useMemo(() => {
     return !!form.name.trim() && !!form.email.trim();
   }, [form.email, form.name]);
+
+  const isOwner = useMemo(() => {
+    return !!user && !!company && company.ownerUid === user.uid;
+  }, [company, user]);
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -134,6 +160,23 @@ export default function MemberCreatePage() {
         createdBy: user.uid,
         createdAt: Timestamp.now(),
       });
+
+      // workspaceMemberships（権限）: オーナーのみ他人の権限を付与可能
+      if (profile?.companyCode && authData.uid) {
+        const membershipId = `${profile.companyCode}_${authData.uid}`;
+        const nextRole: "owner" | "admin" | "member" = isOwner ? role : "member";
+        await setDoc(
+          doc(db, "workspaceMemberships", membershipId),
+          {
+            uid: authData.uid,
+            companyCode: profile.companyCode,
+            role: nextRole,
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+          },
+          { merge: true },
+        );
+      }
 
       setCreated({ email, password });
     } catch (err: unknown) {
@@ -216,6 +259,28 @@ export default function MemberCreatePage() {
         ) : (
           <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <div className="mb-1 text-sm font-bold text-slate-700">権限（ロール）</div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value as WorkspaceRole)}
+                    disabled={!isOwner}
+                    className={clsx(
+                      "w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none",
+                      !isOwner && "opacity-60",
+                    )}
+                  >
+                    <option value="member">メンバー（標準）</option>
+                    <option value="admin">管理者（admin）</option>
+                  </select>
+                  <div className="text-xs font-bold text-slate-500 leading-relaxed">
+                    {isOwner
+                      ? "作成時に権限（admin/member）を付与できます。"
+                      : "権限の変更はワークスペースのオーナーのみ可能です。"}
+                  </div>
+                </div>
+              </div>
               <div>
                 <div className="mb-1 text-sm font-bold text-slate-700">名前 *</div>
                 <input

@@ -15,7 +15,7 @@ type MemberProfile = {
   companyCode: string;
 };
 
-type EmploymentType = "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託";
+type EmploymentType = "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託" | "管理者";
 
 type Employee = {
   id: string;
@@ -30,8 +30,22 @@ type Employee = {
   createdBy: string;
 };
 
+type WorkspaceMembership = {
+  id: string;
+  companyCode: string;
+  uid: string;
+  role: "owner" | "admin" | "member";
+};
+
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function roleLabel(role?: WorkspaceMembership["role"] | null) {
+  if (role === "owner") return "オーナー";
+  if (role === "admin") return "管理者";
+  if (role === "member") return "メンバー";
+  return "-";
 }
 
 export default function MembersPage() {
@@ -41,6 +55,7 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
 
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [memberships, setMemberships] = useState<WorkspaceMembership[]>([]);
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<EmploymentType | "ALL">("ALL");
   const [authFilter, setAuthFilter] = useState<"ALL" | "VERIFIED" | "UNVERIFIED">("ALL");
@@ -62,6 +77,27 @@ export default function MembersPage() {
     for (const e of merged) byId.set(e.id, e);
     const items = Array.from(byId.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setEmployees(items);
+  };
+
+  const loadMemberships = async (uid: string, companyCode?: string, allowAll?: boolean) => {
+    if (!companyCode) {
+      setMemberships([]);
+      return;
+    }
+    try {
+      if (allowAll) {
+        const snap = await getDocs(query(collection(db, "workspaceMemberships"), where("companyCode", "==", companyCode)));
+        setMemberships(snap.docs.map((d) => ({ id: d.id, ...d.data() } as WorkspaceMembership)));
+        return;
+      }
+      // 非オーナーは自分のmembershipだけ読める（ルール上）
+      const id = `${companyCode}_${uid}`;
+      const snap = await getDoc(doc(db, "workspaceMemberships", id));
+      if (snap.exists()) setMemberships([{ id: snap.id, ...snap.data() } as WorkspaceMembership]);
+      else setMemberships([]);
+    } catch {
+      setMemberships([]);
+    }
   };
 
   const copyToClipboard = async (text: string) => {
@@ -102,9 +138,12 @@ export default function MembersPage() {
             try {
               const compSnap = await getDoc(doc(db, "companies", p.companyCode));
               const ownerUid = compSnap.exists() ? String((compSnap.data() as any).ownerUid || "") : "";
-              setIsSuperAdmin(!!ownerUid && ownerUid === u.uid);
+              const isOwner = !!ownerUid && ownerUid === u.uid;
+              setIsSuperAdmin(isOwner);
+              await loadMemberships(u.uid, p.companyCode, isOwner);
             } catch {
               setIsSuperAdmin(false);
+              await loadMemberships(u.uid, p.companyCode, false);
             }
           } else {
             setIsSuperAdmin(false);
@@ -120,9 +159,40 @@ export default function MembersPage() {
     return () => unsub();
   }, [router]);
 
+  const membershipByUid = useMemo(() => {
+    const m: Record<string, WorkspaceMembership> = {};
+    for (const ms of memberships) m[ms.uid] = ms;
+    return m;
+  }, [memberships]);
+
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
-    return employees.filter((e) => {
+    const adminRow: Employee[] =
+      isSuperAdmin && user
+        ? [
+            {
+              id: `__admin__${user.uid}`,
+              name: profile?.displayName || user.email?.split("@")[0] || "管理者",
+              email: user.email || "-",
+              employmentType: "管理者",
+              joinDate: "",
+              authUid: user.uid,
+              color: "#EA580C", // orange-600
+              createdBy: user.uid,
+              companyCode: profile?.companyCode || "",
+            },
+          ]
+        : [];
+
+    const list = [...adminRow, ...employees];
+    const seen = new Set<string>();
+    const uniq = list.filter((e) => {
+      if (seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
+
+    return uniq.filter((e) => {
       if (typeFilter !== "ALL" && e.employmentType !== typeFilter) return false;
       if (authFilter === "VERIFIED" && !e.authUid) return false;
       if (authFilter === "UNVERIFIED" && !!e.authUid) return false;
@@ -130,7 +200,7 @@ export default function MembersPage() {
       const hay = `${e.name || ""} ${e.email || ""}`.toLowerCase();
       return hay.includes(qq);
     });
-  }, [employees, q, typeFilter, authFilter]);
+  }, [employees, q, typeFilter, authFilter, isSuperAdmin, user, profile]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("このメンバーを削除してもよろしいですか？")) return;
@@ -184,7 +254,7 @@ export default function MembersPage() {
         </div>
       }
     >
-      <div className="mx-auto w-full max-w-6xl space-y-4">
+      <div className="mx-auto w-full max-w-7xl space-y-4">
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm font-extrabold text-slate-900">参加ユーザー</div>
@@ -245,6 +315,7 @@ export default function MembersPage() {
                   <th className="px-4 py-3 text-left">名前</th>
                   <th className="px-4 py-3 text-left">メール</th>
                   {isSuperAdmin ? <th className="px-4 py-3 text-left">初期パスワード</th> : null}
+                  <th className="px-4 py-3 text-left">権限</th>
                   <th className="px-4 py-3 text-left">雇用形態</th>
                   <th className="px-4 py-3 text-left">認証</th>
                   <th className="px-4 py-3 text-left">入社日</th>
@@ -254,21 +325,27 @@ export default function MembersPage() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={isSuperAdmin ? 7 : 6} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={isSuperAdmin ? 8 : 7} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       メンバーがいません
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((e) => (
-                    <tr key={e.id} className="hover:bg-slate-50">
+                  filtered.map((e) => {
+                    const isAdminRow = e.id.startsWith("__admin__");
+                    const uidForRole = e.authUid || "";
+                    const role =
+                      isAdminRow ? "owner" : uidForRole ? membershipByUid[uidForRole]?.role : undefined;
+                    const canSeeRole = isSuperAdmin || uidForRole === user?.uid || isAdminRow;
+                    return (
+                    <tr key={e.id} className={clsx("hover:bg-slate-50", isAdminRow && "bg-orange-50/30")}>
                       <td className="px-4 py-3 font-extrabold text-slate-900">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
                           <div
                             className="h-5 w-5 rounded-full border border-white shadow-sm"
                             style={{ backgroundColor: e.color || "#3B82F6" }}
                             aria-hidden="true"
                           />
-                          {e.name}
+                          <span className="truncate">{e.name}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700">{e.email}</td>
@@ -299,6 +376,11 @@ export default function MembersPage() {
                           )}
                         </td>
                       ) : null}
+                      <td className="px-4 py-3">
+                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
+                          {canSeeRole ? roleLabel(role as any) : "-"}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-slate-700">
                         <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
                           {e.employmentType}
@@ -318,55 +400,71 @@ export default function MembersPage() {
                       <td className="px-4 py-3 text-slate-700">{e.joinDate || "-"}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-2">
-                          <Link
-                            href={`/settings/members/${encodeURIComponent(e.id)}`}
-                            className={clsx(
-                              "rounded-md border px-3 py-1.5 text-xs font-extrabold",
-                              "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                            )}
-                            title="詳細"
-                          >
-                            詳細
-                          </Link>
-                          {(isSuperAdmin || e.authUid === user.uid) ? (
+                          {isAdminRow ? (
                             <Link
-                              href={`/settings/members/${encodeURIComponent(e.id)}/edit`}
+                              href="/settings/account"
                               className={clsx(
                                 "rounded-md border px-3 py-1.5 text-xs font-extrabold",
-                                "border-orange-200 bg-white text-orange-700 hover:bg-orange-50",
+                                "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
                               )}
-                              title="編集"
+                              title="アカウント設定"
                             >
-                              編集
+                              設定
                             </Link>
-                          ) : null}
-                          <button
-                            onClick={() => handleSendPasswordReset(e.email)}
-                            className={clsx(
-                              "rounded-md border px-3 py-1.5 text-xs font-extrabold",
-                              "border-sky-200 bg-white text-sky-700 hover:bg-sky-50",
-                            )}
-                            type="button"
-                            title="パスワードリセットメール"
-                          >
-                            🔑 リセット
-                          </button>
-                          {isSuperAdmin ? (
-                            <button
-                              onClick={() => handleDelete(e.id)}
-                              className={clsx(
-                                "rounded-md border px-3 py-1.5 text-xs font-extrabold",
-                                "border-rose-200 bg-white text-rose-700 hover:bg-rose-50",
-                              )}
-                              type="button"
-                            >
-                              削除
-                            </button>
-                          ) : null}
+                          ) : (
+                            <>
+                              <Link
+                                href={`/settings/members/${encodeURIComponent(e.id)}`}
+                                className={clsx(
+                                  "rounded-md border px-3 py-1.5 text-xs font-extrabold",
+                                  "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                                )}
+                                title="詳細"
+                              >
+                                詳細
+                              </Link>
+                              {(isSuperAdmin || e.authUid === user.uid) ? (
+                                <Link
+                                  href={`/settings/members/${encodeURIComponent(e.id)}/edit`}
+                                  className={clsx(
+                                    "rounded-md border px-3 py-1.5 text-xs font-extrabold",
+                                    "border-orange-200 bg-white text-orange-700 hover:bg-orange-50",
+                                  )}
+                                  title="編集"
+                                >
+                                  編集
+                                </Link>
+                              ) : null}
+                              <button
+                                onClick={() => handleSendPasswordReset(e.email)}
+                                className={clsx(
+                                  "rounded-md border px-3 py-1.5 text-xs font-extrabold",
+                                  "border-sky-200 bg-white text-sky-700 hover:bg-sky-50",
+                                )}
+                                type="button"
+                                title="パスワードリセットメール"
+                              >
+                                🔑 リセット
+                              </button>
+                              {isSuperAdmin ? (
+                                <button
+                                  onClick={() => handleDelete(e.id)}
+                                  className={clsx(
+                                    "rounded-md border px-3 py-1.5 text-xs font-extrabold",
+                                    "border-rose-200 bg-white text-rose-700 hover:bg-rose-50",
+                                  )}
+                                  type="button"
+                                >
+                                  削除
+                                </button>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
