@@ -18,7 +18,8 @@ export type ActivityType =
   | "CUSTOMER_CREATED"
   | "CUSTOMER_UPDATED"
   | "DEAL_CREATED"
-  | "DEAL_UPDATED";
+  | "DEAL_UPDATED"
+  | "CALENDAR_EVENT_CREATED";
 
 export type Activity = {
   companyCode: string;
@@ -27,6 +28,8 @@ export type Activity = {
   projectId?: string | null;
   issueId?: string | null;
   entityId?: string | null;
+  customerId?: string | null;
+  dealId?: string | null;
   message: string;
   link?: string | null;
   createdAt?: Timestamp;

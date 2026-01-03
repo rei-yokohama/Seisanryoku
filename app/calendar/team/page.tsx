@@ -18,6 +18,7 @@ import { auth, db } from "../../../lib/firebase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "../../AppShell";
+import { logActivity } from "../../../lib/activity";
 
 type MemberProfile = {
   uid: string;
@@ -642,6 +643,41 @@ export default function TeamCalendarPage() {
     };
 
     await addDoc(collection(db, "timeEntries"), payload);
+
+    // アクティビティログ（顧客・案件）
+    if (profile?.companyCode) {
+      const customerName = customers.find((c) => c.id === newCustomerId)?.name || "";
+      const dealTitle = deals.find((d) => d.id === newDealId)?.title || "";
+      const eventTitle = project || dealTitle || customerName || "予定";
+      const startDate = new Date(startIso);
+      const dateStr = `${startDate.getMonth() + 1}/${startDate.getDate()}`;
+      const timeStr = `${String(startDate.getHours()).padStart(2, "0")}:${String(startDate.getMinutes()).padStart(2, "0")}`;
+
+      if (newCustomerId) {
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "CALENDAR_EVENT_CREATED",
+          customerId: newCustomerId,
+          dealId: newDealId || null,
+          message: `カレンダー予定を登録: ${eventTitle}（${dateStr} ${timeStr}）`,
+          link: "/calendar/team",
+        });
+      }
+      if (newDealId && newDealId !== newCustomerId) {
+        // 案件が顧客と別IDの場合は案件側にも記録
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "CALENDAR_EVENT_CREATED",
+          customerId: newCustomerId || null,
+          dealId: newDealId,
+          message: `カレンダー予定を登録: ${eventTitle}（${dateStr} ${timeStr}）`,
+          link: "/calendar/team",
+        });
+      }
+    }
+
     setCreateOpen(false);
     setNewCustomerId("");
     setNewDealId("");
