@@ -1999,7 +1999,18 @@ export default function TeamCalendarPage() {
                     <input
                       type="checkbox"
                       checked={newRepeatEnabled}
-                      onChange={(e) => setNewRepeatEnabled(e.target.checked)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setNewRepeatEnabled(checked);
+                        if (checked) {
+                          // 初回ON時は「当日の曜日」を自動選択（ユーザーが既に選んでいる場合は上書きしない）
+                          setNewRepeatByWeekday((prev) => {
+                            if (prev.length > 0) return prev;
+                            const d = new Date(`${newDate}T00:00:00`);
+                            return [d.getDay()];
+                          });
+                        }
+                      }}
                       className="h-4 w-4"
                     />
                     毎週
@@ -2402,7 +2413,18 @@ export default function TeamCalendarPage() {
                           <input
                             type="checkbox"
                             checked={editRepeatEnabled}
-                            onChange={(e) => setEditRepeatEnabled(e.target.checked)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setEditRepeatEnabled(checked);
+                              if (checked) {
+                                // 初回ON時は「当日の曜日」を自動選択（ユーザーが既に選んでいる場合は上書きしない）
+                                setEditRepeatByWeekday((prev) => {
+                                  if (prev.length > 0) return prev;
+                                  const d = new Date(`${editDate}T00:00:00`);
+                                  return [d.getDay()];
+                                });
+                              }
+                            }}
                             className="h-4 w-4"
                           />
                           毎週
