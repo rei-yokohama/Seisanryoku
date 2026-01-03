@@ -48,8 +48,11 @@ function DealNewInner() {
       const byCompany = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
       merged.push(...byCompany.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
     }
-    const byCreator = await getDocs(query(collection(db, "customers"), where("createdBy", "==", u.uid)));
-    merged.push(...byCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
+    // companyCode が無い過去データ救済（通常は companyCode でのみ取得する）
+    if (!prof.companyCode) {
+      const byCreator = await getDocs(query(collection(db, "customers"), where("createdBy", "==", u.uid)));
+      merged.push(...byCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
+    }
     const map = new Map<string, Customer>();
     for (const c of merged) map.set(c.id, c);
     const items = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -178,7 +181,7 @@ function DealNewInner() {
                     ))}
                   </select>
                   <Link
-                    href="/customers"
+                    href="/customers/new"
                     className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
                   >
                     顧客を追加
