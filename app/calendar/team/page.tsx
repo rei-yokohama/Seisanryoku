@@ -1905,7 +1905,15 @@ export default function TeamCalendarPage() {
                 <input
                   type="date"
                   value={newDate}
-                  onChange={(e) => setNewDate(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNewDate(val);
+                    // 繰り返しがONなら、新しい日付の曜日を自動選択
+                    if (newRepeatEnabled && val) {
+                      const d = new Date(`${val}T00:00:00`);
+                      setNewRepeatByWeekday([d.getDay()]);
+                    }
+                  }}
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
                 />
               </div>
@@ -2003,12 +2011,9 @@ export default function TeamCalendarPage() {
                         const checked = e.target.checked;
                         setNewRepeatEnabled(checked);
                         if (checked) {
-                          // 初回ON時は「当日の曜日」を自動選択（ユーザーが既に選んでいる場合は上書きしない）
-                          setNewRepeatByWeekday((prev) => {
-                            if (prev.length > 0) return prev;
-                            const d = new Date(`${newDate}T00:00:00`);
-                            return [d.getDay()];
-                          });
+                          // ON時は必ず「当日の曜日」を自動選択
+                          const d = new Date(`${newDate}T00:00:00`);
+                          setNewRepeatByWeekday([d.getDay()]);
                         }
                       }}
                       className="h-4 w-4"
