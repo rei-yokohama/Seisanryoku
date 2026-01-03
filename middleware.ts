@@ -8,7 +8,12 @@ function isLocalHost(host?: string | null) {
 }
 
 export function middleware(req: NextRequest) {
-  const hostHeader = req.headers.get("host");
+  // On Firebase Hosting (frameworks), the incoming `Host` header can be the Cloud Run service host.
+  // Prefer the original requested host forwarded by the proxy.
+  const hostHeader =
+    req.headers.get("x-fh-requested-host") ??
+    req.headers.get("x-forwarded-host") ??
+    req.headers.get("host");
   if (!hostHeader) return NextResponse.next();
 
   // `Host` header can include a port (e.g. "www.example.com:8080") depending on the proxy.
