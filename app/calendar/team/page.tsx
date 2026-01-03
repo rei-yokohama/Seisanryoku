@@ -1921,21 +1921,89 @@ export default function TeamCalendarPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-xs font-extrabold text-slate-500">開始</div>
-                  <input
-                    type="time"
-                    value={newStartTime}
-                    onChange={(e) => setNewStartTime(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  />
+                  <div className="mt-1 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const [h, m] = newStartTime.split(":").map(Number);
+                        const totalMinutes = h * 60 + m - 30;
+                        const newH = Math.floor((totalMinutes + 1440) % 1440 / 60);
+                        const newM = (totalMinutes + 1440) % 60;
+                        setNewStartTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                      }}
+                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      title="30分早める"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <input
+                      type="time"
+                      value={newStartTime}
+                      onChange={(e) => setNewStartTime(e.target.value)}
+                      className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const [h, m] = newStartTime.split(":").map(Number);
+                        const totalMinutes = h * 60 + m + 30;
+                        const newH = Math.floor(totalMinutes % 1440 / 60);
+                        const newM = totalMinutes % 60;
+                        setNewStartTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                      }}
+                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      title="30分遅める"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs font-extrabold text-slate-500">終了</div>
-                  <input
-                    type="time"
-                    value={newEndTime}
-                    onChange={(e) => setNewEndTime(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  />
+                  <div className="mt-1 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const [h, m] = newEndTime.split(":").map(Number);
+                        const totalMinutes = h * 60 + m - 30;
+                        const newH = Math.floor((totalMinutes + 1440) % 1440 / 60);
+                        const newM = (totalMinutes + 1440) % 60;
+                        setNewEndTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                      }}
+                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      title="30分早める"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                      </svg>
+                    </button>
+                    <input
+                      type="time"
+                      value={newEndTime}
+                      onChange={(e) => setNewEndTime(e.target.value)}
+                      className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const [h, m] = newEndTime.split(":").map(Number);
+                        const totalMinutes = h * 60 + m + 30;
+                        const newH = Math.floor(totalMinutes % 1440 / 60);
+                        const newM = totalMinutes % 60;
+                        setNewEndTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                      }}
+                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      title="30分遅める"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
 
