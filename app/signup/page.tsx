@@ -16,7 +16,6 @@ function generateWorkspaceCode() {
 
 function SignupInner() {
   const [name, setName] = useState("");
-  const [workspaceId, setWorkspaceId] = useState("");
   const [companyName, setCompanyName] = useState(""); // 社名（ワークスペース名）
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -65,7 +64,6 @@ function SignupInner() {
         setInviteCompanyCode(inv.companyCode);
         setInviteRole(inv.role === "admin" ? "admin" : "member");
         setEmail(String(inv.email));
-        setWorkspaceId(String(inv.companyCode));
         // セキュリティルール上、未ログイン状態で companies を参照しない（社名は後から反映されます）
         setCompanyName("");
       } catch (e: any) {
@@ -76,15 +74,15 @@ function SignupInner() {
     })();
   }, [token]);
 
-  const normalizeWorkspaceId = (raw: string) => {
-    // Backlog風: 半角英数字 + ハイフン、3〜20文字
-    return raw
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "")
-      .replace(/--+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 20);
+  const allocateCompanyCode = async (): Promise<string> => {
+    // ワークスペースIDは自動発行（ランダム英数字）
+    // 既存のIDと衝突しないものを見つけるまで複数回試行
+    for (let i = 0; i < 12; i++) {
+      const code = generateWorkspaceCode();
+      const snap = await getDoc(doc(db, "companies", code));
+      if (!snap.exists()) return code;
+    }
+    throw new Error("ワークスペースIDの発行に失敗しました。時間をおいて再度お試しください。");
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -99,16 +97,6 @@ function SignupInner() {
     const workspaceName = companyName.trim();
     if (!workspaceName && !inviteCompanyCode) {
       setError("社名（ワークスペース名）を入力してください");
-      return;
-    }
-
-    const wsId = inviteCompanyCode ? String(inviteCompanyCode) : normalizeWorkspaceId(workspaceId);
-    if (!wsId) {
-      setError("ワークスペースIDを入力してください（半角英数字・ハイフン）");
-      return;
-    }
-    if (!inviteCompanyCode && (wsId.length < 3 || wsId.length > 20)) {
-      setError("ワークスペースIDは3〜20文字で入力してください");
       return;
     }
 
@@ -130,19 +118,14 @@ function SignupInner() {
     setLoading(true);
 
     try {
+      // ワークスペースIDの確定（招待ありは固定、招待なしは自動発行）
+      const companyCode = inviteCompanyCode ? String(inviteCompanyCode) : await allocateCompanyCode();
+
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const uid = userCredential.user.uid;
       
       // 1) ワークスペース（招待なしの場合は新規作成）
-      let companyCode = wsId;
       if (!inviteCompanyCode) {
-        // 既存チェック（上書きを防止）
-        const existsSnap = await getDoc(doc(db, "companies", companyCode));
-        if (existsSnap.exists()) {
-          setError("このワークスペースIDは既に使用されています。別のIDを入力してください。");
-          setLoading(false);
-          return;
-        }
         await setDoc(
           doc(db, "companies", companyCode),
           {
@@ -262,18 +245,18 @@ function SignupInner() {
                 <div className="mb-1 text-sm font-bold text-slate-700">ワークスペースID *</div>
                 <div className="flex items-stretch gap-2">
                   <input
-                    value={workspaceId}
-                    onChange={(e) => setWorkspaceId(normalizeWorkspaceId(e.target.value))}
-                    placeholder="space-id"
-                    required
-                    disabled={!!inviteToken}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 disabled:bg-slate-100"
+                    value={inviteCompanyCode ? String(inviteCompanyCode) : ""}
+                    placeholder={inviteCompanyCode ? "" : "自動で発行されます"}
+                    readOnly
+                    className="w-full rounded-lg border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-900 outline-none"
                   />
                   <div className="hidden items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-500 sm:flex">
                     （組織ID）
                   </div>
                 </div>
-                <div className="mt-1 text-xs text-slate-500">個人IDではなく、社名・事業など組織単位のIDです（半角英数字・ハイフン）。</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  招待がない場合は登録後にランダム英数字で自動発行されます。
+                </div>
               </div>
 
               <div>
