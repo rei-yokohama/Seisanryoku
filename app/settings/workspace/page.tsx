@@ -28,7 +28,8 @@ export default function WorkspaceSettingsPage() {
 
   const [workspaceCode, setWorkspaceCode] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
-  const [availableWorkspaces, setAvailableWorkspaces] = useState<Array<{ code: string; name: string; role: string }>>([]);
+  const [defaultWorkspaceCode, setDefaultWorkspaceCode] = useState("");
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<Array<{ code: string; name: string; role: string; isDefault?: boolean }>>([]);
   const [switchingCode, setSwitchingCode] = useState<string | null>(null);
   const [currentOwnerUid, setCurrentOwnerUid] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -54,17 +55,108 @@ export default function WorkspaceSettingsPage() {
       }
       try {
         let activeCode = "";
+        let activeName = "";
+        let defaultCode = "";
         const profSnap = await getDoc(doc(db, "profiles", u.uid));
         if (profSnap.exists()) {
           const prof = profSnap.data() as any;
-          const code = String(prof.companyCode || "");
-          const name = String(prof.companyName || "");
+          let code = String(prof.companyCode || "");
+          let name = String(prof.companyName || "");
+          defaultCode = String(prof.defaultCompanyCode || "");
           activeCode = code;
+          activeName = name;
           setWorkspaceCode(code);
           setWorkspaceName(name);
+          setDefaultWorkspaceCode(defaultCode || code);
 
-          if (code) {
-            const compSnap = await getDoc(doc(db, "companies", code));
+          // 旧アカウント互換: companyCode が空なら、最初のワークスペースを自動生成して紐づける
+          if (!code) {
+            const newCode = generateWorkspaceCode();
+            await setDoc(
+              doc(db, "companies", newCode),
+              {
+                companyName: "",
+                ownerUid: u.uid,
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+              },
+              { merge: true },
+            );
+            await setDoc(
+              doc(db, "workspaceMemberships", `${newCode}_${u.uid}`),
+              {
+                uid: u.uid,
+                companyCode: newCode,
+                role: "owner",
+                createdAt: Timestamp.now(),
+                updatedAt: Timestamp.now(),
+              },
+              { merge: true },
+            );
+            await updateDoc(doc(db, "profiles", u.uid), {
+              companyCode: newCode,
+              companyName: "",
+              defaultCompanyCode: newCode,
+            });
+            code = newCode;
+            name = "";
+            activeCode = newCode;
+            activeName = "";
+            defaultCode = newCode;
+            setWorkspaceCode(newCode);
+            setWorkspaceName("");
+            setDefaultWorkspaceCode(newCode);
+            setCurrentOwnerUid(u.uid);
+          } else {
+            // defaultCompanyCode が未設定なら、現在の companyCode をデフォルトとして保存
+            if (!defaultCode) {
+              defaultCode = code;
+              setDefaultWorkspaceCode(code);
+              await updateDoc(doc(db, "profiles", u.uid), { defaultCompanyCode: code });
+            }
+          }
+
+          // 互換対応：既存ユーザーは workspaceMemberships が無い場合があるので、
+          // 「現在選択中のワークスペース」の membership を自動で作成しておく。
+          if (activeCode) {
+            const memId = `${activeCode}_${u.uid}`;
+            const memSnap = await getDoc(doc(db, "workspaceMemberships", memId));
+            if (!memSnap.exists()) {
+              await setDoc(
+                doc(db, "workspaceMemberships", memId),
+                {
+                  uid: u.uid,
+                  companyCode: activeCode,
+                  role: "member",
+                  createdAt: Timestamp.now(),
+                  updatedAt: Timestamp.now(),
+                },
+                { merge: true },
+              );
+            }
+          }
+
+          // 互換対応：デフォルトワークスペースも membership が無い場合があるので作成
+          if (defaultCode) {
+            const defMemId = `${defaultCode}_${u.uid}`;
+            const defMemSnap = await getDoc(doc(db, "workspaceMemberships", defMemId));
+            if (!defMemSnap.exists()) {
+              await setDoc(
+                doc(db, "workspaceMemberships", defMemId),
+                {
+                  uid: u.uid,
+                  companyCode: defaultCode,
+                  role: "member",
+                  createdAt: Timestamp.now(),
+                  updatedAt: Timestamp.now(),
+                },
+                { merge: true },
+              );
+            }
+          }
+
+          if (activeCode) {
+            const compSnap = await getDoc(doc(db, "companies", activeCode));
             if (compSnap.exists()) {
               const c = compSnap.data() as any;
               if (c.companyName) setWorkspaceName(String(c.companyName));
@@ -78,17 +170,19 @@ export default function WorkspaceSettingsPage() {
         const memberships = membershipsSnap.docs.map((d) => d.data() as WorkspaceMembership);
         const membershipCodes = Array.from(new Set(memberships.map((m) => String(m.companyCode || "")).filter(Boolean)));
 
-        const codes = Array.from(new Set([...membershipCodes, activeCode].filter(Boolean)));
+        const codes = Array.from(new Set([...membershipCodes, defaultCode, activeCode].filter(Boolean)));
         const companyDocs = await Promise.all(codes.map((c) => getDoc(doc(db, "companies", c))));
         const items = codes.map((c, idx) => {
           const comp = companyDocs[idx].exists() ? (companyDocs[idx].data() as WorkspaceCompany) : {};
           const role =
             memberships.find((m) => String(m.companyCode) === c)?.role ||
             (comp.ownerUid === u.uid ? "owner" : "member");
+          const name = String(comp.companyName || (c === activeCode ? activeName : "") || "未入力");
           return {
             code: c,
-            name: String(comp.companyName || c),
+            name,
             role,
+            isDefault: !!defaultCode && c === defaultCode,
           };
         }).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -173,16 +267,6 @@ export default function WorkspaceSettingsPage() {
         },
         { merge: true },
       );
-
-      // 作成直後はそのワークスペースへ切替（以後のデータは companyCode で完全に分離）
-      await updateDoc(doc(db, "profiles", user.uid), {
-        companyCode: code,
-        companyName: name,
-      });
-
-      setWorkspaceCode(code);
-      setWorkspaceName(name);
-      setCurrentOwnerUid(user.uid);
       setNewWorkspaceName("");
 
       // 一覧をリロード
@@ -196,12 +280,14 @@ export default function WorkspaceSettingsPage() {
           const role =
             memberships.find((m) => String(m.companyCode) === c)?.role ||
             (comp.ownerUid === user.uid ? "owner" : "member");
-          return { code: c, name: String(comp.companyName || c), role };
+          const displayName = String(comp.companyName || "未入力");
+          const isDefault = !!defaultWorkspaceCode && c === defaultWorkspaceCode;
+          return { code: c, name: displayName, role, isDefault };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
       setAvailableWorkspaces(items);
 
-      setSuccess("新しいワークスペースを作成しました");
+      setSuccess("新しいワークスペースを作成しました（切り替えは下の一覧から行えます）");
     } catch (e: any) {
       setError(e?.message || "作成に失敗しました");
     } finally {
@@ -298,12 +384,12 @@ export default function WorkspaceSettingsPage() {
                 className="w-full rounded-xl bg-orange-600 px-6 py-3 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
                 type="button"
               >
-                {creating ? "作成中..." : "作成して切り替える"}
+                {creating ? "作成中..." : "作成する"}
               </button>
             </div>
           </div>
           <div className="mt-2 text-xs text-slate-500">
-            ※ 作成直後に自動で切り替わります。データはワークスペースごとに完全に分離されます。
+            ※ 作成するだけで切り替えません。切り替えは下の一覧から行えます。データはワークスペースごとに完全に分離されます。
           </div>
         </div>
 
@@ -311,8 +397,8 @@ export default function WorkspaceSettingsPage() {
           <div className="mb-4 text-lg font-extrabold text-slate-900">ワークスペースの切り替え</div>
           {loading ? (
             <div className="text-sm font-bold text-slate-600">読み込み中...</div>
-          ) : availableWorkspaces.length <= 1 ? (
-            <div className="text-sm text-slate-600">切り替え可能なワークスペースはまだありません。</div>
+          ) : availableWorkspaces.length === 0 ? (
+            <div className="text-sm text-slate-600">ワークスペースが見つかりませんでした。</div>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {availableWorkspaces.map((w) => {
@@ -328,20 +414,27 @@ export default function WorkspaceSettingsPage() {
                           コード: {w.code} / 権限: {w.role}
                         </div>
                       </div>
-                      {active ? (
-                        <span className="inline-flex rounded-full bg-orange-100 px-3 py-1 text-xs font-extrabold text-orange-800">
-                          選択中
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => void switchWorkspace(w.code)}
-                          disabled={switchingCode === w.code}
-                          className="rounded-lg bg-orange-500 px-3 py-2 text-xs font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
-                          type="button"
-                        >
-                          {switchingCode === w.code ? "切替中..." : "切り替える"}
-                        </button>
-                      )}
+                      <div className="flex flex-col items-end gap-2">
+                        {w.isDefault ? (
+                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-700">
+                            デフォルト
+                          </span>
+                        ) : null}
+                        {active ? (
+                          <span className="inline-flex rounded-full bg-orange-100 px-3 py-1 text-xs font-extrabold text-orange-800">
+                            選択中
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => void switchWorkspace(w.code)}
+                            disabled={switchingCode === w.code}
+                            className="rounded-lg bg-orange-500 px-3 py-2 text-xs font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
+                            type="button"
+                          >
+                            {switchingCode === w.code ? "切替中..." : "切り替える"}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -350,6 +443,7 @@ export default function WorkspaceSettingsPage() {
           )}
           <div className="mt-3 text-xs text-slate-500">
             ※ ワークスペースを切り替えると、課題/Wiki/ドライブ/顧客/案件などのデータは選択中ワークスペースのものだけが表示されます。
+            デフォルトのワークスペースは削除できません。
           </div>
         </div>
 
@@ -377,7 +471,8 @@ export default function WorkspaceSettingsPage() {
                   disabled={!!currentOwnerUid && currentOwnerUid !== user?.uid}
                 />
                 <div className="mt-1 text-xs text-slate-500">
-                  右上の表示名に使われます。{currentOwnerUid && currentOwnerUid !== user?.uid ? "（このワークスペースは編集権限がありません）" : ""}
+                  右上の表示名に使われます（未入力の場合は「未入力」と表示されます）。
+                  {currentOwnerUid && currentOwnerUid !== user?.uid ? "（このワークスペースは編集権限がありません）" : ""}
                 </div>
               </div>
 

@@ -140,6 +140,7 @@ function SignupInner() {
         companyName: workspaceName,
         email: email,
         companyCode,
+        defaultCompanyCode: companyCode,
         calendarLinked: false,
       });
 

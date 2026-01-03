@@ -6,6 +6,18 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { useRouter } from "next/navigation";
 
+function FeatureCard({ icon, title, description }: { icon: string; title: string; description: string }) {
+  return (
+    <div className="group rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition hover:border-orange-300 hover:shadow-xl">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-50 text-3xl group-hover:scale-110 transition">
+        {icon}
+      </div>
+      <h3 className="mb-2 text-xl font-extrabold text-slate-900">{title}</h3>
+      <p className="text-sm leading-relaxed text-slate-600">{description}</p>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -22,306 +34,237 @@ export default function LandingPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100">
-        <div className="text-2xl font-bold text-orange-900">読み込み中...</div>
+      <div className="flex min-h-screen items-center justify-center bg-white">
+        <div className="text-2xl font-bold text-orange-600 animate-pulse">読み込み中...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-orange-50 to-orange-50">
-      {/* Header */}
-      <header className="border-b border-orange-200 bg-white/80 backdrop-blur-sm">
+    <div className="min-h-screen bg-slate-50 selection:bg-orange-100 selection:text-orange-900">
+      {/* Navigation */}
+      <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-2xl shadow-lg">
-              🐝
+          <Link href="/" className="flex items-center gap-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-600 text-white font-black text-xl shadow-orange-200 shadow-lg">
+              P
             </div>
-            <div>
-              <p className="text-xl font-bold text-orange-900">生産力</p>
-              <p className="text-xs text-orange-700">Seisanryoku</p>
+            <div className="hidden sm:block">
+              <p className="text-lg font-black tracking-tighter text-slate-900">生産力</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none">Seisanryoku</p>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
+          </Link>
+          <div className="flex items-center gap-4">
             <Link
               href="/login"
-              className="rounded-full border-2 border-orange-500 px-5 py-2 text-sm font-semibold text-orange-900 transition hover:bg-orange-50"
+              className="text-sm font-extrabold text-slate-600 hover:text-orange-600 transition"
             >
               ログイン
             </Link>
             <Link
               href="/signup"
-              className="rounded-full bg-gradient-to-r from-orange-400 to-orange-500 px-6 py-2 font-semibold text-orange-950 shadow-lg transition hover:scale-105 hover:shadow-xl"
+              className="rounded-full bg-slate-900 px-6 py-2.5 text-sm font-extrabold text-white shadow-lg transition hover:bg-orange-600 hover:shadow-orange-200 active:scale-95"
             >
               無料で始める
             </Link>
           </div>
         </div>
-      </header>
+      </nav>
 
       {/* Hero Section */}
-      <section className="mx-auto max-w-7xl px-6 py-20 text-center">
-        <div className="mb-8 flex justify-center">
-          <div className="relative">
-            <div className="absolute -inset-4 animate-pulse rounded-full bg-orange-300/30 blur-2xl"></div>
-            <div className="relative flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-7xl shadow-2xl">
-              🐝
-            </div>
+      <section className="relative overflow-hidden px-6 pt-20 pb-32 lg:pt-32">
+        <div className="absolute top-0 left-1/2 -z-10 h-[600px] w-[1000px] -translate-x-1/2 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-orange-100/40 via-transparent to-transparent blur-3xl"></div>
+        
+        <div className="mx-auto max-w-5xl text-center">
+          <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-1.5 text-xs font-black text-orange-700 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <span className="flex h-2 w-2 rounded-full bg-orange-500 animate-ping"></span>
+            Next Generation Productivity SaaS
           </div>
-        </div>
-        <h1 className="mb-6 text-5xl font-extrabold leading-tight text-orange-950 md:text-6xl lg:text-7xl">
-          働く時間を、<br />
-          <span className="bg-gradient-to-r from-orange-500 to-orange-600 bg-clip-text text-transparent">
-            蜂のように見える化
-          </span>
-        </h1>
-        <p className="mx-auto mb-10 max-w-2xl text-xl text-orange-800 md:text-2xl">
-          チームの生産性を最大化する、Googleカレンダー連携の次世代工数管理SaaS
-        </p>
-        <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <Link
-            href="/signup"
-            className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-400 to-orange-500 px-8 py-4 text-lg font-bold text-orange-950 shadow-2xl transition hover:scale-105 hover:shadow-amber-400/50"
-          >
-            <span>今すぐ無料で始める</span>
-            <span className="transition group-hover:translate-x-1">→</span>
-          </Link>
-          <a
-            href="#features"
-            className="rounded-full border-2 border-orange-500 px-8 py-4 text-lg font-semibold text-orange-900 transition hover:bg-orange-50"
-          >
-            機能を見る
-          </a>
-        </div>
-        <p className="mt-6 text-sm text-orange-700">
-          ✓ クレジットカード不要 ✓ 即日利用開始 ✓ いつでも解約可能
-        </p>
-      </section>
-
-      {/* Stats Section */}
-      <section className="border-y border-orange-200 bg-white/60 py-16">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="grid gap-8 md:grid-cols-3">
-            <div className="text-center">
-              <div className="mb-2 text-5xl font-extrabold text-orange-600">98%</div>
-              <p className="text-lg font-semibold text-orange-900">工数記録の効率化</p>
-              <p className="text-sm text-orange-700">手入力からの解放</p>
-            </div>
-            <div className="text-center">
-              <div className="mb-2 text-5xl font-extrabold text-orange-600">5分</div>
-              <p className="text-lg font-semibold text-orange-900">セットアップ時間</p>
-              <p className="text-sm text-orange-700">すぐに使い始められる</p>
-            </div>
-            <div className="text-center">
-              <div className="mb-2 text-5xl font-extrabold text-orange-600">100%</div>
-              <p className="text-lg font-semibold text-orange-900">カレンダー連携</p>
-              <p className="text-sm text-orange-700">Googleと完全同期</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section id="features" className="mx-auto max-w-7xl px-6 py-20">
-        <div className="mb-16 text-center">
-          <h2 className="mb-4 text-4xl font-bold text-orange-950">
-            蜂のように効率的な機能
-          </h2>
-          <p className="text-xl text-orange-700">
-            チームの生産性を最大化する、厳選された機能群
+          
+          <h1 className="mb-8 text-5xl font-black tracking-tight text-slate-900 sm:text-7xl lg:text-8xl leading-[1.1] animate-in fade-in slide-in-from-bottom-6 duration-1000">
+            チームの工数を、<br />
+            <span className="bg-gradient-to-r from-orange-600 to-amber-500 bg-clip-text text-transparent">
+              成果に変える。
+            </span>
+          </h1>
+          
+          <p className="mx-auto mb-12 max-w-2xl text-lg font-bold leading-relaxed text-slate-600 sm:text-xl animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
+            Googleカレンダー連携、Wiki、ドライブ、CRMを統合。<br className="hidden sm:block" />
+            ワークスペースごとにデータを完全分離し、安全で効率的なプロジェクト運営を。
           </p>
-        </div>
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-          <div className="group rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-lg transition hover:border-orange-400 hover:shadow-2xl">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-3xl shadow-lg">
-              📅
-            </div>
-            <h3 className="mb-3 text-2xl font-bold text-orange-950">
-              カレンダー連携
-            </h3>
-            <p className="text-orange-800">
-              Googleカレンダーと双方向に同期。予定を自動で工数に変換し、手間を削減します。
-            </p>
+          
+          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row animate-in fade-in slide-in-from-bottom-10 duration-1000 delay-300">
+            <Link
+              href="/signup"
+              className="w-full sm:w-auto rounded-2xl bg-orange-600 px-10 py-5 text-lg font-black text-white shadow-2xl shadow-orange-200 transition hover:bg-orange-700 hover:-translate-y-1 active:scale-95"
+            >
+              今すぐ無料で始める
+            </Link>
+            <Link
+              href="/help"
+              className="w-full sm:w-auto rounded-2xl border-2 border-slate-200 bg-white px-10 py-5 text-lg font-black text-slate-700 transition hover:bg-slate-50 hover:border-slate-300 active:scale-95"
+            >
+              ヘルプを見る
+            </Link>
           </div>
-          <div className="group rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-lg transition hover:border-orange-400 hover:shadow-2xl">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-3xl shadow-lg">
-              📊
-            </div>
-            <h3 className="mb-3 text-2xl font-bold text-orange-950">
-              リアルタイム集計
-            </h3>
-            <p className="text-orange-800">
-              プロジェクト別の工数を自動集計。月次レポートも一瞬で作成できます。
-            </p>
-          </div>
-          <div className="group rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-lg transition hover:border-orange-400 hover:shadow-2xl">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-3xl shadow-lg">
-              👥
-            </div>
-            <h3 className="mb-3 text-2xl font-bold text-orange-950">
-              チーム管理
-            </h3>
-            <p className="text-orange-800">
-              会社コードでチームを作成。社員の招待も簡単で、権限管理も柔軟です。
-            </p>
-          </div>
-          <div className="group rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-lg transition hover:border-orange-400 hover:shadow-2xl">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-3xl shadow-lg">
-              🔒
-            </div>
-            <h3 className="mb-3 text-2xl font-bold text-orange-950">
-              セキュリティ
-            </h3>
-            <p className="text-orange-800">
-              Firebaseによる堅牢な認証。データは暗号化され、安全に保護されます。
-            </p>
-          </div>
-          <div className="group rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-lg transition hover:border-orange-400 hover:shadow-2xl">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-3xl shadow-lg">
-              ⚡
-            </div>
-            <h3 className="mb-3 text-2xl font-bold text-orange-950">
-              高速動作
-            </h3>
-            <p className="text-orange-800">
-              Next.jsの最新技術で構築。ストレスフリーな操作感を実現しています。
-            </p>
-          </div>
-          <div className="group rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-lg transition hover:border-orange-400 hover:shadow-2xl">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400 to-orange-500 text-3xl shadow-lg">
-              📱
-            </div>
-            <h3 className="mb-3 text-2xl font-bold text-orange-950">
-              モバイル対応
-            </h3>
-            <p className="text-orange-800">
-              スマートフォンでも快適に利用可能。外出先でも工数管理ができます。
-            </p>
+          
+          <div className="mt-12 flex items-center justify-center gap-6 text-xs font-black text-slate-400">
+            <span className="flex items-center gap-1.5 italic">✓ NO CREDIT CARD</span>
+            <span className="flex items-center gap-1.5 italic">✓ FAST SETUP</span>
+            <span className="flex items-center gap-1.5 italic">✓ STRICT ISOLATION</span>
           </div>
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="border-y border-orange-200 bg-gradient-to-br from-orange-50 to-orange-50 py-20">
+      {/* Feature Highlights Section */}
+      <section id="features" className="bg-white py-24 sm:py-32">
         <div className="mx-auto max-w-7xl px-6">
-          <div className="mb-16 text-center">
-            <h2 className="mb-4 text-4xl font-bold text-orange-950">
-              3ステップで始められる
-            </h2>
-            <p className="text-xl text-orange-700">
-              複雑な設定は一切不要。今すぐ始められます
+          <div className="mb-20 max-w-2xl">
+            <h2 className="text-base font-black uppercase tracking-widest text-orange-600">Core Features</h2>
+            <p className="mt-4 text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">
+              運用の“迷子”をなくす、<br />統合型の工数管理
             </p>
           </div>
-          <div className="grid gap-12 md:grid-cols-3">
-            <div className="text-center">
-              <div className="mb-6 flex justify-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-3xl font-bold text-orange-950 shadow-xl">
-                  1
-                </div>
+          
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            <FeatureCard 
+              icon="📅"
+              title="Googleカレンダー連携"
+              description="日々の予定を自動で工数エントリに変換。ドラッグ＆ドロップや繰り返し予定にも対応した高品質なUI。"
+            />
+            <FeatureCard 
+              icon="🧩"
+              title="ワークスペース分離"
+              description="複数の事業やプロジェクトを「ワークスペース」として管理。データは完全に分離され、ワンクリックで切替可能。"
+            />
+            <FeatureCard 
+              icon="💼"
+              title="HubSpot風CRM"
+              description="顧客と案件をシームレスに管理。すべての課題、Wiki、ファイルが特定の「顧客×案件」に自動で紐づきます。"
+            />
+            <FeatureCard 
+              icon="📚"
+              title="Wiki & ドライブ"
+              description="プロジェクトのナレッジとファイルを一箇所に。作成者や紐づきがひと目でわかる一覧UIで情報を資産化。"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* Latest Updates Section (from Release Notes) */}
+      <section className="py-24 sm:py-32">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="flex flex-col items-end justify-between gap-4 border-b border-slate-200 pb-8 sm:flex-row">
+            <div>
+              <h2 className="text-3xl font-black tracking-tight text-slate-900">最新のアップデート</h2>
+              <p className="mt-2 text-slate-600 font-bold">ユーザーの声を反映し、日々進化しています。</p>
+            </div>
+            <Link href="/releases" className="text-sm font-black text-orange-600 hover:underline">
+              すべてのリリースノートを見る →
+            </Link>
+          </div>
+          
+          <div className="mt-12 space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 transition hover:shadow-md">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">2026-01-03</span>
+                <span className="rounded bg-orange-100 px-2 py-0.5 text-[10px] font-black text-orange-700">MAJOR UPDATE</span>
               </div>
-              <h3 className="mb-3 text-2xl font-bold text-orange-950">アカウント作成</h3>
-              <p className="text-orange-800">
-                メールアドレスとパスワードだけで、30秒でアカウントを作成できます
+              <h3 className="text-lg font-black text-slate-900">ワークスペース作成/切替機能のリリース</h3>
+              <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                事業ごとにデータを完全に分離できるワークスペース機能を追加。権限管理を強化し、セキュアな多事業運営が可能になりました。
               </p>
             </div>
-            <div className="text-center">
-              <div className="mb-6 flex justify-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-3xl font-bold text-orange-950 shadow-xl">
-                  2
-                </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 transition hover:shadow-md">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-widest">2026-01-02</span>
+                <span className="rounded bg-sky-100 px-2 py-0.5 text-[10px] font-black text-sky-700">EXPERIENCE</span>
               </div>
-              <h3 className="mb-3 text-2xl font-bold text-orange-950">会社コード発行</h3>
-              <p className="text-orange-800">
-                会社名を入力するだけで、チーム用の会社コードが自動発行されます
-              </p>
-            </div>
-            <div className="text-center">
-              <div className="mb-6 flex justify-center">
-                <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-3xl font-bold text-orange-950 shadow-xl">
-                  3
-                </div>
-              </div>
-              <h3 className="mb-3 text-2xl font-bold text-orange-950">カレンダー連携</h3>
-              <p className="text-orange-800">
-                Googleカレンダーと連携して、すぐに工数管理を開始できます
+              <h3 className="text-lg font-black text-slate-900">カレンダー操作感の大幅改善</h3>
+              <p className="mt-2 text-sm text-slate-600 leading-relaxed">
+                ドラッグ＆ドロップでの予定移動、繰り返し予定の設定に対応。Googleカレンダーと同等の操作体験を実現しました。
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* CTA Section - For Managers */}
-      <section className="mx-auto max-w-7xl px-6 py-20">
-        <div className="rounded-3xl bg-gradient-to-br from-orange-400 via-orange-500 to-orange-500 p-12 text-center shadow-2xl">
-          <div className="mb-6 flex justify-center">
-            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white/90 text-6xl shadow-lg">
-              🐝
-            </div>
-          </div>
-          <h2 className="mb-4 text-4xl font-bold text-orange-950 md:text-5xl">
-            今すぐ、チームの生産性を最大化
+      {/* CTA Section */}
+      <section className="mx-auto max-w-7xl px-6 py-24">
+        <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-900 px-8 py-20 text-center shadow-2xl">
+          <div className="absolute top-0 left-0 -z-10 h-full w-full opacity-20 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-orange-500 via-transparent to-transparent"></div>
+          
+          <h2 className="mb-6 text-4xl font-black tracking-tight text-white sm:text-6xl">
+            今日から、もっと生産的なチームへ。
           </h2>
-          <p className="mb-8 text-xl text-orange-900">
-            クレジットカード不要で、今日から無料でお試しいただけます
+          <p className="mx-auto mb-10 max-w-xl text-lg font-bold text-slate-400 leading-relaxed">
+            たった30秒でセットアップ完了。煩雑な工数管理から解放され、本来の業務に集中しましょう。
           </p>
+          
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href="/signup"
-              className="inline-block rounded-full bg-orange-950 px-10 py-4 text-lg font-bold text-orange-400 shadow-2xl transition hover:scale-105 hover:bg-orange-900"
+              className="w-full sm:w-auto rounded-2xl bg-orange-600 px-12 py-5 text-xl font-black text-white shadow-xl shadow-orange-900/20 transition hover:bg-orange-500 hover:-translate-y-1 active:scale-95"
             >
-              管理者として無料で始める →
+              無料で始める
+            </Link>
+            <Link
+              href="/login"
+              className="w-full sm:w-auto rounded-2xl bg-white/10 px-12 py-5 text-xl font-black text-white backdrop-blur-md transition hover:bg-white/20 active:scale-95"
+            >
+              ログイン
             </Link>
           </div>
-          <p className="mt-6 text-sm text-orange-900">
-            アカウント作成は30秒で完了します
-          </p>
-        </div>
-      </section>
-
-      {/* Login Section */}
-      <section className="mx-auto max-w-7xl px-6 pb-20">
-        <div className="rounded-3xl border-2 border-orange-200 bg-white/70 p-10 text-center shadow-lg">
-          <div className="mb-4 flex justify-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-4xl shadow-lg">
-              🔐
-            </div>
-          </div>
-          <h2 className="mb-3 text-3xl font-bold text-orange-950">ログイン</h2>
-          <p className="mb-6 text-lg text-orange-800">
-            社員・管理者どちらも同じ画面からログインできます
-          </p>
-          <Link
-            href="/login"
-            className="inline-block rounded-full bg-gradient-to-r from-orange-400 to-orange-500 px-8 py-3 text-lg font-bold text-orange-950 shadow-xl transition hover:scale-105 hover:shadow-orange-300/50"
-          >
-            ログイン画面へ →
-          </Link>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-orange-200 bg-white/80 py-8">
-        <div className="mx-auto max-w-7xl px-6 text-center">
-          <div className="mb-4 flex justify-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-xl">
-              🐝
+      <footer className="border-t border-slate-200 bg-white pt-16 pb-12">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="grid gap-12 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5">
+            <div className="col-span-2">
+              <Link href="/" className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 text-white font-black text-base">
+                  P
+                </div>
+                <span className="text-xl font-black tracking-tighter text-slate-900">生産力</span>
+              </Link>
+              <p className="mt-4 max-w-xs text-sm font-bold text-slate-500 leading-relaxed">
+                チームの工数を成果に変える、統合型プロダクティビティ・プラットフォーム。
+              </p>
+            </div>
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 mb-4">Product</h4>
+              <ul className="space-y-2 text-sm font-bold text-slate-500">
+                <li><Link href="#features" className="hover:text-orange-600 transition">機能一覧</Link></li>
+                <li><Link href="/releases" className="hover:text-orange-600 transition">リリースノート</Link></li>
+                <li><Link href="/help" className="hover:text-orange-600 transition">ヘルプセンター</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 mb-4">Support</h4>
+              <ul className="space-y-2 text-sm font-bold text-slate-500">
+                <li><Link href="/sitemap.xml" className="hover:text-orange-600 transition">サイトマップ</Link></li>
+                <li><Link href="/robots.txt" className="hover:text-orange-600 transition">robots.txt</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-sm font-black uppercase tracking-widest text-slate-900 mb-4">Login</h4>
+              <ul className="space-y-2 text-sm font-bold text-slate-500">
+                <li><Link href="/login" className="hover:text-orange-600 transition">管理者ログイン</Link></li>
+                <li><Link href="/login" className="hover:text-orange-600 transition">社員ログイン</Link></li>
+              </ul>
             </div>
           </div>
-          <p className="mb-2 text-lg font-bold text-orange-900">生産力 - Seisanryoku</p>
-          <div className="mb-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm font-bold text-orange-700">
-            <Link href="/releases" className="hover:underline">
-              リリースノート
-            </Link>
-            <Link href="/help" className="hover:underline">
-              ヘルプ
-            </Link>
-            <Link href="/sitemap.xml" className="hover:underline">
-              サイトマップXML
-            </Link>
+          <div className="mt-16 border-t border-slate-100 pt-8 flex flex-col sm:flex-row justify-between gap-4">
+            <p className="text-xs font-bold text-slate-400 tracking-wider">
+              © 2026 Seisanryoku. All rights reserved.
+            </p>
+            <div className="flex gap-6">
+              <Link href="#" className="text-xs font-bold text-slate-400 hover:text-slate-600 underline decoration-slate-200 underline-offset-4">利用規約</Link>
+              <Link href="#" className="text-xs font-bold text-slate-400 hover:text-slate-600 underline decoration-slate-200 underline-offset-4">プライバシーポリシー</Link>
+            </div>
           </div>
-          <p className="text-sm text-orange-700">
-            © 2025 Seisanryoku. All rights reserved.
-          </p>
         </div>
       </footer>
     </div>
