@@ -1231,7 +1231,8 @@ export default function TeamCalendarPage() {
   const renderTeamDayView = () => {
     const getEmployeeEntries = (uid: string) => {
       return entries.filter((entry) => {
-        if (entry.uid !== uid) return false;
+        const isParticipant = entry.uid === uid || (entry.guestUids || []).includes(uid);
+        if (!isParticipant) return false;
         const entryDate = new Date(entry.start);
         return (
           entryDate.getDate() === currentDate.getDate() &&
@@ -1467,11 +1468,13 @@ export default function TeamCalendarPage() {
     const getDayEntries = (date: Date) => {
       return entries.filter((entry) => {
         const entryDate = new Date(entry.start);
+        const isSelectedParticipant =
+          selectedEmployeeIds.has(entry.uid) || (entry.guestUids || []).some((u) => selectedEmployeeIds.has(u));
         return (
           entryDate.getDate() === date.getDate() &&
           entryDate.getMonth() === date.getMonth() &&
           entryDate.getFullYear() === date.getFullYear() &&
-          selectedEmployeeIds.has(entry.uid)
+          isSelectedParticipant
         );
       });
     };
@@ -1679,11 +1682,13 @@ export default function TeamCalendarPage() {
     const getDayEntries = (date: Date) => {
       return entries.filter((entry) => {
         const entryDate = new Date(entry.start);
+        const isSelectedParticipant =
+          selectedEmployeeIds.has(entry.uid) || (entry.guestUids || []).some((u) => selectedEmployeeIds.has(u));
         return (
           entryDate.getDate() === date.getDate() &&
           entryDate.getMonth() === date.getMonth() &&
           entryDate.getFullYear() === date.getFullYear() &&
-          selectedEmployeeIds.has(entry.uid)
+          isSelectedParticipant
         );
       });
     };
