@@ -329,7 +329,7 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
           { icon: "👥", label: "顧客", href: "/customers" },
           { icon: "💼", label: "案件", href: "/projects" },
           { icon: "💾", label: "ドライブ", href: "/drive" },
-          { icon: "📅", label: "チームカレンダー", href: "/calendar" },
+          { icon: "📅", label: "カレンダー", href: "/calendar" },
           { icon: "⚙️", label: "設定", href: "/settings" }
         ].map((it, idx) => (
           <Link

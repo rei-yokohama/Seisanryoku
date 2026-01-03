@@ -8,6 +8,7 @@ import {
   where,
   getDocs,
   addDoc,
+  setDoc,
   updateDoc,
   deleteDoc,
   doc,
@@ -323,14 +324,8 @@ export default function TeamCalendarPage() {
       merged.push(...snapByCompany.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
     }
 
-    // companyCodeが未設定だった過去データ救済 / companyCode不整合の救済として createdBy も併用
-    if (!companyCode) {
-      console.log("チームカレンダー: createdByで社員を検索(フォールバック):", uid);
-      const snapByCreator = await getDocs(
-        query(collection(db, "employees"), where("createdBy", "==", uid)),
-      );
-      merged.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
-    }
+    // companyCode がない状態で employees を引くと Firestore ルール上 deny になりやすいので、
+    // ここではフォールバック取得は行わない（companyCode は profiles/workspaceMemberships から復元する）
 
     // id で重複排除
     const byId = new Map<string, Employee>();
@@ -469,18 +464,46 @@ export default function TeamCalendarPage() {
           await loadEntries("", employeeUids);
         }
       } else {
-        // profilesが無い社員ログイン救済（employees.authUid から companyCode を取得）
-        console.log("チームカレンダー: プロフィールが見つかりません。employeesから復元します");
-        const empSnap = await getDocs(query(collection(db, "employees"), where("authUid", "==", u.uid)));
-        const emp = !empSnap.empty ? ({ ...empSnap.docs[0].data(), id: empSnap.docs[0].id } as Employee) : null;
-        const code = (emp?.companyCode || "").trim();
-        setProfile({
+        // profiles が無い社員ログイン救済：
+        // ルール上、profiles が無いと isInMyCompany が成立せず employees/timeEntries を読めないため、
+        // まず workspaceMemberships から companyCode を取得し、profiles を自己作成して復旧する。
+        console.log("チームカレンダー: プロフィールが見つかりません。workspaceMembershipsから復元します");
+
+        const membershipSnap = await getDocs(query(collection(db, "workspaceMemberships"), where("uid", "==", u.uid)));
+        const membership = !membershipSnap.empty ? membershipSnap.docs[0].data() : null;
+        const code = (membership?.companyCode || "").trim();
+
+        if (!code) {
+          console.warn("チームカレンダー: workspaceMemberships から companyCode を取得できませんでした");
+          setEmployees([{ id: "__me__", name: u.email?.split("@")[0] || "私", authUid: u.uid, color: "#10B981" }]);
+          setEntries([]);
+          setLoading(false);
+          return;
+        }
+
+        // 会社名は読める場合だけ付与（membership があるので companies read は通る想定）
+        let companyName: string | null = null;
+        try {
+          const compSnap = await getDoc(doc(db, "companies", code));
+          if (compSnap.exists()) {
+            const cd = compSnap.data() as any;
+            companyName = (cd?.name || cd?.companyName || null) as string | null;
+          }
+        } catch {
+          // noop
+        }
+
+        const displayName = u.displayName || u.email?.split("@")[0] || "ユーザー";
+        const newProfile: MemberProfile = {
           uid: u.uid,
-          displayName: emp?.name || u.email?.split("@")[0] || "ユーザー",
+          displayName,
           email: u.email || null,
           companyCode: code,
-          companyName: emp?.companyName || null,
-        });
+          companyName,
+        };
+
+        await setDoc(doc(db, "profiles", u.uid), newProfile, { merge: true });
+        setProfile(newProfile);
 
         const loadedEmployees = await loadEmployees(code, u.uid);
         const employeeUids = loadedEmployees.map(e => e.authUid).filter((id): id is string => !!id);
@@ -1445,7 +1468,7 @@ export default function TeamCalendarPage() {
   if (loading) {
     console.log("チームカレンダー: loading中...");
     return (
-      <AppShell title="チームカレンダー">
+      <AppShell title="カレンダー">
         <div className="flex min-h-[60vh] items-center justify-center">
           <div className="text-2xl font-extrabold text-orange-900">読み込み中...</div>
         </div>
@@ -1465,7 +1488,7 @@ export default function TeamCalendarPage() {
   console.log("showSidebar:", showSidebar);
 
   return (
-    <AppShell title="チームカレンダー" subtitle={getDateRangeText()}>
+    <AppShell title="カレンダー" subtitle={getDateRangeText()}>
       <div className="flex h-[calc(100vh-140px)] flex-col bg-white overflow-hidden rounded-xl border border-slate-200 shadow-sm transition-all">
         {/* Sub Header */}
         <div className="border-b border-slate-200 bg-slate-50/50 px-4 py-2 flex items-center justify-between flex-shrink-0 z-40">
