@@ -8,14 +8,21 @@ function isLocalHost(host?: string | null) {
 }
 
 export function middleware(req: NextRequest) {
-  const host = req.headers.get("host");
-  if (!host || isLocalHost(host)) return NextResponse.next();
+  const hostHeader = req.headers.get("host");
+  if (!hostHeader) return NextResponse.next();
+
+  // `Host` header can include a port (e.g. "www.example.com:8080") depending on the proxy.
+  const hostname = hostHeader.split(":")[0]?.toLowerCase();
+  if (!hostname || isLocalHost(hostname)) return NextResponse.next();
 
   // Force canonical host to avoid duplicate URLs in Search Console.
-  if (host !== CANONICAL_HOST) {
-    const url = new URL(req.url);
+  // Also strip any forwarded port from the canonical redirect target (avoid :8080 timeouts).
+  const shouldRedirect = hostname !== CANONICAL_HOST || hostHeader.includes(":");
+  if (shouldRedirect) {
+    const url = req.nextUrl.clone();
     url.protocol = "https:";
-    url.host = CANONICAL_HOST;
+    url.hostname = CANONICAL_HOST;
+    url.port = "";
     return NextResponse.redirect(url, 308);
   }
 
