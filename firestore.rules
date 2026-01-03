@@ -61,7 +61,11 @@ service cloud.firestore {
     // ============================================
     match /workspaceMemberships/{membershipId} {
       // 自分の所属は読める（一覧/切替）
-      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow read: if isSignedIn()
+        && (
+          resource.data.uid == request.auth.uid
+          || isCompanyOwner(resource.data.companyCode)
+        );
 
       // create:
       // - 自分自身の membership を作る（owner 登録など）

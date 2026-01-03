@@ -318,6 +318,28 @@ export default function MembersPage() {
                       <td className="px-4 py-3 text-slate-700">{e.joinDate || "-"}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="inline-flex items-center gap-2">
+                          <Link
+                            href={`/settings/members/${encodeURIComponent(e.id)}`}
+                            className={clsx(
+                              "rounded-md border px-3 py-1.5 text-xs font-extrabold",
+                              "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                            )}
+                            title="詳細"
+                          >
+                            詳細
+                          </Link>
+                          {(isSuperAdmin || e.authUid === user.uid) ? (
+                            <Link
+                              href={`/settings/members/${encodeURIComponent(e.id)}/edit`}
+                              className={clsx(
+                                "rounded-md border px-3 py-1.5 text-xs font-extrabold",
+                                "border-orange-200 bg-white text-orange-700 hover:bg-orange-50",
+                              )}
+                              title="編集"
+                            >
+                              編集
+                            </Link>
+                          ) : null}
                           <button
                             onClick={() => handleSendPasswordReset(e.email)}
                             className={clsx(
@@ -329,16 +351,18 @@ export default function MembersPage() {
                           >
                             🔑 リセット
                           </button>
-                          <button
-                            onClick={() => handleDelete(e.id)}
-                            className={clsx(
-                              "rounded-md border px-3 py-1.5 text-xs font-extrabold",
-                              "border-rose-200 bg-white text-rose-700 hover:bg-rose-50",
-                            )}
-                            type="button"
-                          >
-                            削除
-                          </button>
+                          {isSuperAdmin ? (
+                            <button
+                              onClick={() => handleDelete(e.id)}
+                              className={clsx(
+                                "rounded-md border px-3 py-1.5 text-xs font-extrabold",
+                                "border-rose-200 bg-white text-rose-700 hover:bg-rose-50",
+                              )}
+                              type="button"
+                            >
+                              削除
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
