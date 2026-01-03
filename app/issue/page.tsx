@@ -24,6 +24,11 @@ type Employee = {
   authUid?: string;
 };
 
+type Customer = {
+  id: string;
+  name: string;
+};
+
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -41,6 +46,7 @@ export default function IssueHomePage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
 
   // filters
   type IssueFilterState = {
@@ -159,6 +165,20 @@ export default function IssueHomePage() {
         const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         setEmployees(empItems);
 
+        // customers
+        const mergedCustomers: Customer[] = [];
+        if (prof.companyCode) {
+          const snapByCompany = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
+          mergedCustomers.push(...snapByCompany.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as Customer)));
+        } else {
+          const snapByCreator3 = await getDocs(query(collection(db, "customers"), where("createdBy", "==", u.uid)));
+          mergedCustomers.push(...snapByCreator3.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as Customer)));
+        }
+        const custById = new Map<string, Customer>();
+        for (const c of mergedCustomers) custById.set(c.id, c);
+        const custItems = Array.from(custById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setCustomers(custItems);
+
         // issues (index回避: companyCodeだけで取得→クライアントで絞り込み)
         const mergedIssues: Issue[] = [];
         if (prof.companyCode) {
@@ -185,6 +205,12 @@ export default function IssueHomePage() {
     for (const p of projects) m[p.id] = p;
     return m;
   }, [projects]);
+
+  const customersById = useMemo(() => {
+    const m: Record<string, Customer> = {};
+    for (const c of customers) m[c.id] = c;
+    return m;
+  }, [customers]);
 
   const assigneeName = (uid?: string | null) => {
     if (!uid) return "";
@@ -215,7 +241,10 @@ export default function IssueHomePage() {
       if (categoryFilter && getCategoryFromIssue(i) !== categoryFilter) return false;
       if (k) {
         const p = projectsById[i.projectId];
-        const hay = `${i.issueKey} ${i.title} ${i.description || ""} ${(i.labels || []).join(" ")} ${p?.key || ""} ${p?.name || ""}`.toLowerCase();
+        const cust = i.customerId ? customersById[i.customerId] : undefined;
+        const hay =
+          `${i.issueKey} ${i.title} ${i.description || ""} ${(i.labels || []).join(" ")} ` +
+          `${p?.key || ""} ${p?.name || ""} ${cust?.name || ""}`.toLowerCase();
         if (!hay.includes(k)) return false;
       }
       return true;
@@ -416,6 +445,7 @@ export default function IssueHomePage() {
                 <tr>
                   <th className="px-4 py-3 text-left">件名</th>
                   <th className="px-4 py-3 text-left">案件</th>
+                  <th className="px-4 py-3 text-left">顧客</th>
                   <th className="px-4 py-3 text-left">担当者</th>
                   <th className="px-4 py-3 text-left">状態</th>
                   <th className="px-4 py-3 text-left">カテゴリ</th>
@@ -434,6 +464,7 @@ export default function IssueHomePage() {
                 ) : (
                   pageItems.map((i) => {
                     const p = projectsById[i.projectId];
+                    const cust = i.customerId ? customersById[i.customerId] : undefined;
                     const st = ISSUE_STATUSES.find((s) => s.value === i.status)?.label || i.status;
                     const pr = ISSUE_PRIORITIES.find((pp) => pp.value === i.priority)?.label || i.priority;
                     const cat = getCategoryFromIssue(i);
@@ -458,6 +489,15 @@ export default function IssueHomePage() {
                           {p ? (
                             <Link href={`/projects/${p.id}/issues`} className="hover:underline">
                               {p.name}
+                            </Link>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-800 font-bold">
+                          {cust ? (
+                            <Link href={`/customers/${encodeURIComponent(cust.id)}`} className="hover:underline">
+                              {cust.name}
                             </Link>
                           ) : (
                             <span className="text-slate-400">-</span>
