@@ -10,7 +10,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 function generateWorkspaceCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let out = "";
-  for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  // 衝突しにくい長さ（update衝突時はリトライする）
+  for (let i = 0; i < 12; i++) out += chars[Math.floor(Math.random() * chars.length)];
   return out;
 }
 
@@ -74,17 +75,6 @@ function SignupInner() {
     })();
   }, [token]);
 
-  const allocateCompanyCode = async (): Promise<string> => {
-    // ワークスペースIDは自動発行（ランダム英数字）
-    // 既存のIDと衝突しないものを見つけるまで複数回試行
-    for (let i = 0; i < 12; i++) {
-      const code = generateWorkspaceCode();
-      const snap = await getDoc(doc(db, "companies", code));
-      if (!snap.exists()) return code;
-    }
-    throw new Error("ワークスペースIDの発行に失敗しました。時間をおいて再度お試しください。");
-  };
-
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -118,26 +108,46 @@ function SignupInner() {
     setLoading(true);
 
     try {
-      // ワークスペースIDの確定（招待ありは固定、招待なしは自動発行）
-      const companyCode = inviteCompanyCode ? String(inviteCompanyCode) : await allocateCompanyCode();
-
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const uid = userCredential.user.uid;
+
+      // ワークスペースIDの確定（招待ありは固定、招待なしはランダムで作成を試行して決める）
+      let companyCode = inviteCompanyCode ? String(inviteCompanyCode) : "";
+      if (!companyCode) {
+        // `companies` は read が制限されているため、存在確認はせず write を試行して衝突時にリトライする
+        let created = false;
+        let lastErr: unknown = null;
+        for (let i = 0; i < 12; i++) {
+          const code = generateWorkspaceCode();
+          try {
+            await setDoc(
+              doc(db, "companies", code),
+              {
+                companyName: workspaceName,
+                phone: phone.trim(),
+                ownerUid: uid,
+                updatedAt: Timestamp.now(),
+                createdAt: Timestamp.now(),
+              },
+              { merge: true },
+            );
+            companyCode = code;
+            created = true;
+            break;
+          } catch (e) {
+            lastErr = e;
+            // 既存docへのupdateがルールで弾かれた等を含め、とにかく別IDで再試行
+            continue;
+          }
+        }
+        if (!created || !companyCode) {
+          console.error(lastErr);
+          throw new Error("ワークスペースの作成に失敗しました。時間をおいて再度お試しください。");
+        }
+      }
       
       // 1) ワークスペース（招待なしの場合は新規作成）
-      if (!inviteCompanyCode) {
-        await setDoc(
-          doc(db, "companies", companyCode),
-          {
-            companyName: workspaceName,
-            phone: phone.trim(),
-            ownerUid: uid,
-            updatedAt: Timestamp.now(),
-            createdAt: Timestamp.now(),
-          },
-          { merge: true },
-        );
-      }
+      // ここまでで companyCode は確定済み（招待なしは companies も作成済み）
 
       // 2) 所属（ワークスペースごとのデータ分離のキー）
       //    ドキュメントIDを安定させて重複を防ぐ
