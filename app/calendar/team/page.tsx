@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
   collection,
@@ -31,6 +31,8 @@ type TimeEntry = {
   id: string;
   uid: string;
   companyCode: string;
+  customerId?: string | null;
+  dealId?: string | null;
   project: string;
   summary: string;
   start: string;
@@ -63,6 +65,21 @@ type RepeatRule = {
   interval: number; // 1=毎週, 2=隔週
   byWeekday: number[]; // 0=日 ... 6=土
   end?: { type: "NONE" } | { type: "UNTIL"; until: string } | { type: "COUNT"; count: number };
+  // 例外日（この日だけ除外）: YYYY-MM-DD
+  exdates?: string[];
+};
+
+type Customer = {
+  id: string;
+  name: string;
+  companyCode?: string;
+};
+
+type Deal = {
+  id: string;
+  title: string;
+  customerId?: string | null;
+  companyCode?: string;
 };
 
 const formatTime = (dateString: string) => {
@@ -187,6 +204,7 @@ function expandRecurringEntries(entries: TimeEntry[], rangeStart: Date, rangeEnd
 
     const by = (rule.byWeekday?.length ? [...rule.byWeekday] : [baseStart.getDay()]).sort((a, b) => a - b);
     const interval = Math.max(1, rule.interval || 1);
+    const exdates = new Set((rule.exdates || []).filter(Boolean));
 
     let seriesEndMs = Number.POSITIVE_INFINITY;
     if (rule.end?.type === "UNTIL") seriesEndMs = endOfDayMs(rule.end.until);
@@ -209,7 +227,9 @@ function expandRecurringEntries(entries: TimeEntry[], rangeStart: Date, rangeEnd
       for (const wd of by) {
         const d = new Date(week);
         d.setDate(d.getDate() + wd);
-        const occStart = combineDateAndTime(toDateKey(d), baseStart);
+        const occKey = toDateKey(d);
+        if (exdates.has(occKey)) continue;
+        const occStart = combineDateAndTime(occKey, baseStart);
         const occStartMs = occStart.getTime();
         if (occStartMs < baseStart.getTime()) continue;
         if (occStartMs < effectiveStartMs) continue;
@@ -275,6 +295,10 @@ export default function TeamCalendarPage() {
   }, []);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
+  const [newCustomerId, setNewCustomerId] = useState<string>("");
+  const [newDealId, setNewDealId] = useState<string>("");
   const [newProject, setNewProject] = useState("");
   const [newSummary, setNewSummary] = useState("");
   const [newDate, setNewDate] = useState(() => {
@@ -295,6 +319,8 @@ export default function TeamCalendarPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailEdit, setDetailEdit] = useState(false);
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
+  const [activeOccurrenceDateKey, setActiveOccurrenceDateKey] = useState<string>("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [editProject, setEditProject] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editDate, setEditDate] = useState("");
@@ -310,6 +336,28 @@ export default function TeamCalendarPage() {
   const [editGuestUids, setEditGuestUids] = useState<string[]>([]);
 
   const router = useRouter();
+
+  const customersById = useMemo(() => {
+    const m: Record<string, Customer> = {};
+    for (const c of customers) m[c.id] = c;
+    return m;
+  }, [customers]);
+
+  const dealsById = useMemo(() => {
+    const m: Record<string, Deal> = {};
+    for (const d of deals) m[d.id] = d;
+    return m;
+  }, [deals]);
+
+  const entryTitle = useCallback(
+    (e: TimeEntry) => {
+      const cust = e.customerId ? customersById[e.customerId]?.name || "" : "";
+      const deal = e.dealId ? dealsById[e.dealId]?.title || "" : "";
+      const parts = [cust, deal, (e.project || "").trim()].filter(Boolean);
+      return parts.join(" / ") || "（無題）";
+    },
+    [customersById, dealsById],
+  );
 
   // 社員一覧を読み込む
   const loadEmployees = useCallback(async (companyCode: string, uid: string) => {
@@ -348,6 +396,30 @@ export default function TeamCalendarPage() {
     
     return items;
   }, [profile?.displayName]);
+
+  const loadCustomersDeals = useCallback(async (companyCode: string) => {
+    if (!companyCode) {
+      setCustomers([]);
+      setDeals([]);
+      return;
+    }
+    try {
+      const [custSnap, dealSnap] = await Promise.all([
+        getDocs(query(collection(db, "customers"), where("companyCode", "==", companyCode))),
+        getDocs(query(collection(db, "deals"), where("companyCode", "==", companyCode))),
+      ]);
+      const custs = custSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as Customer));
+      const ds = dealSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) } as Deal));
+      custs.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      ds.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+      setCustomers(custs);
+      setDeals(ds);
+    } catch (e) {
+      console.warn("calendar: load customers/deals failed", e);
+      setCustomers([]);
+      setDeals([]);
+    }
+  }, []);
 
   const loadEntries = useCallback(
     async (code: string, employeeUids: string[] = []) => {
@@ -452,6 +524,7 @@ export default function TeamCalendarPage() {
 
             // 個人カレンダーを廃止したため、チームカレンダーは全ユーザーが閲覧できるようにする
             const loadedEmployees = await loadEmployees(data.companyCode, u.uid);
+            await loadCustomersDeals(data.companyCode);
             const employeeUids = loadedEmployees.map(e => e.authUid).filter((id): id is string => !!id);
             await loadEntries(data.companyCode, employeeUids);
           } else {
@@ -506,6 +579,7 @@ export default function TeamCalendarPage() {
         setProfile(newProfile);
 
         const loadedEmployees = await loadEmployees(code, u.uid);
+        await loadCustomersDeals(code);
         const employeeUids = loadedEmployees.map(e => e.authUid).filter((id): id is string => !!id);
         await loadEntries(code, employeeUids);
       }
@@ -518,10 +592,7 @@ export default function TeamCalendarPage() {
   const createEntry = async () => {
     if (!user) return;
     const project = newProject.trim();
-    if (!project) {
-      alert("案件/作業名を入力してください");
-      return;
-    }
+    // project(作業名) は任意。顧客/案件の文脈を付けられるようにする。
     const startIso = new Date(`${newDate}T${newStartTime}:00`).toISOString();
     const endIso = new Date(`${newDate}T${newEndTime}:00`).toISOString();
     if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
@@ -546,6 +617,8 @@ export default function TeamCalendarPage() {
     const payload = {
       uid: user.uid,
       companyCode: (profile?.companyCode || "").trim(),
+      customerId: newCustomerId || null,
+      dealId: newDealId || null,
       project,
       summary: newSummary.trim(),
       start: startIso,
@@ -556,6 +629,8 @@ export default function TeamCalendarPage() {
 
     await addDoc(collection(db, "timeEntries"), payload);
     setCreateOpen(false);
+    setNewCustomerId("");
+    setNewDealId("");
     setNewProject("");
     setNewSummary("");
     setNewRepeatEnabled(false);
@@ -593,8 +668,10 @@ export default function TeamCalendarPage() {
     // 繰り返しの各回は baseId を持つ。保存先は baseId（シリーズの元）に寄せる
     const base = entry.baseId ? ({ ...entry, id: entry.baseId } as TimeEntry) : entry;
     setActiveEntry(base);
+    setActiveOccurrenceDateKey(toDateKey(new Date(entry.start)));
     setDetailOpen(true);
     setDetailEdit(false);
+    setDeleteOpen(false);
 
     const start = new Date(entry.start);
     const end = new Date(entry.end);
@@ -673,6 +750,10 @@ export default function TeamCalendarPage() {
 
   const deleteEntry = async () => {
     if (!activeEntry) return;
+    if (activeEntry.repeat) {
+      setDeleteOpen(true);
+      return;
+    }
     if (!confirm("この予定を削除しますか？")) return;
     await deleteDoc(doc(db, "timeEntries", activeEntry.id));
     setDetailOpen(false);
@@ -681,6 +762,31 @@ export default function TeamCalendarPage() {
 
     const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
     await loadEntries(profile?.companyCode || "", employeeUids);
+  };
+
+  const deleteRecurringOne = async () => {
+    if (!activeEntry || !activeEntry.repeat) return;
+    const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
+    const nextExdates = Array.from(new Set([...(activeEntry.repeat.exdates || []), key])).sort();
+    await updateDoc(doc(db, "timeEntries", activeEntry.id), {
+      repeat: { ...activeEntry.repeat, exdates: nextExdates },
+    });
+  };
+
+  const deleteRecurringFromThisDay = async () => {
+    if (!activeEntry || !activeEntry.repeat) return;
+    const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
+    const d = new Date(`${key}T00:00:00`);
+    d.setDate(d.getDate() - 1);
+    const until = toDateKey(d);
+    await updateDoc(doc(db, "timeEntries", activeEntry.id), {
+      repeat: { ...activeEntry.repeat, end: { type: "UNTIL", until } },
+    });
+  };
+
+  const deleteRecurringAll = async () => {
+    if (!activeEntry) return;
+    await deleteDoc(doc(db, "timeEntries", activeEntry.id));
   };
 
   const actorNameFor = (uid: string) => {
@@ -934,7 +1040,15 @@ export default function TeamCalendarPage() {
 
   const renderTeamDayView = () => {
     const getEmployeeEntries = (uid: string) => {
-      return entries.filter((entry) => entry.uid === uid);
+      return entries.filter((entry) => {
+        if (entry.uid !== uid) return false;
+        const entryDate = new Date(entry.start);
+        return (
+          entryDate.getDate() === currentDate.getDate() &&
+          entryDate.getMonth() === currentDate.getMonth() &&
+          entryDate.getFullYear() === currentDate.getFullYear()
+        );
+      });
     };
 
     const displayEmployees = employees
@@ -1059,7 +1173,7 @@ export default function TeamCalendarPage() {
                                   "absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-4 px-2 py-1.5 shadow-sm transition hover:shadow-md hover:brightness-95 active:scale-[0.98]",
                                   isDraggingThis && "opacity-30 grayscale-[0.5] scale-[0.98] shadow-none pointer-events-none"
                                 )}
-                                title={`${entry.project}\n${formatTime(entry.start)} - ${formatTime(entry.end)}\n${entry.summary || ""}`}
+                                title={`${entryTitle(entry)}\n${formatTime(entry.start)} - ${formatTime(entry.end)}\n${entry.summary || ""}`}
                                 onPointerDown={(ev) => {
                                   if (!canDragEntry(entry)) return;
                                   ev.stopPropagation();
@@ -1095,7 +1209,7 @@ export default function TeamCalendarPage() {
                                 }}
                               >
                                 <div className="text-[11px] font-extrabold text-slate-900 truncate leading-tight">
-                                  {entry.project}
+                                  {entryTitle(entry)}
                                 </div>
                                 <div className="text-[9px] font-bold text-slate-600 truncate opacity-80 mt-0.5">
                                   {formatTime(entry.start)} - {formatTime(entry.end)}
@@ -1287,7 +1401,7 @@ export default function TeamCalendarPage() {
                               borderLeftColor: empColors.border,
                               cursor: canDragEntry(entry) ? "grab" : "pointer",
                             }}
-                            title={`${emp?.name || "不明"} - ${entry.project}\n${formatTime(entry.start)} - ${formatTime(entry.end)}`}
+                            title={`${emp?.name || "不明"} - ${entryTitle(entry)}\n${formatTime(entry.start)} - ${formatTime(entry.end)}`}
                             onPointerDown={(ev) => {
                               if (!canDragEntry(entry)) return;
                               ev.stopPropagation();
@@ -1319,7 +1433,7 @@ export default function TeamCalendarPage() {
                               <div className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: empColors.base }} />
                               <span className="truncate">{emp?.name || "不明"}</span>
                             </div>
-                            <div className="text-[10px] font-bold text-slate-700 truncate mt-0.5">{entry.project}</div>
+                            <div className="text-[10px] font-bold text-slate-700 truncate mt-0.5">{entryTitle(entry)}</div>
                             {height > 40 && (
                               <div className="text-[9px] text-slate-500 truncate opacity-80">
                                 {formatTime(entry.start)} - {formatTime(entry.end)}
@@ -1442,14 +1556,14 @@ export default function TeamCalendarPage() {
                           backgroundColor: empColors.light,
                           borderLeft: `2px solid ${empColors.border}`,
                         }}
-                        title={`${emp?.name || "?"}: ${entry.project}`}
+                        title={`${emp?.name || "?"}: ${entryTitle(entry)}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           openEntryDetail(entry);
                         }}
                       >
                         <span className="opacity-70 mr-1">{formatTime(entry.start)}</span>
-                        {entry.project}
+                        {entryTitle(entry)}
                       </div>
                     );
                   })}
@@ -1619,6 +1733,47 @@ export default function TeamCalendarPage() {
                     onChange={(e) => setNewEndTime(e.target.value)}
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
                   />
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-extrabold text-slate-500">顧客</div>
+                <select
+                  value={newCustomerId}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setNewCustomerId(v);
+                    setNewDealId("");
+                  }}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                >
+                  <option value="">（未選択）</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="text-xs font-extrabold text-slate-500">案件</div>
+                <select
+                  value={newDealId}
+                  onChange={(e) => setNewDealId(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                >
+                  <option value="">（未選択）</option>
+                  {deals
+                    .filter((d) => !newCustomerId || !d.customerId || d.customerId === newCustomerId)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title}
+                      </option>
+                    ))}
+                </select>
+                <div className="mt-1 text-[10px] font-bold text-slate-500">
+                  ※ 顧客を選ぶと、関連する案件を優先表示します
                 </div>
               </div>
 
@@ -1841,7 +1996,7 @@ export default function TeamCalendarPage() {
                     className="h-4 w-4 rounded"
                     style={{ backgroundColor: getEmployeeColors(employees.find((e) => e.authUid === activeEntry.uid)?.color || "#3B82F6").base }}
                   />
-                  <div className="truncate text-2xl font-extrabold">{activeEntry.project}</div>
+                  <div className="truncate text-2xl font-extrabold">{entryTitle(activeEntry)}</div>
                 </div>
                 <div className="mt-2 text-sm text-white/70">
                   {(() => {
@@ -1892,6 +2047,69 @@ export default function TeamCalendarPage() {
             </div>
 
             <div className="mt-6 space-y-4">
+              {deleteOpen && activeEntry.repeat ? (
+                <div className="rounded-xl bg-white/10 p-4">
+                  <div className="text-sm font-extrabold text-white">繰り返し予定の削除</div>
+                  <div className="mt-2 text-xs font-bold text-white/60">
+                    対象日: {activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start))}
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-2">
+                    <button
+                      type="button"
+                      className="rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15"
+                      onClick={async () => {
+                        if (!confirm("この回だけ削除しますか？")) return;
+                        await deleteRecurringOne();
+                        setDeleteOpen(false);
+                        setDetailOpen(false);
+                        setActiveEntry(null);
+                        const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
+                        await loadEntries(profile?.companyCode || "", employeeUids);
+                      }}
+                    >
+                      この予定だけ削除
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15"
+                      onClick={async () => {
+                        if (!confirm("この日以降の繰り返しを全て削除しますか？")) return;
+                        await deleteRecurringFromThisDay();
+                        setDeleteOpen(false);
+                        setDetailOpen(false);
+                        setActiveEntry(null);
+                        const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
+                        await loadEntries(profile?.companyCode || "", employeeUids);
+                      }}
+                    >
+                      その日以降の全てを削除
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg bg-rose-500/30 px-4 py-3 text-sm font-extrabold text-rose-50 hover:bg-rose-500/40"
+                      onClick={async () => {
+                        if (!confirm("過去も含めて全て削除しますか？")) return;
+                        await deleteRecurringAll();
+                        setDeleteOpen(false);
+                        setDetailOpen(false);
+                        setActiveEntry(null);
+                        const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
+                        await loadEntries(profile?.companyCode || "", employeeUids);
+                      }}
+                    >
+                      過去も含めて全て削除
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-lg bg-white/5 px-4 py-3 text-sm font-extrabold text-white/80 hover:bg-white/10"
+                      onClick={() => setDeleteOpen(false)}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {!detailEdit ? (
                 <>
                   {activeEntry.summary ? (
@@ -1949,7 +2167,7 @@ export default function TeamCalendarPage() {
                   </div>
 
                   {(() => {
-                    const url = firstUrl(`${activeEntry.project}\n${activeEntry.summary || ""}`);
+                    const url = firstUrl(`${entryTitle(activeEntry)}\n${activeEntry.summary || ""}`);
                     if (!url) return null;
                     return (
                       <div className="pt-2">
