@@ -27,14 +27,29 @@ function formatDateJa(iso: string) {
   return `${y}年${m}月${d}日`;
 }
 
-function Group({ label, items }: { label: string; items?: string[] }) {
+function ReleaseSection({ label, items, type }: { label: string; items?: string[]; type: "added" | "changed" | "fixed" }) {
   if (!items || items.length === 0) return null;
+
+  const config = {
+    added: { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-600/20", labelJa: "追加機能" },
+    changed: { bg: "bg-blue-50", text: "text-blue-700", ring: "ring-blue-600/20", labelJa: "改善・変更" },
+    fixed: { bg: "bg-rose-50", text: "text-rose-700", ring: "ring-rose-600/20", labelJa: "不具合修正" },
+  }[type];
+
   return (
-    <div>
-      <div className="text-xs font-extrabold text-slate-500">{label}</div>
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ring-inset ${config.bg} ${config.text} ${config.ring}`}>
+          {label}
+        </span>
+        <h3 className="text-base font-bold text-slate-800">{config.labelJa}</h3>
+      </div>
+      <ul className="space-y-3 pl-1">
         {items.map((t) => (
-          <li key={t}>{t}</li>
+          <li key={t} className="flex items-start gap-3 text-[15px] leading-relaxed text-slate-600">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
+            <span>{t}</span>
+          </li>
         ))}
       </ul>
     </div>
@@ -139,77 +154,104 @@ export default function ReleasesPage() {
   const lastUpdated = sorted[0]?.date ? formatDateJa(sorted[0].date) : "";
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-5xl px-6 py-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-extrabold text-slate-900">リリースノート</h1>
-              <p className="mt-1 text-sm text-slate-600">
-                新しく追加された機能や改善点を、時系列のログとしてまとめています{lastUpdated ? `（最終更新: ${lastUpdated}）` : ""}
-              </p>
+    <div className="min-h-screen bg-[#f8fafc]">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200">
+        <div className="mx-auto max-w-4xl px-6 py-12 md:py-20 text-center">
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 md:text-5xl">
+            リリースノート
+          </h1>
+          <p className="mt-6 text-lg leading-relaxed text-slate-500 max-w-2xl mx-auto">
+            生産力（Seisanryoku）をより使いやすく、より強力にするための最新のアップデート情報をお届けします。
+          </p>
+          {lastUpdated && (
+            <div className="mt-8 inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-1.5 text-sm font-bold text-slate-600">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              最終更新: {lastUpdated}
             </div>
-            <div className="flex items-center gap-2">
-              <Link
-                href="/"
-                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
-              >
-                トップへ
-              </Link>
-              <Link
-                href="/help"
-                className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
-              >
-                ヘルプを見る
-              </Link>
-            </div>
-          </div>
+          )}
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-          <span className="font-extrabold text-slate-900">更新ログ</span>{" "}
-          / 新機能（Added）・改善（Changed）・修正（Fixed）を日付順に掲載しています。
-        </div>
-
-        <div className="mt-6 space-y-6">
+      {/* Main Content */}
+      <main className="mx-auto max-w-4xl px-6 py-12 md:py-20">
+        <div className="space-y-20">
           {sorted.map((r) => (
-            <article key={`${r.date}_${r.title}`} className="relative rounded-2xl border border-slate-200 bg-white p-6">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs font-extrabold text-slate-500">{formatDateJa(r.date)}</div>
-                  <h2 className="mt-1 text-lg font-extrabold text-slate-900">{r.title}</h2>
-                  {r.summary ? <p className="mt-2 text-sm text-slate-700">{r.summary}</p> : null}
-                </div>
+            <article key={`${r.date}_${r.title}`} className="group relative">
+              {/* Date Badge */}
+              <div className="mb-6 flex items-center gap-4">
+                <time className="text-sm font-black tracking-widest text-slate-400 uppercase">
+                  {r.date.replace(/-/g, ".")}
+                </time>
+                <div className="h-px flex-1 bg-slate-200" />
               </div>
 
-              <div className="mt-5 grid gap-5 md:grid-cols-3">
-                <Group label="Added" items={r.added} />
-                <Group label="Changed" items={r.changed} />
-                <Group label="Fixed" items={r.fixed} />
+              {/* Content Card */}
+              <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition-all hover:shadow-md">
+                {/* Card Header */}
+                <div className="border-b border-slate-100 bg-slate-50/50 px-8 py-8 md:px-12">
+                  <h2 className="text-2xl font-black leading-tight text-slate-900 md:text-3xl">
+                    {r.title}
+                  </h2>
+                </div>
+
+                {/* Card Body */}
+                <div className="px-8 py-10 md:px-12">
+                  {/* Summary Section */}
+                  {r.summary && (
+                    <section className="mb-12">
+                      <h3 className="mb-4 text-xs font-black uppercase tracking-[0.2em] text-slate-400">概要</h3>
+                      <p className="text-[17px] leading-loose text-slate-600">
+                        {r.summary}
+                      </p>
+                    </section>
+                  )}
+
+                  {r.summary && <div className="h-px w-full bg-slate-100 mb-12" />}
+
+                  {/* Details Section */}
+                  <section>
+                    <h3 className="mb-8 text-xs font-black uppercase tracking-[0.2em] text-slate-400">アップデート詳細</h3>
+                    <div className="grid gap-12">
+                      <ReleaseSection label="Added" type="added" items={r.added} />
+                      <ReleaseSection label="Changed" type="changed" items={r.changed} />
+                      <ReleaseSection label="Fixed" type="fixed" items={r.fixed} />
+                    </div>
+                  </section>
+                </div>
+
+                {/* Card Footer */}
+                <div className="bg-slate-50 px-8 py-4 md:px-12 flex justify-end">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-300">
+                    Seisanryoku Update Archive
+                  </span>
+                </div>
               </div>
             </article>
           ))}
         </div>
 
-        <section className="mt-8 space-y-2">
-          <div className="text-sm font-extrabold text-slate-900">関連リンク</div>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/help" className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50">
-              ヘルプ
-            </Link>
-            <Link href="/sitemap.xml" className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50">
-              sitemap.xml
-            </Link>
-            <Link href="/robots.txt" className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50">
-              robots.txt
-            </Link>
+        {/* Global Footer */}
+        <footer className="mt-32 border-t border-slate-200 pt-16 pb-24 text-center">
+          <div className="flex flex-col items-center gap-10">
+            <div className="flex flex-wrap justify-center gap-4">
+              <Link href="/" className="group flex items-center gap-2 rounded-2xl bg-white px-8 py-4 text-sm font-black text-slate-700 shadow-sm ring-1 ring-slate-200 hover:ring-orange-500 hover:text-orange-600 transition-all">
+                <span>トップページに戻る</span>
+                <span className="text-slate-300 group-hover:text-orange-400 transition-transform group-hover:translate-x-1">→</span>
+              </Link>
+              <Link href="/help" className="group flex items-center gap-2 rounded-2xl bg-orange-600 px-8 py-4 text-sm font-black text-white shadow-lg shadow-orange-200 hover:bg-orange-700 transition-all">
+                <span>ヘルプセンター</span>
+                <span className="text-orange-200 group-hover:translate-x-1 transition-transform">→</span>
+              </Link>
+            </div>
+            
+            <div className="flex gap-8 text-xs font-bold text-slate-400 uppercase tracking-widest">
+              <Link href="/sitemap.xml" className="hover:text-slate-600 transition-colors">sitemap</Link>
+              <Link href="/robots.txt" className="hover:text-slate-600 transition-colors">robots</Link>
+            </div>
           </div>
-        </section>
+        </footer>
       </main>
     </div>
   );
 }
-
-
