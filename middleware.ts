@@ -16,9 +16,9 @@ export function middleware(req: NextRequest) {
   if (!hostname || isLocalHost(hostname)) return NextResponse.next();
 
   // Force canonical host to avoid duplicate URLs in Search Console.
-  // Also strip any forwarded port from the canonical redirect target (avoid :8080 timeouts).
-  const shouldRedirect = hostname !== CANONICAL_HOST || hostHeader.includes(":");
-  if (shouldRedirect) {
+  // Only redirect when hostname differs. (Some proxies may include an internal port in Host;
+  // trying to "strip" it here can cause redirect loops.)
+  if (hostname !== CANONICAL_HOST) {
     const url = req.nextUrl.clone();
     url.protocol = "https:";
     url.hostname = CANONICAL_HOST;
