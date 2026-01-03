@@ -31,6 +31,7 @@ type Customer = {
   companyCode: string;
   createdBy: string;
   name: string;
+  assigneeUid?: string | null;
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -60,7 +61,7 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [qText, setQText] = useState("");
-  const [tab, setTab] = useState<"ALL" | "MINE">("ALL");
+  const [tab, setTab] = useState<"ALL" | "MINE">("ALL"); // MINE = 自分の顧客（担当）
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
@@ -127,7 +128,8 @@ export default function CustomersPage() {
   const filtered = useMemo(() => {
     let list = customers;
     if (tab === "MINE" && user) {
-      list = list.filter(c => c.createdBy === user.uid);
+      // 「自分の顧客」= 担当者が自分
+      list = list.filter((c) => (c.assigneeUid || "") === user.uid);
     }
     const q = qText.trim().toLowerCase();
     if (!q) return list;
@@ -205,11 +207,8 @@ export default function CustomersPage() {
       subtitle="Customers"
       headerRight={
         <div className="flex items-center gap-2">
-          <Link href="/projects" className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
-            案件一覧 →
-          </Link>
           <Link href="/customers/new" className="rounded-md bg-orange-500 px-4 py-1.5 text-xs font-extrabold text-white hover:bg-orange-600 shadow-sm transition">
-            会社を追加
+            顧客を追加
           </Link>
         </div>
       }
@@ -224,7 +223,7 @@ export default function CustomersPage() {
               tab === "ALL" ? "border-orange-500 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-700"
             )}
           >
-            全ての会社 <span className="ml-1 text-[10px] opacity-60 bg-slate-100 px-1.5 py-0.5 rounded-full">{customers.length}</span>
+            全ての顧客 <span className="ml-1 text-[10px] opacity-60 bg-slate-100 px-1.5 py-0.5 rounded-full">{customers.length}</span>
           </button>
           <button
             onClick={() => setTab("MINE")}
@@ -233,7 +232,7 @@ export default function CustomersPage() {
               tab === "MINE" ? "border-orange-500 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-700"
             )}
           >
-            自分の会社
+            自分の顧客
           </button>
           <div className="ml-auto flex items-center gap-2 pb-2">
              <div className="relative">

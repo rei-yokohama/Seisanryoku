@@ -32,6 +32,7 @@ type Customer = {
   name: string;
   companyCode: string;
   createdBy: string;
+  assigneeUid?: string | null;
 };
 
 type DealStatus = "ACTIVE" | "INACTIVE";
@@ -73,7 +74,7 @@ function DealsInner() {
   const [deals, setDeals] = useState<Deal[]>([]);
 
   const [qText, setQText] = useState("");
-  const [tab, setTab] = useState<"ALL" | "MINE">("ALL");
+  const [tab, setTab] = useState<"ALL" | "MINE">("ALL"); // MINE = 自分の顧客（担当）
   const [statusFilter, setStatusFilter] = useState<DealStatus | "ALL">("ALL");
   const [customerFilter, setCustomerFilter] = useState("ALL");
   
@@ -176,7 +177,10 @@ function DealsInner() {
   const filtered = useMemo(() => {
     const q = qText.trim().toLowerCase();
     return deals.filter((d) => {
-      if (tab === "MINE" && user && d.createdBy !== user.uid) return false;
+      if (tab === "MINE" && user) {
+        const cust = customersById[d.customerId];
+        if (!cust || (cust.assigneeUid || "") !== user.uid) return false;
+      }
       if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
       if (customerFilter !== "ALL" && d.customerId !== customerFilter) return false;
       if (!q) return true;
@@ -282,7 +286,7 @@ function DealsInner() {
               tab === "MINE" ? "border-orange-500 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-700"
             )}
           >
-            自分の案件
+            自分の顧客
           </button>
           <div className="ml-auto flex items-center gap-2 pb-2">
              <div className="relative">
