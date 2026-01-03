@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   onAuthStateChanged,
   sendPasswordResetEmail,
+  signOut,
   updateEmail,
   updateProfile,
   User,
@@ -146,6 +147,17 @@ export default function AccountSettingsPage() {
     }
   };
 
+  const doLogout = async () => {
+    setError("");
+    setSuccess("");
+    try {
+      await signOut(auth);
+      router.push("/login");
+    } catch (e: any) {
+      setError(e?.message || "ログアウトに失敗しました");
+    }
+  };
+
   if (loading) {
     return (
       <AppShell title="ユーザー設定" subtitle="読み込み中...">
@@ -272,6 +284,22 @@ export default function AccountSettingsPage() {
               type="button"
             >
               {sendingReset ? "送信中..." : "パスワードリセットメールを送信"}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6">
+          <div className="mb-4 text-lg font-extrabold text-slate-900">ログアウト</div>
+          <div className="text-sm font-bold text-slate-600">
+            共有端末を利用している場合は、ログアウトをおすすめします。
+          </div>
+          <div className="mt-3">
+            <button
+              onClick={doLogout}
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-extrabold text-white hover:bg-slate-950"
+              type="button"
+            >
+              ログアウト
             </button>
           </div>
         </div>
