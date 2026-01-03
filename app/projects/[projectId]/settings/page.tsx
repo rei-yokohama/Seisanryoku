@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc, getDocs, query, updateDoc, collection, where, Timestamp } from "firebase/firestore";
+import { doc, getDoc, getDocs, query, updateDoc, deleteDoc, collection, where, Timestamp } from "firebase/firestore";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
@@ -65,13 +65,21 @@ export default function ProjectSettingsPage() {
       setProfile(prof);
 
       try {
-        const pSnap = await getDoc(doc(db, "projects", projectId));
+        // deals コレクションから案件を取得
+        const pSnap = await getDoc(doc(db, "deals", projectId));
         if (!pSnap.exists()) {
           setLoading(false);
           router.push("/projects");
           return;
         }
-        const p = { ...(pSnap.data() as Project), id: projectId } as Project;
+        const dealData = pSnap.data();
+        // deal を project として扱えるように変換
+        const p = { 
+          ...dealData,
+          id: projectId,
+          name: dealData.title || "無題",
+          key: dealData.key || dealData.title?.slice(0, 5)?.toUpperCase() || "DEAL",
+        } as Project;
         setProject(p);
         setName(p.name || "");
         setDescription(p.description || "");
@@ -110,13 +118,14 @@ export default function ProjectSettingsPage() {
     setError("");
     const n = name.trim();
     if (!n) {
-      setError("プロジェクト名を入力してください");
+      setError("案件名を入力してください");
       return;
     }
     setSaving(true);
     try {
-      await updateDoc(doc(db, "projects", projectId), {
-        name: n,
+      // deals コレクションを更新
+      await updateDoc(doc(db, "deals", projectId), {
+        title: n,
         description: description.trim(),
         memberUids: Array.from(memberUids),
         updatedAt: Timestamp.now(),
@@ -128,7 +137,7 @@ export default function ProjectSettingsPage() {
         type: "PROJECT_UPDATED",
         projectId,
         entityId: projectId,
-        message: `プロジェクト設定を更新: ${project.key} ${n}`,
+        message: `案件設定を更新: ${project.key} ${n}`,
         link: `/projects/${projectId}/settings`,
       });
 
@@ -141,9 +150,79 @@ export default function ProjectSettingsPage() {
     }
   };
 
+  const deleteProject = async () => {
+    if (!user || !profile || !project) return;
+    
+    const confirmed = confirm(
+      `案件「${project.name}」を削除しますか？\n\nこの操作は取り消せません。\n- すべての課題\n- Wiki\n- ファイル\n- コメント\nなどの関連データも削除されます。`
+    );
+    
+    if (!confirmed) return;
+
+    setSaving(true);
+    try {
+      // 案件に関連するデータを削除
+      if (profile.companyCode) {
+        // 課題を削除
+        const issuesSnap = await getDocs(
+          query(
+            collection(db, "issues"),
+            where("companyCode", "==", profile.companyCode),
+            where("projectId", "==", projectId)
+          )
+        );
+        for (const issueDoc of issuesSnap.docs) {
+          await deleteDoc(doc(db, "issues", issueDoc.id));
+        }
+
+        // Wikiを削除
+        const wikiSnap = await getDocs(
+          query(
+            collection(db, "wikiPages"),
+            where("companyCode", "==", profile.companyCode),
+            where("projectId", "==", projectId)
+          )
+        );
+        for (const wikiDoc of wikiSnap.docs) {
+          await deleteDoc(doc(db, "wikiPages", wikiDoc.id));
+        }
+
+        // ファイルを削除
+        const filesSnap = await getDocs(
+          query(
+            collection(db, "projectFiles"),
+            where("companyCode", "==", profile.companyCode),
+            where("projectId", "==", projectId)
+          )
+        );
+        for (const fileDoc of filesSnap.docs) {
+          await deleteDoc(doc(db, "projectFiles", fileDoc.id));
+        }
+      }
+
+      // 案件本体を削除（deals コレクション）
+      await deleteDoc(doc(db, "deals", projectId));
+
+      await logActivity({
+        companyCode: profile.companyCode,
+        actorUid: user.uid,
+        type: "PROJECT_DELETED",
+        message: `案件を削除しました: ${project.key} ${project.name}`,
+        link: "/projects",
+      });
+
+      router.push("/projects");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "削除に失敗しました";
+      setError(msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
-      <AppShell title="プロジェクト設定" subtitle="読み込み中..." projectId={projectId}>
+      <AppShell title="案件設定" subtitle="読み込み中..." projectId={projectId}>
         <div className="flex min-h-[50vh] items-center justify-center">
           <div className="text-sm font-bold text-slate-600">読み込み中...</div>
         </div>
@@ -154,8 +233,8 @@ export default function ProjectSettingsPage() {
 
   return (
     <AppShell 
-      title={`${project.key} ${project.name}`.trim()}
-      subtitle="プロジェクト設定"
+      title={project.name}
+      subtitle="案件設定"
       projectId={projectId}
       headerRight={
         <button
@@ -163,7 +242,7 @@ export default function ProjectSettingsPage() {
           disabled={saving}
           className={clsx(
             "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-            saving ? "bg-emerald-400" : "bg-emerald-600 hover:bg-emerald-700",
+            saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700",
           )}
         >
           {saving ? "保存中..." : "保存"}
@@ -181,7 +260,7 @@ export default function ProjectSettingsPage() {
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-12">
               <div className="md:col-span-4">
-                <div className="text-xs font-extrabold text-slate-500">プロジェクトキー</div>
+                <div className="text-xs font-extrabold text-slate-500">案件キー</div>
                 <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-extrabold text-slate-800">
                   {project.key}
                 </div>
@@ -190,11 +269,11 @@ export default function ProjectSettingsPage() {
                 </div>
               </div>
               <div className="md:col-span-8">
-                <div className="text-xs font-extrabold text-slate-500">プロジェクト名</div>
+                <div className="text-xs font-extrabold text-slate-500">案件名</div>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-emerald-500"
+                  className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-orange-500"
                 />
               </div>
               <div className="md:col-span-12">
@@ -202,7 +281,7 @@ export default function ProjectSettingsPage() {
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="mt-1 min-h-[120px] w-full rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-800 outline-none focus:border-emerald-500"
+                  className="mt-1 min-h-[120px] w-full rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-800 outline-none focus:border-orange-500"
                 />
               </div>
             </div>
@@ -240,6 +319,25 @@ export default function ProjectSettingsPage() {
                     </div>
                   </label>
                 ))}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-5">
+            <div className="text-sm font-extrabold text-red-900">危険な操作</div>
+            <div className="mt-2 text-xs text-red-700">
+              案件を削除すると、すべての課題、Wiki、ファイル、コメントなどの関連データが完全に削除されます。この操作は取り消せません。
+            </div>
+            <div className="mt-4">
+              <button
+                onClick={deleteProject}
+                disabled={saving}
+                className={clsx(
+                  "rounded-md px-4 py-2 text-sm font-extrabold text-white",
+                  saving ? "bg-red-400" : "bg-red-600 hover:bg-red-700",
+                )}
+              >
+                {saving ? "削除中..." : "案件を削除"}
+              </button>
             </div>
           </div>
     </AppShell>

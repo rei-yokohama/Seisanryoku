@@ -41,10 +41,6 @@ function categoryFromIssue(i: Issue) {
   return (i.labels && i.labels[0]) ? String(i.labels[0]) : "";
 }
 
-function milestoneFromIssue(i: Issue) {
-  return i.dueDate ? String(i.dueDate).slice(0, 7) : "";
-}
-
 export default function ProjectBoardPage() {
   const router = useRouter();
   const params = useParams<{ projectId: string }>();
@@ -60,7 +56,6 @@ export default function ProjectBoardPage() {
 
   const [hideFilters, setHideFilters] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [milestoneFilter, setMilestoneFilter] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
 
   const [draggingIssueId, setDraggingIssueId] = useState<string | null>(null);
@@ -145,23 +140,13 @@ export default function ProjectBoardPage() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [issues]);
 
-  const milestones = useMemo(() => {
-    const s = new Set<string>();
-    for (const i of issues) {
-      const m = milestoneFromIssue(i);
-      if (m) s.add(m);
-    }
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [issues]);
-
   const filtered = useMemo(() => {
     return issues.filter(i => {
       if (categoryFilter && categoryFromIssue(i) !== categoryFilter) return false;
-      if (milestoneFilter && milestoneFromIssue(i) !== milestoneFilter) return false;
       if (assigneeFilter && (i.assigneeUid || "") !== assigneeFilter) return false;
       return true;
     });
-  }, [issues, categoryFilter, milestoneFilter, assigneeFilter]);
+  }, [issues, categoryFilter, assigneeFilter]);
 
   const overdue = useMemo(() => {
     return filtered.filter(i => !!i.dueDate && String(i.dueDate) < todayStr && i.status !== "DONE");
@@ -223,7 +208,7 @@ export default function ProjectBoardPage() {
         onDragEnd={endDrag}
         className={clsx(
           "block rounded-lg border bg-white p-3 shadow-sm",
-          draggingIssueId === i.id ? "border-emerald-300 opacity-70" : "border-slate-200 hover:border-slate-300",
+          draggingIssueId === i.id ? "border-orange-300 opacity-70" : "border-slate-200 hover:border-slate-300",
         )}
       >
         <div className="flex items-start justify-between gap-2">
@@ -232,7 +217,7 @@ export default function ProjectBoardPage() {
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-700">
                 {ISSUE_PRIORITIES.find(p => p.value === i.priority)?.label || "その他"}
               </span>
-              <span className="text-xs font-extrabold text-emerald-700">{i.issueKey}</span>
+              <span className="text-xs font-extrabold text-orange-700">{i.issueKey}</span>
             </div>
             <div className="mt-1 line-clamp-2 text-sm font-bold text-slate-900">{i.title}</div>
           </div>
@@ -254,7 +239,7 @@ export default function ProjectBoardPage() {
       <div
         className={clsx(
           "min-w-[280px] flex-1 rounded-lg border border-slate-200 bg-slate-50/40",
-          allowDrop && dragOver === status ? "ring-2 ring-emerald-300" : "",
+          allowDrop && dragOver === status ? "ring-2 ring-orange-300" : "",
         )}
         onDragOver={(e) => {
           if (!allowDrop || !status) return;
@@ -279,7 +264,7 @@ export default function ProjectBoardPage() {
           </div>
           {status ? (
             <Link
-              href={`/projects/new?projectId=${encodeURIComponent(projectId)}&status=${encodeURIComponent(status)}`}
+              href={`/issue/new?projectId=${encodeURIComponent(projectId)}&status=${encodeURIComponent(status)}`}
               className="rounded-md px-2 py-1 text-sm font-extrabold text-slate-600 hover:bg-slate-100"
               title="課題の追加"
             >
@@ -322,8 +307,8 @@ export default function ProjectBoardPage() {
       projectId={projectId}
       headerRight={
         <Link
-          href={`/projects/new?projectId=${encodeURIComponent(projectId)}`}
-          className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-emerald-700"
+          href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
+          className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
         >
           課題の追加
         </Link>
@@ -342,7 +327,7 @@ export default function ProjectBoardPage() {
           {!hideFilters && (
             <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-                <div className="md:col-span-4">
+                <div className="md:col-span-6">
                   <div className="text-xs font-extrabold text-slate-500">カテゴリ</div>
                   <select
                     value={categoryFilter}
@@ -355,20 +340,7 @@ export default function ProjectBoardPage() {
                     ))}
                   </select>
                 </div>
-                <div className="md:col-span-4">
-                  <div className="text-xs font-extrabold text-slate-500">マイルストーン</div>
-                  <select
-                    value={milestoneFilter}
-                    onChange={(e) => setMilestoneFilter(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  >
-                    <option value="">すべて</option>
-                    {milestones.map(m => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="md:col-span-4">
+                <div className="md:col-span-6">
                   <div className="text-xs font-extrabold text-slate-500">担当者</div>
                   <select
                     value={assigneeFilter}
@@ -389,7 +361,7 @@ export default function ProjectBoardPage() {
           <div className="flex gap-4 overflow-x-auto pb-4">
             <Lane title="未対応" count={lanes.todo.length} colorDot="bg-rose-500" status="TODO" items={lanes.todo} />
             <Lane title="処理中" count={lanes.prog.length} colorDot="bg-sky-500" status="IN_PROGRESS" items={lanes.prog} />
-            <Lane title="処理済み" count={lanes.done.length} colorDot="bg-emerald-500" status="DONE" items={lanes.done} />
+            <Lane title="処理済み" count={lanes.done.length} colorDot="bg-orange-500" status="DONE" items={lanes.done} />
             <Lane title="[危険] 納期遅れ中" count={overdue.length} colorDot="bg-red-600" items={overdue} allowDrop={false} />
           </div>
 

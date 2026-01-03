@@ -148,7 +148,7 @@ function NewIssueInner() {
       
       if (initial) {
         // プロジェクトが選択されている場合は新しいURLにリダイレクト
-        router.replace(`/projects/new?projectId=${encodeURIComponent(initial)}${statusParam ? `&status=${encodeURIComponent(statusParam)}` : ""}`);
+        router.replace(`/issue/new?projectId=${encodeURIComponent(initial)}${statusParam ? `&status=${encodeURIComponent(statusParam)}` : ""}`);
         return;
       }
 
@@ -329,7 +329,7 @@ function NewIssueInner() {
             disabled={saving}
             className={clsx(
               "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-              saving ? "bg-emerald-400" : "bg-emerald-600 hover:bg-emerald-700",
+              saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700",
             )}
           >
             {saving ? "追加中..." : "追加"}
@@ -343,7 +343,7 @@ function NewIssueInner() {
         <select
           value={projectId}
           onChange={(e) => handleProjectChange(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold outline-none focus:ring-1 focus:ring-emerald-500"
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
         >
           {projects.map((p) => (
             <option key={p.id} value={p.id}>
@@ -367,7 +367,7 @@ function NewIssueInner() {
                   <select
                     value={priority}
                     onChange={(e) => setPriority(e.target.value as Issue["priority"])}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                   >
                     {ISSUE_PRIORITIES.map(p => (
                       <option key={p.value} value={p.value}>{p.label}</option>
@@ -389,7 +389,7 @@ function NewIssueInner() {
                   <input
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-emerald-300 bg-emerald-50/30 px-3 py-3 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500"
+                    className="mt-1 w-full rounded-md border border-orange-300 bg-orange-50/30 px-3 py-3 text-sm font-bold text-slate-900 outline-none focus:border-orange-500"
                     placeholder="件名"
                   />
                 </div>
@@ -438,7 +438,7 @@ function NewIssueInner() {
                       <select
                         value={status}
                         onChange={(e) => setStatus(e.target.value as Issue["status"])}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                       >
                         {ISSUE_STATUSES.map(s => (
                           <option key={s.value} value={s.value}>{s.label}</option>
@@ -460,7 +460,7 @@ function NewIssueInner() {
                       <select
                         value={assigneeUid}
                         onChange={(e) => setAssigneeUid(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                       >
                         <option value="">未割当</option>
                         <option value={user.uid}>{myDisplayName}</option>
@@ -480,7 +480,7 @@ function NewIssueInner() {
                         type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                       />
                     </div>
 
@@ -490,7 +490,7 @@ function NewIssueInner() {
                         type="date"
                         value={dueDate}
                         onChange={(e) => setDueDate(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                       />
                     </div>
 
@@ -499,7 +499,7 @@ function NewIssueInner() {
                       <input
                         value={estimateHours}
                         onChange={(e) => setEstimateHours(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                         placeholder={toHoursText(60)}
                       />
                     </div>
@@ -509,7 +509,7 @@ function NewIssueInner() {
                       <input
                         value={labelsText}
                         onChange={(e) => setLabelsText(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                         placeholder="例: フロント,急ぎ"
                       />
                       {labelList.length > 0 && (
@@ -528,7 +528,7 @@ function NewIssueInner() {
                       <select
                         value={parentIssueId}
                         onChange={(e) => setParentIssueId(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                       >
                         <option value="">なし</option>
                         {issuesInProject.map((i) => (
@@ -556,7 +556,7 @@ function NewIssueInner() {
               disabled={saving}
               className={clsx(
                 "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-                saving ? "bg-emerald-400" : "bg-emerald-600 hover:bg-emerald-700",
+                saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700",
               )}
             >
               {saving ? "追加中..." : "追加"}
@@ -571,7 +571,7 @@ export default function NewIssuePage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-slate-50">
-          <div className="text-2xl font-bold text-emerald-800">読み込み中...</div>
+          <div className="text-2xl font-bold text-orange-800">読み込み中...</div>
         </div>
       }
     >

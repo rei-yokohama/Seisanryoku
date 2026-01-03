@@ -5,9 +5,9 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { addDoc, collection, doc, getDoc, getDocs, query, Timestamp, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { auth, db } from "../../../lib/firebase";
-import { logActivity } from "../../../lib/activity";
-import { AppShell } from "../../AppShell";
+import { auth, db } from "../../../../lib/firebase";
+import { logActivity } from "../../../../lib/activity";
+import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
   uid: string;
@@ -36,6 +36,7 @@ function DealNewInner() {
 
   const [customerId, setCustomerId] = useState("");
   const [title, setTitle] = useState("");
+  const [genre, setGenre] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<DealStatus>("ACTIVE");
   const [saving, setSaving] = useState(false);
@@ -113,6 +114,7 @@ function DealNewInner() {
         createdBy: user.uid,
         customerId,
         title: t,
+        genre: genre.trim() || "",
         description: description.trim() || "",
         status,
         createdAt: Timestamp.now(),
@@ -123,9 +125,9 @@ function DealNewInner() {
         actorUid: user.uid,
         type: "DEAL_CREATED",
         message: `案件を作成しました: ${t}（顧客: ${customerName || "未設定"}）`,
-        link: "/deals",
+        link: "/projects",
       });
-      router.push("/deals");
+      router.push("/projects");
     } catch (e: any) {
       setError(e?.message || "作成に失敗しました");
     } finally {
@@ -137,7 +139,7 @@ function DealNewInner() {
     return (
       <AppShell title="案件の追加" subtitle="Deal creation">
         <div className="flex min-h-[60vh] items-center justify-center">
-          <div className="text-2xl font-extrabold text-emerald-900">読み込み中...</div>
+          <div className="text-2xl font-extrabold text-orange-900">読み込み中...</div>
         </div>
       </AppShell>
     );
@@ -150,7 +152,7 @@ function DealNewInner() {
       title="案件の追加"
       subtitle="Deal creation"
       headerRight={
-        <Link href="/deals" className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900 hover:bg-emerald-50">
+        <Link href="/projects" className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 hover:bg-orange-50">
           ← 案件一覧
         </Link>
       }
@@ -166,7 +168,7 @@ function DealNewInner() {
                   <select
                     value={customerId}
                     onChange={(e) => setCustomerId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 sm:flex-1"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 sm:flex-1"
                   >
                     {customers.length === 0 ? <option value="">顧客がありません（先に顧客を追加）</option> : null}
                     {customers.map((c) => (
@@ -189,8 +191,18 @@ function DealNewInner() {
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                   placeholder="例：〇〇システム開発"
+                />
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm font-bold text-slate-700">案件ジャンル</div>
+                <input
+                  value={genre}
+                  onChange={(e) => setGenre(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  placeholder="例：開発 / 広告 / 相談 / 運用"
                 />
               </div>
 
@@ -199,7 +211,7 @@ function DealNewInner() {
                 <select
                   value={status}
                   onChange={(e) => setStatus(e.target.value as DealStatus)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800 outline-none"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
                 >
                   <option value="ACTIVE">稼働中</option>
                   <option value="INACTIVE">停止</option>
@@ -211,20 +223,20 @@ function DealNewInner() {
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="h-32 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  className="h-32 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                   placeholder="案件の背景・範囲・注意点など"
                 />
               </div>
             </div>
 
             <div className="mt-6 flex items-center justify-end gap-3">
-              <Link href="/deals" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+              <Link href="/projects" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
                 キャンセル
               </Link>
               <button
                 onClick={handleSubmit}
                 disabled={saving || customers.length === 0}
-                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-emerald-950 hover:bg-emerald-600 disabled:bg-emerald-300"
+                className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
               >
                 {saving ? "作成中..." : "作成"}
               </button>
@@ -240,7 +252,7 @@ export default function DealNewPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-slate-50">
-          <div className="text-2xl font-bold text-emerald-800">読み込み中...</div>
+          <div className="text-2xl font-bold text-orange-800">読み込み中...</div>
         </div>
       }
     >

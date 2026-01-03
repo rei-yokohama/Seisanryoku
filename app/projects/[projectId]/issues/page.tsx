@@ -27,11 +27,6 @@ function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function getMilestoneFromIssue(i: Issue) {
-  // MVP: dueDate の YYYY-MM をマイルストーン扱い
-  return i.dueDate ? String(i.dueDate).slice(0, 7) : "";
-}
-
 function getCategoryFromIssue(i: Issue) {
   // MVP: labelsの先頭をカテゴリ扱い
   return (i.labels && i.labels[0]) ? String(i.labels[0]) : "";
@@ -55,7 +50,6 @@ export default function ProjectIssuesPage() {
   const [assigneeFilter, setAssigneeFilter] = useState<string>(""); // authUid
   const [priorityFilter, setPriorityFilter] = useState<string>(""); // IssuePriority
   const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [milestoneFilter, setMilestoneFilter] = useState<string>("");
   const [keyword, setKeyword] = useState<string>("");
 
   const [page, setPage] = useState(1);
@@ -135,15 +129,6 @@ export default function ProjectIssuesPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [issues]);
 
-  const milestones = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of issues) {
-      const m = getMilestoneFromIssue(i);
-      if (m) set.add(m);
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [issues]);
-
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
     const out = issues.filter(i => {
@@ -152,7 +137,6 @@ export default function ProjectIssuesPage() {
       if (assigneeFilter && (i.assigneeUid || "") !== assigneeFilter) return false;
       if (priorityFilter && i.priority !== priorityFilter) return false;
       if (categoryFilter && getCategoryFromIssue(i) !== categoryFilter) return false;
-      if (milestoneFilter && getMilestoneFromIssue(i) !== milestoneFilter) return false;
       if (k) {
         const hay = `${i.issueKey} ${i.title} ${i.description || ""} ${(i.labels || []).join(" ")}`.toLowerCase();
         if (!hay.includes(k)) return false;
@@ -160,7 +144,7 @@ export default function ProjectIssuesPage() {
       return true;
     });
     return out;
-  }, [issues, statusFilter, assigneeFilter, priorityFilter, categoryFilter, milestoneFilter, keyword]);
+  }, [issues, statusFilter, assigneeFilter, priorityFilter, categoryFilter, keyword]);
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -170,7 +154,7 @@ export default function ProjectIssuesPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, assigneeFilter, priorityFilter, categoryFilter, milestoneFilter, keyword]);
+  }, [statusFilter, assigneeFilter, priorityFilter, categoryFilter, keyword]);
 
   if (loading) {
     return (
@@ -191,8 +175,8 @@ export default function ProjectIssuesPage() {
       projectId={projectId}
       headerRight={
         <Link
-          href={`/projects/new?projectId=${encodeURIComponent(projectId)}`}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition"
+          href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
+          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition"
         >
           課題を追加
         </Link>
@@ -204,7 +188,7 @@ export default function ProjectIssuesPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <div className="text-sm font-extrabold text-slate-900">検索条件</div>
-                <button className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white">
+                <button className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-extrabold text-white">
                   シンプルな検索
                 </button>
                 <button className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700">
@@ -224,7 +208,7 @@ export default function ProjectIssuesPage() {
             <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-extrabold text-slate-700">
               <button
                 onClick={() => setStatusFilter("ALL")}
-                className={clsx("rounded-full px-3 py-1.5", statusFilter === "ALL" ? "bg-emerald-600 text-white" : "bg-slate-100")}
+                className={clsx("rounded-full px-3 py-1.5", statusFilter === "ALL" ? "bg-orange-600 text-white" : "bg-slate-100")}
               >
                 すべて
               </button>
@@ -232,14 +216,14 @@ export default function ProjectIssuesPage() {
                 <button
                   key={s.value}
                   onClick={() => setStatusFilter(s.value)}
-                  className={clsx("rounded-full px-3 py-1.5", statusFilter === s.value ? "bg-emerald-600 text-white" : "bg-slate-100")}
+                  className={clsx("rounded-full px-3 py-1.5", statusFilter === s.value ? "bg-orange-600 text-white" : "bg-slate-100")}
                 >
                   {s.label}
                 </button>
               ))}
               <button
                 onClick={() => setStatusFilter("NOT_DONE")}
-                className={clsx("rounded-full px-3 py-1.5", statusFilter === "NOT_DONE" ? "bg-emerald-600 text-white" : "bg-slate-100")}
+                className={clsx("rounded-full px-3 py-1.5", statusFilter === "NOT_DONE" ? "bg-orange-600 text-white" : "bg-slate-100")}
               >
                 完了以外
               </button>
@@ -256,20 +240,6 @@ export default function ProjectIssuesPage() {
                   <option value="">すべて</option>
                   {categories.map(c => (
                     <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="md:col-span-3">
-                <div className="text-xs font-extrabold text-slate-500">マイルストーン</div>
-                <select
-                  value={milestoneFilter}
-                  onChange={(e) => setMilestoneFilter(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                >
-                  <option value="">すべて</option>
-                  {milestones.map(m => (
-                    <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
               </div>
@@ -346,7 +316,6 @@ export default function ProjectIssuesPage() {
                     <th className="px-4 py-3 text-left">カテゴリ</th>
                     <th className="px-4 py-3 text-left">優先度</th>
                     <th className="px-4 py-3 text-left">発生バージョン</th>
-                    <th className="px-4 py-3 text-left">マイルストーン</th>
                     <th className="px-4 py-3 text-left">開始日</th>
                     <th className="px-4 py-3 text-left">期限日</th>
                   </tr>
@@ -363,10 +332,9 @@ export default function ProjectIssuesPage() {
                       const st = ISSUE_STATUSES.find(s => s.value === i.status)?.label || i.status;
                       const pr = ISSUE_PRIORITIES.find(p => p.value === i.priority)?.label || i.priority;
                       const cat = getCategoryFromIssue(i);
-                      const ms = getMilestoneFromIssue(i);
                       return (
                         <tr key={i.id} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-extrabold text-emerald-700">
+                          <td className="px-4 py-3 font-extrabold text-orange-700">
                             <Link href={`/projects/${projectId}/issues/${i.id}`} className="hover:underline">
                               {i.issueKey}
                             </Link>
@@ -380,7 +348,7 @@ export default function ProjectIssuesPage() {
                           <td className="px-4 py-3">
                             <span className={clsx(
                               "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
-                              i.status === "DONE" ? "bg-emerald-100 text-emerald-700" :
+                              i.status === "DONE" ? "bg-orange-100 text-orange-700" :
                               i.status === "IN_PROGRESS" ? "bg-sky-100 text-sky-700" :
                               "bg-rose-100 text-rose-700",
                             )}>
@@ -390,7 +358,6 @@ export default function ProjectIssuesPage() {
                           <td className="px-4 py-3 text-slate-700">{cat || "-"}</td>
                           <td className="px-4 py-3 text-slate-700">{pr}</td>
                           <td className="px-4 py-3 text-slate-400">-</td>
-                          <td className="px-4 py-3 text-slate-700">{ms || "-"}</td>
                           <td className="px-4 py-3 text-slate-700">{i.startDate || "-"}</td>
                           <td className="px-4 py-3 text-slate-700">{i.dueDate || "-"}</td>
                         </tr>
@@ -423,7 +390,7 @@ export default function ProjectIssuesPage() {
                     onClick={() => setPage(n)}
                     className={clsx(
                       "h-8 w-8 rounded-full text-xs font-extrabold",
-                      n === pageSafe ? "bg-emerald-600 text-white" : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50",
+                      n === pageSafe ? "bg-orange-600 text-white" : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50",
                     )}
                   >
                     {n}

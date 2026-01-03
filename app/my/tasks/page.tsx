@@ -91,7 +91,7 @@ function TasksInner() {
     return (
       <AppShell title="自分のタスク" subtitle="Tasks">
         <div className="flex min-h-[60vh] items-center justify-center">
-          <div className="text-2xl font-extrabold text-emerald-900">読み込み中...</div>
+          <div className="text-2xl font-extrabold text-orange-900">読み込み中...</div>
         </div>
       </AppShell>
     );
@@ -103,28 +103,28 @@ function TasksInner() {
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-emerald-700">Backlog（案件・タスク管理）</div>
-            <h1 className="text-3xl font-bold text-emerald-950">自分のタスク</h1>
-            <div className="mt-1 text-xs text-emerald-700">
-              会社: <span className="font-semibold text-emerald-900">{profile?.companyCode || "-"}</span>
+            <div className="text-sm font-semibold text-orange-700">Backlog（案件・タスク管理）</div>
+            <h1 className="text-3xl font-bold text-orange-950">自分のタスク</h1>
+            <div className="mt-1 text-xs text-orange-700">
+              会社: <span className="font-semibold text-orange-900">{profile?.companyCode || "-"}</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <Link
               href="/projects"
-              className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-extrabold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+              className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-extrabold text-orange-950 shadow-lg transition hover:scale-[1.02]"
             >
               ＋ タスクを追加
             </Link>
             <Link
               href="/projects"
-              className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900 shadow-sm transition hover:shadow"
+              className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 shadow-sm transition hover:shadow"
             >
               プロジェクト一覧
             </Link>
             <Link
               href="/calendar"
-              className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900 shadow-sm transition hover:shadow"
+              className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 shadow-sm transition hover:shadow"
             >
               カレンダーへ
             </Link>
@@ -135,7 +135,7 @@ function TasksInner() {
           <button
             onClick={() => setStatusFilter("ALL")}
             className={`rounded-full px-3 py-1 text-xs font-bold ${
-              status === "ALL" ? "bg-emerald-900 text-white" : "bg-emerald-100 text-emerald-900"
+              status === "ALL" ? "bg-orange-900 text-white" : "bg-orange-100 text-orange-900"
             }`}
           >
             全て
@@ -145,7 +145,7 @@ function TasksInner() {
               key={s.value}
               onClick={() => setStatusFilter(s.value)}
               className={`rounded-full px-3 py-1 text-xs font-bold ${
-                status === s.value ? "bg-emerald-900 text-white" : "bg-emerald-100 text-emerald-900"
+                status === s.value ? "bg-orange-900 text-white" : "bg-orange-100 text-orange-900"
               }`}
             >
               {s.label}
@@ -154,13 +154,13 @@ function TasksInner() {
         </div>
 
         {filtered.length === 0 ? (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-8 text-emerald-800">
-            <div className="text-lg font-bold text-emerald-950">担当タスクがありません</div>
+          <div className="rounded-2xl border-2 border-orange-200 bg-white p-8 text-orange-800">
+            <div className="text-lg font-bold text-orange-950">担当タスクがありません</div>
             <div className="mt-2 text-sm">管理者がタスクを割り当てると、ここに表示されます。</div>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border-2 border-emerald-200 bg-white">
-            <div className="grid grid-cols-12 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-900">
+          <div className="overflow-hidden rounded-2xl border-2 border-orange-200 bg-white">
+            <div className="grid grid-cols-12 bg-orange-50 px-4 py-3 text-xs font-bold text-orange-900">
               <div className="col-span-2">キー</div>
               <div className="col-span-4">タイトル</div>
               <div className="col-span-2">状態</div>
@@ -172,18 +172,18 @@ function TasksInner() {
               const statusLabel = ISSUE_STATUSES.find(s => s.value === i.status)?.label || i.status;
               const prioLabel = ISSUE_PRIORITIES.find(p => p.value === i.priority)?.label || i.priority;
               return (
-                <div key={i.id} className="grid grid-cols-12 items-center border-t border-emerald-100 px-4 py-3 text-sm">
-                  <div className="col-span-2 font-bold text-emerald-900">{i.issueKey}</div>
-                  <div className="col-span-4 text-emerald-950">{i.title}</div>
-                  <div className="col-span-2 text-emerald-800">{statusLabel}</div>
-                  <div className="col-span-2 text-emerald-800">{prioLabel}</div>
+                <div key={i.id} className="grid grid-cols-12 items-center border-t border-orange-100 px-4 py-3 text-sm">
+                  <div className="col-span-2 font-bold text-orange-900">{i.issueKey}</div>
+                  <div className="col-span-4 text-orange-950">{i.title}</div>
+                  <div className="col-span-2 text-orange-800">{statusLabel}</div>
+                  <div className="col-span-2 text-orange-800">{prioLabel}</div>
                   <div className="col-span-2">
                     {proj ? (
-                      <Link href={`/projects/${proj.id}`} className="font-bold text-emerald-900 underline">
+                      <Link href={`/projects/${proj.id}`} className="font-bold text-orange-900 underline">
                         {proj.key}
                       </Link>
                     ) : (
-                      <span className="text-emerald-600">-</span>
+                      <span className="text-orange-600">-</span>
                     )}
                   </div>
                 </div>
@@ -201,7 +201,7 @@ export default function TasksPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-slate-50">
-          <div className="text-2xl font-bold text-emerald-900">読み込み中...</div>
+          <div className="text-2xl font-bold text-orange-900">読み込み中...</div>
         </div>
       }
     >

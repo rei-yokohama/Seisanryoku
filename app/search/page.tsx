@@ -18,7 +18,7 @@ function SearchInner() {
         <div className="mt-4">
           <Link
             href="/dashboard"
-            className="text-sm font-bold text-emerald-700 hover:underline"
+            className="text-sm font-bold text-orange-700 hover:underline"
           >
             ダッシュボードに戻る
           </Link>

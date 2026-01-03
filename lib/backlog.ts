@@ -31,6 +31,7 @@ export type Issue = {
   id: string;
   companyCode: string;
   projectId: string;
+  customerId?: string; // 顧客紐づけ（必須運用に変更。既存データ互換のため optional）
   issueKey: string; // e.g. "SEI-12"
   title: string;
   description?: string;
@@ -43,6 +44,7 @@ export type Issue = {
   dueDate?: string; // YYYY-MM-DD
   estimateMinutes?: number;
   parentIssueId?: string | null;
+  archivedAt?: Timestamp | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };

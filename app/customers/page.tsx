@@ -1,5 +1,1 @@
-import { redirect } from "next/navigation";
-
-export default function CustomersRedirect() {
-  redirect("/crm/customers");
-}
+export { default } from "../crm/customers/page";

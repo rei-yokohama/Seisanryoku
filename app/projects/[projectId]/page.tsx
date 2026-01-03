@@ -573,8 +573,8 @@ function ProjectDetailInner() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-50 to-emerald-100">
-        <div className="text-2xl font-bold text-emerald-900">読み込み中...</div>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100">
+        <div className="text-2xl font-bold text-orange-900">読み込み中...</div>
       </div>
     );
   }
@@ -582,12 +582,12 @@ function ProjectDetailInner() {
 
   if (!project) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-emerald-50 to-emerald-50">
+      <div className="min-h-screen bg-gradient-to-br from-orange-50 to-orange-50">
         <div className="mx-auto max-w-4xl px-6 py-10">
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-8">
-            <div className="text-xl font-bold text-emerald-950">プロジェクトが見つかりません</div>
+          <div className="rounded-2xl border-2 border-orange-200 bg-white p-8">
+            <div className="text-xl font-bold text-orange-950">プロジェクトが見つかりません</div>
             <div className="mt-4">
-              <Link href="/projects" className="font-bold text-emerald-900 underline">
+              <Link href="/projects" className="font-bold text-orange-900 underline">
                 ← プロジェクト一覧へ
               </Link>
             </div>
@@ -606,7 +606,7 @@ function ProjectDetailInner() {
         <div className="mx-auto flex max-w-[1400px] items-center gap-4 px-4 py-3">
           <Link
             href={`/dashboard?projectId=${encodeURIComponent(projectId)}`}
-            className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white font-extrabold"
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange-600 text-white font-extrabold"
           >
             B
           </Link>
@@ -622,8 +622,8 @@ function ProjectDetailInner() {
           </div>
           <div className="flex flex-1" />
             <Link
-              href={`/projects/new?projectId=${encodeURIComponent(projectId)}`}
-              className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-emerald-700"
+              href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
+              className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
             >
               課題の追加
             </Link>
@@ -632,7 +632,7 @@ function ProjectDetailInner() {
 
       <div className="mx-auto flex max-w-[1400px]">
         {/* Left Sidebar（全リンクを実在ルートへ統一） */}
-        <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-emerald-600 text-white md:block">
+        <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-orange-600 text-white md:block">
           <div className="px-4 py-4">
             <div className="flex items-center justify-between">
               <div className="font-extrabold">☰</div>
@@ -644,7 +644,7 @@ function ProjectDetailInner() {
             <Link href={`/projects/${projectId}/home`} className="mx-2 flex items-center gap-2 rounded-lg px-3 py-3 text-sm font-bold hover:bg-white/15">
               🏠 ホーム
             </Link>
-            <Link href={`/projects/new?projectId=${encodeURIComponent(projectId)}`} className="mx-2 mt-1 flex items-center gap-2 rounded-lg px-3 py-3 text-sm font-bold hover:bg-white/15">
+            <Link href={`/issue/new?projectId=${encodeURIComponent(projectId)}`} className="mx-2 mt-1 flex items-center gap-2 rounded-lg px-3 py-3 text-sm font-bold hover:bg-white/15">
               ➕ 課題の追加
             </Link>
             <Link href={`/projects/${projectId}/issues`} className="mx-2 mt-1 flex items-center gap-2 rounded-lg bg-white/20 px-3 py-3 text-sm font-extrabold">
@@ -675,31 +675,31 @@ function ProjectDetailInner() {
           <div className="mx-auto max-w-7xl px-2">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs font-bold text-emerald-700">{project.key}</div>
-            <h1 className="text-3xl font-bold text-emerald-950">{project.name}</h1>
+            <div className="text-xs font-bold text-orange-700">{project.key}</div>
+            <h1 className="text-3xl font-bold text-orange-950">{project.name}</h1>
             {project.description ? (
-              <div className="mt-2 max-w-3xl text-sm text-emerald-800">{project.description}</div>
+              <div className="mt-2 max-w-3xl text-sm text-orange-800">{project.description}</div>
             ) : null}
-            <div className="mt-2 text-xs text-emerald-700">
-              会社: <span className="font-semibold text-emerald-900">{profile.companyCode}</span>
+            <div className="mt-2 text-xs text-orange-700">
+              会社: <span className="font-semibold text-orange-900">{profile.companyCode}</span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link
               href="/projects"
-              className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900 shadow-sm transition hover:shadow"
+              className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 shadow-sm transition hover:shadow"
             >
               ← 一覧へ
             </Link>
             <Link
               href="/my/tasks"
-              className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900 shadow-sm transition hover:shadow"
+              className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 shadow-sm transition hover:shadow"
             >
               自分のタスク
             </Link>
             <button
               onClick={openCreateIssue}
-              className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+              className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-bold text-orange-950 shadow-lg transition hover:scale-[1.02]"
             >
               + 課題を追加
             </button>
@@ -722,7 +722,7 @@ function ProjectDetailInner() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`rounded-full px-4 py-2 text-sm font-bold ${
-                tab === t.key ? "bg-emerald-900 text-white" : "bg-emerald-100 text-emerald-900"
+                tab === t.key ? "bg-orange-900 text-white" : "bg-orange-100 text-orange-900"
               }`}
             >
               {t.label}
@@ -732,8 +732,8 @@ function ProjectDetailInner() {
 
         {/* Content */}
         {tab === "issues" && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white">
-            <div className="grid grid-cols-12 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-900">
+          <div className="rounded-2xl border-2 border-orange-200 bg-white">
+            <div className="grid grid-cols-12 bg-orange-50 px-4 py-3 text-xs font-bold text-orange-900">
               <div className="col-span-2">キー</div>
               <div className="col-span-4">タイトル</div>
               <div className="col-span-2">状態</div>
@@ -741,7 +741,7 @@ function ProjectDetailInner() {
               <div className="col-span-2">担当</div>
             </div>
             {issues.length === 0 ? (
-              <div className="p-6 text-sm text-emerald-800">課題がありません。右上から追加できます。</div>
+              <div className="p-6 text-sm text-orange-800">課題がありません。右上から追加できます。</div>
             ) : (
               issues.map((i) => {
                 const statusLabel = ISSUE_STATUSES.find(s => s.value === i.status)?.label || i.status;
@@ -752,14 +752,14 @@ function ProjectDetailInner() {
                 return (
                   <div
                     key={i.id}
-                    className="grid cursor-pointer grid-cols-12 items-center border-t border-emerald-100 px-4 py-3 text-sm hover:bg-emerald-50"
+                    className="grid cursor-pointer grid-cols-12 items-center border-t border-orange-100 px-4 py-3 text-sm hover:bg-orange-50"
                     onClick={() => openIssueDetail(i)}
                   >
-                    <div className="col-span-2 font-bold text-emerald-900">{i.issueKey}</div>
-                    <div className="col-span-4 text-emerald-950">{i.title}</div>
-                    <div className="col-span-2 text-emerald-800">{statusLabel}</div>
-                    <div className="col-span-2 text-emerald-800">{prioLabel}</div>
-                    <div className="col-span-2 text-emerald-800">{assigneeName}</div>
+                    <div className="col-span-2 font-bold text-orange-900">{i.issueKey}</div>
+                    <div className="col-span-4 text-orange-950">{i.title}</div>
+                    <div className="col-span-2 text-orange-800">{statusLabel}</div>
+                    <div className="col-span-2 text-orange-800">{prioLabel}</div>
+                    <div className="col-span-2 text-orange-800">{assigneeName}</div>
                   </div>
                 );
               })
@@ -770,27 +770,27 @@ function ProjectDetailInner() {
         {tab === "board" && (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {ISSUE_STATUSES.map((s) => (
-              <div key={s.value} className="rounded-2xl border-2 border-emerald-200 bg-white">
-                <div className="flex items-center justify-between border-b border-emerald-100 bg-emerald-50 px-4 py-3">
-                  <div className="text-sm font-bold text-emerald-950">{s.label}</div>
-                  <div className="rounded-full bg-emerald-200 px-2 py-0.5 text-xs font-bold text-emerald-900">
+              <div key={s.value} className="rounded-2xl border-2 border-orange-200 bg-white">
+                <div className="flex items-center justify-between border-b border-orange-100 bg-orange-50 px-4 py-3">
+                  <div className="text-sm font-bold text-orange-950">{s.label}</div>
+                  <div className="rounded-full bg-orange-200 px-2 py-0.5 text-xs font-bold text-orange-900">
                     {groupedByStatus[s.value].length}
                   </div>
                 </div>
                 <div className="space-y-2 p-3">
                   {groupedByStatus[s.value].length === 0 ? (
-                    <div className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700">なし</div>
+                    <div className="rounded-xl bg-orange-50 px-3 py-2 text-xs text-orange-700">なし</div>
                   ) : (
                     groupedByStatus[s.value].map((i) => (
                       <button
                         key={i.id}
                         onClick={() => openIssueDetail(i)}
-                        className="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-left shadow-sm transition hover:shadow"
+                        className="w-full rounded-xl border border-orange-200 bg-white px-3 py-2 text-left shadow-sm transition hover:shadow"
                       >
-                        <div className="text-xs font-bold text-emerald-700">{i.issueKey}</div>
-                        <div className="mt-0.5 text-sm font-semibold text-emerald-950">{i.title}</div>
+                        <div className="text-xs font-bold text-orange-700">{i.issueKey}</div>
+                        <div className="mt-0.5 text-sm font-semibold text-orange-950">{i.title}</div>
                         {i.dueDate ? (
-                          <div className="mt-1 text-xs text-emerald-700">期限: {i.dueDate}</div>
+                          <div className="mt-1 text-xs text-orange-700">期限: {i.dueDate}</div>
                         ) : null}
                       </button>
                     ))
@@ -802,9 +802,9 @@ function ProjectDetailInner() {
         )}
 
         {tab === "gantt" && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-5">
-            <div className="mb-3 text-sm font-bold text-emerald-950">
-              ガント（今月） <span className="ml-2 text-xs text-emerald-700">※MVP: 期限/開始日がある課題のみ</span>
+          <div className="rounded-2xl border-2 border-orange-200 bg-white p-5">
+            <div className="mb-3 text-sm font-bold text-orange-950">
+              ガント（今月） <span className="ml-2 text-xs text-orange-700">※MVP: 期限/開始日がある課題のみ</span>
             </div>
             <div className="space-y-3">
               {issues
@@ -817,63 +817,63 @@ function ProjectDetailInner() {
                   const right = Math.min(total - 1, (due.getTime() - ganttRange.start.getTime()) / 86400000) / total;
                   const width = Math.max(0.02, right - left + 1 / total);
                   return (
-                    <div key={i.id} className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                    <div key={i.id} className="rounded-xl border border-orange-200 bg-orange-50 p-3">
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-xs font-bold text-emerald-700">{i.issueKey}</div>
-                          <div className="truncate text-sm font-semibold text-emerald-950">{i.title}</div>
+                          <div className="text-xs font-bold text-orange-700">{i.issueKey}</div>
+                          <div className="truncate text-sm font-semibold text-orange-950">{i.title}</div>
                         </div>
                         <button
                           onClick={() => openIssueDetail(i)}
-                          className="shrink-0 rounded-lg bg-white px-3 py-1 text-xs font-bold text-emerald-900"
+                          className="shrink-0 rounded-lg bg-white px-3 py-1 text-xs font-bold text-orange-900"
                         >
                           開く
                         </button>
                       </div>
                       <div className="mt-2 h-3 w-full rounded-full bg-white">
                         <div
-                          className="h-3 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500"
+                          className="h-3 rounded-full bg-gradient-to-r from-orange-400 to-orange-500"
                           style={{ marginLeft: `${left * 100}%`, width: `${width * 100}%` }}
                         />
                       </div>
-                      <div className="mt-1 text-xs text-emerald-700">
+                      <div className="mt-1 text-xs text-orange-700">
                         {i.startDate ? `開始: ${i.startDate}` : "開始: -"} / {i.dueDate ? `期限: ${i.dueDate}` : "期限: -"}
                       </div>
                     </div>
                   );
                 })}
               {issues.filter(i => i.startDate || i.dueDate).length === 0 && (
-                <div className="text-sm text-emerald-700">開始日または期限がある課題がありません。</div>
+                <div className="text-sm text-orange-700">開始日または期限がある課題がありません。</div>
               )}
             </div>
           </div>
         )}
 
         {tab === "wiki" && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-5">
+          <div className="rounded-2xl border-2 border-orange-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
-              <div className="text-sm font-bold text-emerald-950">Wiki</div>
+              <div className="text-sm font-bold text-orange-950">Wiki</div>
               <button
                 onClick={openNewWiki}
-                className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+                className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-bold text-orange-950 shadow-lg transition hover:scale-[1.02]"
               >
                 + 新規ページ
               </button>
             </div>
             <div className="space-y-2">
               {wikiPages.length === 0 ? (
-                <div className="text-sm text-emerald-700">Wikiページがありません。</div>
+                <div className="text-sm text-orange-700">Wikiページがありません。</div>
               ) : (
                 wikiPages.map((w) => (
-                  <div key={w.id} className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div key={w.id} className="flex items-center justify-between rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-emerald-950">{w.title}</div>
-                      <div className="truncate text-xs text-emerald-700">slug: {w.slug}</div>
+                      <div className="truncate text-sm font-bold text-orange-950">{w.title}</div>
+                      <div className="truncate text-xs text-orange-700">slug: {w.slug}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => openEditWiki(w)}
-                        className="rounded-lg bg-white px-3 py-1 text-xs font-bold text-emerald-900"
+                        className="rounded-lg bg-white px-3 py-1 text-xs font-bold text-orange-900"
                       >
                         編集
                       </button>
@@ -892,11 +892,11 @@ function ProjectDetailInner() {
         )}
 
         {tab === "files" && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-5">
+          <div className="rounded-2xl border-2 border-orange-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <div className="text-sm font-bold text-emerald-950">ファイル共有</div>
-                <div className="mt-1 text-xs text-emerald-700">
+                <div className="text-sm font-bold text-orange-950">ファイル共有</div>
+                <div className="mt-1 text-xs text-orange-700">
                   ※MVP: URL/メタデータ保存。実ファイルアップロードはFirebase Storage接続で拡張できます。
                 </div>
               </div>
@@ -907,7 +907,7 @@ function ProjectDetailInner() {
                   setFileUrl("");
                   setShowFileModal(true);
                 }}
-                className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+                className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-bold text-orange-950 shadow-lg transition hover:scale-[1.02]"
               >
                 + 追加
               </button>
@@ -915,18 +915,18 @@ function ProjectDetailInner() {
 
             <div className="space-y-2">
               {files.length === 0 ? (
-                <div className="text-sm text-emerald-700">ファイルがありません。</div>
+                <div className="text-sm text-orange-700">ファイルがありません。</div>
               ) : (
                 files.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                  <div key={f.id} className="flex items-center justify-between rounded-xl border border-orange-200 bg-orange-50 px-4 py-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-emerald-950">{f.name}</div>
+                      <div className="truncate text-sm font-bold text-orange-950">{f.name}</div>
                       {f.url ? (
-                        <a href={f.url} target="_blank" rel="noreferrer" className="truncate text-xs font-semibold text-emerald-900 underline">
+                        <a href={f.url} target="_blank" rel="noreferrer" className="truncate text-xs font-semibold text-orange-900 underline">
                           {f.url}
                         </a>
                       ) : (
-                        <div className="text-xs text-emerald-700">URLなし</div>
+                        <div className="text-xs text-orange-700">URLなし</div>
                       )}
                     </div>
                     <button
@@ -943,25 +943,25 @@ function ProjectDetailInner() {
         )}
 
         {tab === "overview" && (
-          <div className="rounded-2xl border-2 border-emerald-200 bg-white p-6">
-            <div className="text-sm font-bold text-emerald-950">概要</div>
+          <div className="rounded-2xl border-2 border-orange-200 bg-white p-6">
+            <div className="text-sm font-bold text-orange-950">概要</div>
             <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-xs font-bold text-emerald-700">課題数</div>
-                <div className="mt-1 text-2xl font-extrabold text-emerald-950">{issues.length}</div>
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                <div className="text-xs font-bold text-orange-700">課題数</div>
+                <div className="mt-1 text-2xl font-extrabold text-orange-950">{issues.length}</div>
               </div>
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-xs font-bold text-emerald-700">未対応</div>
-                <div className="mt-1 text-2xl font-extrabold text-emerald-950">{groupedByStatus.TODO.length}</div>
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                <div className="text-xs font-bold text-orange-700">未対応</div>
+                <div className="mt-1 text-2xl font-extrabold text-orange-950">{groupedByStatus.TODO.length}</div>
               </div>
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-xs font-bold text-emerald-700">完了</div>
-                <div className="mt-1 text-2xl font-extrabold text-emerald-950">{groupedByStatus.DONE.length}</div>
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                <div className="text-xs font-bold text-orange-700">完了</div>
+                <div className="mt-1 text-2xl font-extrabold text-orange-950">{groupedByStatus.DONE.length}</div>
               </div>
             </div>
 
-            <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-              <div className="font-bold text-emerald-950">次に追加できる機能（Backlog互換の拡張）</div>
+            <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800">
+              <div className="font-bold text-orange-950">次に追加できる機能（Backlog互換の拡張）</div>
               <ul className="mt-2 list-disc pl-5">
                 <li>ドラッグ&ドロップのカンバン</li>
                 <li>親子課題・サブタスクの本格対応</li>
@@ -979,15 +979,15 @@ function ProjectDetailInner() {
       {/* Issue create/edit modal */}
       {showIssueModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-3xl border-2 border-emerald-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-3xl rounded-3xl border-2 border-orange-200 bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-bold text-emerald-700">{editingIssue ? "編集" : "新規"}</div>
-                <div className="text-2xl font-bold text-emerald-950">課題</div>
+                <div className="text-sm font-bold text-orange-700">{editingIssue ? "編集" : "新規"}</div>
+                <div className="text-2xl font-bold text-orange-950">課題</div>
               </div>
               <button
                 onClick={() => setShowIssueModal(false)}
-                className="rounded-xl border-2 border-emerald-200 bg-white px-3 py-2 text-sm font-bold text-emerald-900"
+                className="rounded-xl border-2 border-orange-200 bg-white px-3 py-2 text-sm font-bold text-orange-900"
               >
                 閉じる
               </button>
@@ -1001,20 +1001,20 @@ function ProjectDetailInner() {
 
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
-                <div className="mb-1 text-sm font-bold text-emerald-900">タイトル</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">タイトル</div>
                 <input
                   value={issueTitle}
                   onChange={(e) => setIssueTitle(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   placeholder="例: 見積もり作成"
                 />
               </div>
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">状態</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">状態</div>
                 <select
                   value={issueStatus}
                   onChange={(e) => setIssueStatus(e.target.value as Issue["status"])}
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 >
                   {ISSUE_STATUSES.map(s => (
                     <option key={s.value} value={s.value}>{s.label}</option>
@@ -1022,11 +1022,11 @@ function ProjectDetailInner() {
                 </select>
               </div>
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">優先度</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">優先度</div>
                 <select
                   value={issuePriority}
                   onChange={(e) => setIssuePriority(e.target.value as Issue["priority"])}
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 >
                   {ISSUE_PRIORITIES.map(p => (
                     <option key={p.value} value={p.value}>{p.label}</option>
@@ -1034,11 +1034,11 @@ function ProjectDetailInner() {
                 </select>
               </div>
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">担当者</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">担当者</div>
                 <select
                   value={issueAssignee}
                   onChange={(e) => setIssueAssignee(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 >
                   <option value="">未割当</option>
                   {employees
@@ -1049,38 +1049,38 @@ function ProjectDetailInner() {
                 </select>
               </div>
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">開始日</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">開始日</div>
                 <input
                   type="date"
                   value={issueStart}
                   onChange={(e) => setIssueStart(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">期限</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">期限</div>
                 <input
                   type="date"
                   value={issueDue}
                   onChange={(e) => setIssueDue(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
               <div className="md:col-span-2">
-                <div className="mb-1 text-sm font-bold text-emerald-900">ラベル（カンマ区切り）</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">ラベル（カンマ区切り）</div>
                 <input
                   value={issueLabels}
                   onChange={(e) => setIssueLabels(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   placeholder="例: 営業, 緊急, UI"
                 />
               </div>
               <div className="md:col-span-2">
-                <div className="mb-1 text-sm font-bold text-emerald-900">詳細</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">詳細</div>
                 <textarea
                   value={issueDesc}
                   onChange={(e) => setIssueDesc(e.target.value)}
-                  className="h-28 w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="h-28 w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   placeholder="課題の詳細（任意）"
                 />
               </div>
@@ -1097,13 +1097,13 @@ function ProjectDetailInner() {
               )}
               <button
                 onClick={() => setShowIssueModal(false)}
-                className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900"
+                className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900"
               >
                 キャンセル
               </button>
               <button
                 onClick={saveIssue}
-                className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+                className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-bold text-orange-950 shadow-lg transition hover:scale-[1.02]"
               >
                 保存
               </button>
@@ -1115,24 +1115,24 @@ function ProjectDetailInner() {
       {/* Issue detail modal (comments + quick actions) */}
       {showIssueDetail && detailIssue && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-4xl rounded-3xl border-2 border-emerald-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-4xl rounded-3xl border-2 border-orange-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-xs font-bold text-emerald-700">{detailIssue.issueKey}</div>
-                <div className="text-2xl font-bold text-emerald-950">{detailIssue.title}</div>
-                <div className="mt-2 text-sm text-emerald-800 whitespace-pre-wrap">{detailIssue.description || "（詳細なし）"}</div>
+                <div className="text-xs font-bold text-orange-700">{detailIssue.issueKey}</div>
+                <div className="text-2xl font-bold text-orange-950">{detailIssue.title}</div>
+                <div className="mt-2 text-sm text-orange-800 whitespace-pre-wrap">{detailIssue.description || "（詳細なし）"}</div>
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <span className="rounded-full bg-emerald-100 px-3 py-1 font-bold text-emerald-900">
+                  <span className="rounded-full bg-orange-100 px-3 py-1 font-bold text-orange-900">
                     状態: {ISSUE_STATUSES.find(s => s.value === detailIssue.status)?.label || detailIssue.status}
                   </span>
-                  <span className="rounded-full bg-emerald-100 px-3 py-1 font-bold text-emerald-900">
+                  <span className="rounded-full bg-orange-100 px-3 py-1 font-bold text-orange-900">
                     優先度: {ISSUE_PRIORITIES.find(p => p.value === detailIssue.priority)?.label || detailIssue.priority}
                   </span>
                   {detailIssue.dueDate ? (
-                    <span className="rounded-full bg-emerald-100 px-3 py-1 font-bold text-emerald-900">期限: {detailIssue.dueDate}</span>
+                    <span className="rounded-full bg-orange-100 px-3 py-1 font-bold text-orange-900">期限: {detailIssue.dueDate}</span>
                   ) : null}
                   {(detailIssue.labels || []).map(l => (
-                    <span key={l} className="rounded-full bg-white px-3 py-1 font-bold text-emerald-900 border border-emerald-200">
+                    <span key={l} className="rounded-full bg-white px-3 py-1 font-bold text-orange-900 border border-orange-200">
                       #{l}
                     </span>
                   ))}
@@ -1144,19 +1144,19 @@ function ProjectDetailInner() {
                     setShowIssueDetail(false);
                     openEditIssue(detailIssue);
                   }}
-                  className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900"
+                  className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900"
                 >
                   編集
                 </button>
                 <Link
                   href={`/calendar?create=1&prefillSummary=${encodeURIComponent(`${detailIssue.issueKey} ${detailIssue.title}`)}&prefillProject=${encodeURIComponent(project.name)}`}
-                  className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-center text-sm font-bold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+                  className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-center text-sm font-bold text-orange-950 shadow-lg transition hover:scale-[1.02]"
                 >
                   工数をカレンダーに追加
                 </Link>
                 <button
                   onClick={() => setShowIssueDetail(false)}
-                  className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900"
+                  className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900"
                 >
                   閉じる
                 </button>
@@ -1164,16 +1164,16 @@ function ProjectDetailInner() {
             </div>
 
             <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-sm font-bold text-emerald-950">コメント</div>
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                <div className="text-sm font-bold text-orange-950">コメント</div>
                 <div className="mt-3 space-y-2">
                   {comments.length === 0 ? (
-                    <div className="text-sm text-emerald-700">コメントはまだありません。</div>
+                    <div className="text-sm text-orange-700">コメントはまだありません。</div>
                   ) : (
                     comments.map((c) => (
                       <div key={c.id} className="rounded-xl bg-white p-3">
-                        <div className="text-xs font-bold text-emerald-700">{c.authorUid === user.uid ? "あなた" : c.authorUid}</div>
-                        <div className="mt-1 whitespace-pre-wrap text-sm text-emerald-950">{c.body}</div>
+                        <div className="text-xs font-bold text-orange-700">{c.authorUid === user.uid ? "あなた" : c.authorUid}</div>
+                        <div className="mt-1 whitespace-pre-wrap text-sm text-orange-950">{c.body}</div>
                       </div>
                     ))
                   )}
@@ -1182,13 +1182,13 @@ function ProjectDetailInner() {
                   <textarea
                     value={commentBody}
                     onChange={(e) => setCommentBody(e.target.value)}
-                    className="h-24 w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    className="h-24 w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                     placeholder="コメントを書く…"
                   />
                   <div className="mt-2 flex justify-end">
                     <button
                       onClick={addComment}
-                      className="rounded-xl bg-emerald-900 px-4 py-2 text-sm font-bold text-white"
+                      className="rounded-xl bg-orange-900 px-4 py-2 text-sm font-bold text-white"
                     >
                       追加
                     </button>
@@ -1196,11 +1196,11 @@ function ProjectDetailInner() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <div className="text-sm font-bold text-emerald-950">クイック更新</div>
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                <div className="text-sm font-bold text-orange-950">クイック更新</div>
                 <div className="mt-3 grid grid-cols-1 gap-3">
                   <div>
-                    <div className="mb-1 text-xs font-bold text-emerald-900">状態</div>
+                    <div className="mb-1 text-xs font-bold text-orange-900">状態</div>
                     <select
                       value={detailIssue.status}
                       onChange={async (e) => {
@@ -1221,7 +1221,7 @@ function ProjectDetailInner() {
                         });
                         await loadAll(user.uid, profile.companyCode);
                       }}
-                      className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 outline-none"
+                      className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 outline-none"
                     >
                       {ISSUE_STATUSES.map(s => (
                         <option key={s.value} value={s.value}>{s.label}</option>
@@ -1229,7 +1229,7 @@ function ProjectDetailInner() {
                     </select>
                   </div>
                   <div>
-                    <div className="mb-1 text-xs font-bold text-emerald-900">担当</div>
+                    <div className="mb-1 text-xs font-bold text-orange-900">担当</div>
                     <select
                       value={detailIssue.assigneeUid || ""}
                       onChange={async (e) => {
@@ -1261,7 +1261,7 @@ function ProjectDetailInner() {
                         }
                         await loadAll(user.uid, profile.companyCode);
                       }}
-                      className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 outline-none"
+                      className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 outline-none"
                     >
                       <option value="">未割当</option>
                       {employees.filter(e => !!e.authUid).map(e => (
@@ -1285,15 +1285,15 @@ function ProjectDetailInner() {
       {/* Wiki editor modal */}
       {showWikiEditor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-4xl rounded-3xl border-2 border-emerald-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-4xl rounded-3xl border-2 border-orange-200 bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-bold text-emerald-700">{editingWiki ? "編集" : "新規"}</div>
-                <div className="text-2xl font-bold text-emerald-950">Wikiページ</div>
+                <div className="text-sm font-bold text-orange-700">{editingWiki ? "編集" : "新規"}</div>
+                <div className="text-2xl font-bold text-orange-950">Wikiページ</div>
               </div>
               <button
                 onClick={() => setShowWikiEditor(false)}
-                className="rounded-xl border-2 border-emerald-200 bg-white px-3 py-2 text-sm font-bold text-emerald-900"
+                className="rounded-xl border-2 border-orange-200 bg-white px-3 py-2 text-sm font-bold text-orange-900"
               >
                 閉じる
               </button>
@@ -1307,28 +1307,28 @@ function ProjectDetailInner() {
 
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">タイトル</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">タイトル</div>
                 <input
                   value={wikiTitle}
                   onChange={(e) => setWikiTitle(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">slug（URL用）</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">slug（URL用）</div>
                 <input
                   value={wikiSlug}
                   onChange={(e) => setWikiSlug(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   placeholder="例: how-to-deploy"
                 />
               </div>
               <div className="md:col-span-2">
-                <div className="mb-1 text-sm font-bold text-emerald-900">本文</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">本文</div>
                 <textarea
                   value={wikiBody}
                   onChange={(e) => setWikiBody(e.target.value)}
-                  className="h-80 w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="h-80 w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   placeholder="MarkdownでもOK（プレビューは次の拡張で）"
                 />
               </div>
@@ -1337,13 +1337,13 @@ function ProjectDetailInner() {
             <div className="mt-6 flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowWikiEditor(false)}
-                className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900"
+                className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900"
               >
                 キャンセル
               </button>
               <button
                 onClick={saveWiki}
-                className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+                className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-bold text-orange-950 shadow-lg transition hover:scale-[1.02]"
               >
                 保存
               </button>
@@ -1355,15 +1355,15 @@ function ProjectDetailInner() {
       {/* File meta modal */}
       {showFileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-2xl rounded-3xl border-2 border-emerald-200 bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-2xl rounded-3xl border-2 border-orange-200 bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-bold text-emerald-700">追加</div>
-                <div className="text-2xl font-bold text-emerald-950">ファイル</div>
+                <div className="text-sm font-bold text-orange-700">追加</div>
+                <div className="text-2xl font-bold text-orange-950">ファイル</div>
               </div>
               <button
                 onClick={() => setShowFileModal(false)}
-                className="rounded-xl border-2 border-emerald-200 bg-white px-3 py-2 text-sm font-bold text-emerald-900"
+                className="rounded-xl border-2 border-orange-200 bg-white px-3 py-2 text-sm font-bold text-orange-900"
               >
                 閉じる
               </button>
@@ -1377,20 +1377,20 @@ function ProjectDetailInner() {
 
             <div className="mt-5 grid grid-cols-1 gap-4">
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">名前</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">名前</div>
                 <input
                   value={fileName}
                   onChange={(e) => setFileName(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   placeholder="例: 要件定義書"
                 />
               </div>
               <div>
-                <div className="mb-1 text-sm font-bold text-emerald-900">URL（任意）</div>
+                <div className="mb-1 text-sm font-bold text-orange-900">URL（任意）</div>
                 <input
                   value={fileUrl}
                   onChange={(e) => setFileUrl(e.target.value)}
-                  className="w-full rounded-xl border-2 border-emerald-200 px-4 py-3 text-emerald-950 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 px-4 py-3 text-orange-950 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   placeholder="例: Google Drive / Notion / S3 / Storage URL"
                 />
               </div>
@@ -1399,13 +1399,13 @@ function ProjectDetailInner() {
             <div className="mt-6 flex items-center justify-end gap-3">
               <button
                 onClick={() => setShowFileModal(false)}
-                className="rounded-xl border-2 border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900"
+                className="rounded-xl border-2 border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900"
               >
                 キャンセル
               </button>
               <button
                 onClick={addFileMeta}
-                className="rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-2 text-sm font-bold text-emerald-950 shadow-lg transition hover:scale-[1.02]"
+                className="rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-2 text-sm font-bold text-orange-950 shadow-lg transition hover:scale-[1.02]"
               >
                 追加
               </button>
@@ -1422,7 +1422,7 @@ export default function ProjectDetailPage() {
     <Suspense
       fallback={
         <div className="flex min-h-screen items-center justify-center bg-slate-50">
-          <div className="text-2xl font-bold text-emerald-900">読み込み中...</div>
+          <div className="text-2xl font-bold text-orange-900">読み込み中...</div>
         </div>
       }
     >

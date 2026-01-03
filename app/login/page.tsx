@@ -47,23 +47,23 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-emerald-50 via-emerald-50 to-emerald-50">
+    <div className="flex min-h-screen bg-gradient-to-br from-orange-50 via-orange-50 to-orange-50">
       {/* Left Side - Branding */}
-      <div className="hidden w-1/2 flex-col justify-center bg-gradient-to-br from-emerald-400 to-emerald-500 p-12 lg:flex">
+      <div className="hidden w-1/2 flex-col justify-center bg-gradient-to-br from-orange-400 to-orange-500 p-12 lg:flex">
         <Link href="/" className="mb-12 flex items-center gap-3">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 text-4xl shadow-xl">
             🐝
           </div>
           <div>
-            <p className="text-3xl font-bold text-emerald-950">生産力</p>
-            <p className="text-sm text-emerald-900">Seisanryoku</p>
+            <p className="text-3xl font-bold text-orange-950">生産力</p>
+            <p className="text-sm text-orange-900">Seisanryoku</p>
           </div>
         </Link>
         <div className="mb-8">
-          <h1 className="mb-4 text-5xl font-bold text-emerald-950">
+          <h1 className="mb-4 text-5xl font-bold text-orange-950">
             おかえりなさい！
           </h1>
-          <p className="text-xl text-emerald-900">
+          <p className="text-xl text-orange-900">
             蜂のように効率的な工数管理を、今日も始めましょう
           </p>
         </div>
@@ -73,8 +73,8 @@ export default function LoginPage() {
               ✓
             </div>
             <div>
-              <p className="font-semibold text-emerald-950">即座にアクセス</p>
-              <p className="text-sm text-emerald-900">
+              <p className="font-semibold text-orange-950">即座にアクセス</p>
+              <p className="text-sm text-orange-900">
                 すべての工数データにすぐにアクセスできます
               </p>
             </div>
@@ -84,8 +84,8 @@ export default function LoginPage() {
               ✓
             </div>
             <div>
-              <p className="font-semibold text-emerald-950">セキュア</p>
-              <p className="text-sm text-emerald-900">
+              <p className="font-semibold text-orange-950">セキュア</p>
+              <p className="text-sm text-orange-900">
                 データは暗号化され、安全に保護されています
               </p>
             </div>
@@ -95,8 +95,8 @@ export default function LoginPage() {
               ✓
             </div>
             <div>
-              <p className="font-semibold text-emerald-950">どこからでも</p>
-              <p className="text-sm text-emerald-900">
+              <p className="font-semibold text-orange-950">どこからでも</p>
+              <p className="text-sm text-orange-900">
                 マルチデバイス対応で、場所を選びません
               </p>
             </div>
@@ -109,20 +109,20 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           <div className="mb-8 text-center lg:hidden">
             <Link href="/" className="inline-flex items-center gap-2">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-500 text-2xl shadow-lg">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-2xl shadow-lg">
                 🐝
               </div>
-              <span className="text-2xl font-bold text-emerald-950">生産力</span>
+              <span className="text-2xl font-bold text-orange-950">生産力</span>
             </Link>
           </div>
 
-          <div className="rounded-3xl border-2 border-emerald-200 bg-white p-8 shadow-2xl">
+          <div className="rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-2xl">
             <div className="mb-2 flex items-center gap-2">
-              <span className="text-2xl">👔</span>
-              <h2 className="text-3xl font-bold text-emerald-950">管理者ログイン</h2>
+              <span className="text-2xl">🔐</span>
+              <h2 className="text-3xl font-bold text-orange-950">ログイン</h2>
             </div>
-            <p className="mb-6 text-emerald-700">
-              管理者アカウントでログインして工数管理を開始
+            <p className="mb-6 text-orange-700">
+              社員・管理者どちらも同じ画面からログインできます
             </p>
 
             {error && (
@@ -133,7 +133,7 @@ export default function LoginPage() {
 
             <form onSubmit={handleLogin} className="space-y-5">
               <div>
-                <label htmlFor="email" className="mb-2 block text-sm font-semibold text-emerald-900">
+                <label htmlFor="email" className="mb-2 block text-sm font-semibold text-orange-900">
                   メールアドレス
                 </label>
                 <input
@@ -143,12 +143,12 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="your@email.com"
                   required
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
 
               <div>
-                <label htmlFor="password" className="mb-2 block text-sm font-semibold text-emerald-900">
+                <label htmlFor="password" className="mb-2 block text-sm font-semibold text-orange-900">
                   パスワード
                 </label>
                 <input
@@ -158,48 +158,36 @@ export default function LoginPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 py-3 font-bold text-emerald-950 shadow-lg transition hover:scale-105 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 py-3 font-bold text-orange-950 shadow-lg transition hover:scale-105 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? "ログイン中..." : "ログイン"}
               </button>
             </form>
 
             <div className="mt-6 space-y-3 text-center">
-              <p className="text-sm text-emerald-700">
+              <p className="text-sm text-orange-700">
                 アカウントをお持ちでないですか？{" "}
                 <Link
                   href="/signup"
-                  className="font-semibold text-emerald-900 hover:text-emerald-700"
+                  className="font-semibold text-orange-900 hover:text-orange-700"
                 >
                   新規登録
                 </Link>
               </p>
-              <div className="border-t border-emerald-200 pt-3">
-                <p className="text-xs text-blue-700">
-                  👤 社員の方は{" "}
-                  <Link
-                    href="/employee-login"
-                    className="font-semibold text-blue-600 underline hover:text-blue-800"
-                  >
-                    社員用ログインページ
-                  </Link>
-                  からログインしてください
-                </p>
-              </div>
             </div>
           </div>
 
           <div className="mt-6 text-center">
             <Link
               href="/"
-              className="text-sm text-emerald-700 hover:text-emerald-900"
+              className="text-sm text-orange-700 hover:text-orange-900"
             >
               ← ホームに戻る
             </Link>

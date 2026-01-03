@@ -80,8 +80,8 @@ export default function ProjectDocumentsPage() {
             </div>
           </div>
           <Link
-            href={`/projects/new?projectId=${encodeURIComponent(projectId)}`}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-emerald-700"
+            href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
+            className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
           >
             課題の追加
           </Link>

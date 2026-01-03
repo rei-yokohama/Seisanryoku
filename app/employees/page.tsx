@@ -94,11 +94,13 @@ export default function EmployeesPage() {
     }
 
     // companyCode未設定の過去データ救済 / companyCode不整合の救済として createdBy も併用
-    console.log("社員管理: createdByで検索(フォールバック/併用):", uid);
-    const snapByCreator = await getDocs(
-      query(collection(db, "employees"), where("createdBy", "==", uid)),
-    );
-    merged.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+    if (!companyCode) {
+      console.log("社員管理: createdByで検索(フォールバック):", uid);
+      const snapByCreator = await getDocs(
+        query(collection(db, "employees"), where("createdBy", "==", uid)),
+      );
+      merged.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+    }
 
     // id で重複排除
     const byId = new Map<string, Employee>();
@@ -304,8 +306,8 @@ export default function EmployeesPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-emerald-50 to-emerald-100">
-        <div className="text-2xl font-bold text-emerald-900">読み込み中...</div>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-orange-50 to-orange-100">
+        <div className="text-2xl font-bold text-orange-900">読み込み中...</div>
       </div>
     );
   }
@@ -319,7 +321,7 @@ export default function EmployeesPage() {
       title="社員"
       subtitle="Employees"
       headerRight={
-        <Link href="/calendar" className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900 hover:bg-emerald-50">
+        <Link href="/calendar" className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 hover:bg-orange-50">
           カレンダー
         </Link>
       }
@@ -328,8 +330,8 @@ export default function EmployeesPage() {
         {/* Header Section */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-emerald-950">👥 社員管理</h1>
-            <p className="text-emerald-700">
+            <h1 className="text-3xl font-bold text-orange-950">👥 社員管理</h1>
+            <p className="text-orange-700">
               {profile?.companyCode 
                 ? `会社コード: ${profile.companyCode}` 
                 : "社員の追加・編集・削除ができます"}
@@ -338,7 +340,7 @@ export default function EmployeesPage() {
           {!showForm && (
             <button
               onClick={() => setShowForm(true)}
-              className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-6 py-3 font-bold text-emerald-950 shadow-lg transition hover:scale-105"
+              className="rounded-lg bg-gradient-to-r from-orange-400 to-orange-500 px-6 py-3 font-bold text-orange-950 shadow-lg transition hover:scale-105"
             >
               + 社員を追加
             </button>
@@ -347,9 +349,9 @@ export default function EmployeesPage() {
 
         {/* Form */}
         {showForm && (
-          <div className="mb-6 rounded-2xl border-2 border-emerald-200 bg-white p-6 shadow-xl">
+          <div className="mb-6 rounded-2xl border-2 border-orange-200 bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-emerald-950">
+              <h2 className="text-xl font-bold text-orange-950">
                 {editingEmployee ? "社員情報を編集" : "新しい社員を追加"}
               </h2>
               <button
@@ -365,7 +367,7 @@ export default function EmployeesPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-emerald-900">
+                  <label className="mb-2 block text-sm font-semibold text-orange-900">
                     名前 <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -376,11 +378,11 @@ export default function EmployeesPage() {
                     }
                     placeholder="山田 太郎"
                     required
-                    className="w-full rounded-lg border-2 border-emerald-200 bg-white px-4 py-2 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    className="w-full rounded-lg border-2 border-orange-200 bg-white px-4 py-2 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-emerald-900">
+                  <label className="mb-2 block text-sm font-semibold text-orange-900">
                     メールアドレス <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -391,14 +393,14 @@ export default function EmployeesPage() {
                     }
                     placeholder="yamada@example.com"
                     required
-                    className="w-full rounded-lg border-2 border-emerald-200 bg-white px-4 py-2 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    className="w-full rounded-lg border-2 border-orange-200 bg-white px-4 py-2 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   />
                 </div>
               </div>
 
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-emerald-900">
+                  <label className="mb-2 block text-sm font-semibold text-orange-900">
                     雇用形態 <span className="text-red-500">*</span>
                   </label>
                   <select
@@ -409,7 +411,7 @@ export default function EmployeesPage() {
                         employmentType: e.target.value as Employee["employmentType"],
                       }))
                     }
-                    className="w-full rounded-lg border-2 border-emerald-200 bg-white px-4 py-2 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    className="w-full rounded-lg border-2 border-orange-200 bg-white px-4 py-2 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   >
                     <option value="正社員">正社員</option>
                     <option value="契約社員">契約社員</option>
@@ -419,7 +421,7 @@ export default function EmployeesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold text-emerald-900">
+                  <label className="mb-2 block text-sm font-semibold text-orange-900">
                     入社日 <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -429,13 +431,13 @@ export default function EmployeesPage() {
                       setFormData((prev) => ({ ...prev, joinDate: e.target.value }))
                     }
                     required
-                    className="w-full rounded-lg border-2 border-emerald-200 bg-white px-4 py-2 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                    className="w-full rounded-lg border-2 border-orange-200 bg-white px-4 py-2 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-emerald-900">
+                <label className="mb-2 block text-sm font-semibold text-orange-900">
                   カレンダー表示色 <span className="text-red-500">*</span>
                 </label>
                 <div className="grid grid-cols-5 gap-3">
@@ -446,8 +448,8 @@ export default function EmployeesPage() {
                       onClick={() => setFormData((prev) => ({ ...prev, color: colorOption.value }))}
                       className={`group relative flex flex-col items-center gap-2 rounded-lg border-2 p-3 transition hover:scale-105 ${
                         formData.color === colorOption.value
-                          ? "border-emerald-500 bg-emerald-50 shadow-lg"
-                          : "border-gray-200 hover:border-emerald-300"
+                          ? "border-orange-500 bg-orange-50 shadow-lg"
+                          : "border-gray-200 hover:border-orange-300"
                       }`}
                     >
                       <div
@@ -456,7 +458,7 @@ export default function EmployeesPage() {
                       ></div>
                       <span className="text-xs font-medium text-gray-700">{colorOption.name}</span>
                       {formData.color === colorOption.value && (
-                        <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-white">
+                        <div className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-orange-500 text-white">
                           <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                           </svg>
@@ -467,7 +469,7 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50/30 p-4">
+              <div className="rounded-lg border-2 border-orange-200 bg-orange-50/30 p-4">
                 <label className="flex items-center gap-3 cursor-pointer group">
                   <div className="relative flex items-center">
                     <input
@@ -476,7 +478,7 @@ export default function EmployeesPage() {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, allowCalendarSync: e.target.checked }))
                       }
-                      className="peer h-5 w-5 cursor-pointer appearance-none rounded border-2 border-emerald-300 checked:border-emerald-600 checked:bg-emerald-600 focus:ring-2 focus:ring-emerald-200 transition"
+                      className="peer h-5 w-5 cursor-pointer appearance-none rounded border-2 border-orange-300 checked:border-orange-600 checked:bg-orange-600 focus:ring-2 focus:ring-orange-200 transition"
                     />
                     <svg
                       className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100"
@@ -496,10 +498,10 @@ export default function EmployeesPage() {
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <span className="text-sm font-semibold text-emerald-900">
+                    <span className="text-sm font-semibold text-orange-900">
                       📅 Googleカレンダー連携を許可
                     </span>
-                    <p className="text-xs text-emerald-700 mt-1">
+                    <p className="text-xs text-orange-700 mt-1">
                       この社員がGoogleアカウントと連携してカレンダーデータを同期できるようにします
                     </p>
                   </div>
@@ -516,7 +518,7 @@ export default function EmployeesPage() {
                 </button>
                 <button
                   type="submit"
-                  className="rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-6 py-2 font-bold text-emerald-950 shadow-lg transition hover:scale-105"
+                  className="rounded-lg bg-gradient-to-r from-orange-400 to-orange-500 px-6 py-2 font-bold text-orange-950 shadow-lg transition hover:scale-105"
                 >
                   {editingEmployee ? "更新" : "追加"}
                 </button>
@@ -526,42 +528,42 @@ export default function EmployeesPage() {
         )}
 
         {/* Employees List */}
-        <div className="rounded-2xl border-2 border-emerald-200 bg-white p-6 shadow-xl">
-          <h2 className="mb-4 text-xl font-bold text-emerald-950">
+        <div className="rounded-2xl border-2 border-orange-200 bg-white p-6 shadow-xl">
+          <h2 className="mb-4 text-xl font-bold text-orange-950">
             社員一覧 ({employees.length}人)
           </h2>
           
           {employees.length === 0 ? (
-            <div className="py-12 text-center text-emerald-600">
+            <div className="py-12 text-center text-orange-600">
               まだ社員が登録されていません
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b-2 border-emerald-200 bg-emerald-50">
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-emerald-900">
+                  <tr className="border-b-2 border-orange-200 bg-orange-50">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       名前
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-emerald-900">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       メールアドレス
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-emerald-900">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       雇用形態
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-emerald-900">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       認証状態
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-emerald-900">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       パスワード
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-emerald-900">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       カレンダー連携
                     </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-emerald-900">
+                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       入社日
                     </th>
-                    <th className="px-4 py-3 text-right text-sm font-semibold text-emerald-900">
+                    <th className="px-4 py-3 text-right text-sm font-semibold text-orange-900">
                       操作
                     </th>
                   </tr>
@@ -570,7 +572,7 @@ export default function EmployeesPage() {
                   {employees.map((employee) => (
                     <tr
                       key={employee.id}
-                      className="border-b border-emerald-100 transition hover:bg-emerald-50/50"
+                      className="border-b border-orange-100 transition hover:bg-orange-50/50"
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
@@ -578,12 +580,12 @@ export default function EmployeesPage() {
                             className="h-6 w-6 rounded-full border-2 border-white shadow-md"
                             style={{ backgroundColor: employee.color || EMPLOYEE_COLORS[0].value }}
                           ></div>
-                          <span className="font-semibold text-emerald-950">{employee.name}</span>
+                          <span className="font-semibold text-orange-950">{employee.name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-emerald-700">{employee.email}</td>
+                      <td className="px-4 py-3 text-orange-700">{employee.email}</td>
                       <td className="px-4 py-3">
-                        <span className="inline-block rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900">
+                        <span className="inline-block rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-900">
                           {employee.employmentType}
                         </span>
                       </td>
@@ -657,7 +659,7 @@ export default function EmployeesPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-emerald-700">
+                      <td className="px-4 py-3 text-orange-700">
                         {new Date(employee.joinDate).toLocaleDateString("ja-JP")}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -670,7 +672,7 @@ export default function EmployeesPage() {
                         </button>
                         <button
                           onClick={() => handleEdit(employee)}
-                          className="mr-2 rounded-lg border-2 border-emerald-500 px-3 py-1 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-50"
+                          className="mr-2 rounded-lg border-2 border-orange-500 px-3 py-1 text-xs font-semibold text-orange-900 transition hover:bg-orange-50"
                         >
                           編集
                         </button>
@@ -696,23 +698,23 @@ export default function EmployeesPage() {
           <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl">
             <div className="mb-6 text-center">
               <div className="mb-4 flex justify-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-emerald-300 to-emerald-500 text-3xl text-emerald-950">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-orange-300 to-orange-500 text-3xl text-orange-950">
                   ✅
                 </div>
               </div>
-              <h2 className="mb-2 text-2xl font-bold text-emerald-950">社員を追加しました</h2>
-              <p className="text-sm text-emerald-700">以下のログイン情報を社員に共有してください</p>
+              <h2 className="mb-2 text-2xl font-bold text-orange-950">社員を追加しました</h2>
+              <p className="text-sm text-orange-700">以下のログイン情報を社員に共有してください</p>
             </div>
 
             <div className="mb-6 space-y-4">
               {/* Email */}
-              <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4">
-                <p className="mb-1 text-xs font-semibold text-emerald-700">メールアドレス</p>
+              <div className="rounded-xl border-2 border-orange-200 bg-orange-50 p-4">
+                <p className="mb-1 text-xs font-semibold text-orange-700">メールアドレス</p>
                 <div className="flex items-center justify-between">
-                  <p className="font-mono text-sm font-semibold text-emerald-950">{createdEmployeeEmail}</p>
+                  <p className="font-mono text-sm font-semibold text-orange-950">{createdEmployeeEmail}</p>
                   <button
                     onClick={() => copyToClipboard(createdEmployeeEmail)}
-                    className="rounded-lg bg-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-300"
+                    className="rounded-lg bg-orange-200 px-3 py-1 text-xs font-semibold text-orange-900 transition hover:bg-orange-300"
                   >
                     コピー
                   </button>
@@ -736,19 +738,19 @@ export default function EmployeesPage() {
               {/* Copy Both */}
               <button
                 onClick={() => copyToClipboard(`メール: ${createdEmployeeEmail}\nパスワード: ${generatedPassword}`)}
-                className="w-full rounded-lg border-2 border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-50"
+                className="w-full rounded-lg border-2 border-orange-300 bg-white px-4 py-2 text-sm font-semibold text-orange-900 transition hover:bg-orange-50"
               >
                 📋 両方をコピー
               </button>
             </div>
 
-            <div className="mb-4 rounded-lg bg-emerald-50 p-4 text-xs text-emerald-800">
+            <div className="mb-4 rounded-lg bg-orange-50 p-4 text-xs text-orange-800">
               ⚠️ <strong>重要:</strong> このパスワードは一度しか表示されません。必ずメモしてから閉じてください。
               <br />
               <br />
               社員は
-              <Link href="/employee-login" className="font-bold text-blue-600 underline">
-                社員用ログインページ
+              <Link href="/login" className="font-bold text-blue-600 underline">
+                ログインページ
               </Link>
               から、このメールアドレスとパスワードで直接ログインできます。
             </div>
@@ -759,7 +761,7 @@ export default function EmployeesPage() {
                 setGeneratedPassword("");
                 setCreatedEmployeeEmail("");
               }}
-              className="w-full rounded-lg bg-gradient-to-r from-emerald-400 to-emerald-500 px-4 py-3 font-bold text-emerald-950 shadow-lg transition hover:scale-105"
+              className="w-full rounded-lg bg-gradient-to-r from-orange-400 to-orange-500 px-4 py-3 font-bold text-orange-950 shadow-lg transition hover:scale-105"
             >
               閉じる
             </button>

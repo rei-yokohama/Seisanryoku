@@ -1,21 +1,35 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { createUserWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function SignupPage() {
+function generateWorkspaceCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+function SignupInner() {
   const [name, setName] = useState("");
-  const [companyName, setCompanyName] = useState("");
+  const [companyName, setCompanyName] = useState(""); // workspace name
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const token = searchParams.get("invite");
+
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  const [inviteCompanyCode, setInviteCompanyCode] = useState<string | null>(null);
+  const [inviteRole, setInviteRole] = useState<"member" | "admin" | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -26,6 +40,39 @@ export default function SignupPage() {
     return () => unsub();
   }, [router]);
 
+  useEffect(() => {
+    if (!token) return;
+    setInviteToken(token);
+    setInviteLoading(true);
+    (async () => {
+      try {
+        const invSnap = await getDoc(doc(db, "teamInvites", token));
+        if (!invSnap.exists()) {
+          setError("招待リンクが無効です");
+          return;
+        }
+        const inv = invSnap.data() as any;
+        if (inv.usedAt) {
+          setError("この招待リンクは既に使用されています");
+          return;
+        }
+        if (!inv.companyCode || !inv.email) {
+          setError("招待データが不正です");
+          return;
+        }
+        setInviteCompanyCode(inv.companyCode);
+        setInviteRole(inv.role === "admin" ? "admin" : "member");
+        setEmail(String(inv.email));
+        // セキュリティルール上、未ログイン状態で companies を参照しない（ワークスペース名は後から反映されます）
+        setCompanyName("");
+      } catch (e: any) {
+        setError(e?.message || "招待リンクの読み込みに失敗しました");
+      } finally {
+        setInviteLoading(false);
+      }
+    })();
+  }, [token]);
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -35,8 +82,8 @@ export default function SignupPage() {
       return;
     }
 
-    if (!companyName.trim()) {
-      setError("社名を入力してください");
+    if (!companyName.trim() && !inviteCompanyCode) {
+      setError("ワークスペース名を入力してください");
       return;
     }
 
@@ -54,16 +101,59 @@ export default function SignupPage() {
 
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
       
-      // プロフィール初期化
-      await setDoc(doc(db, "profiles", userCredential.user.uid), {
-        uid: userCredential.user.uid,
+      // 1) ワークスペース（招待なしの場合は新規作成）
+      let companyCode = (inviteCompanyCode || "").trim();
+      const workspaceName = companyName.trim() || companyCode || "ワークスペース";
+      if (!companyCode) {
+        companyCode = generateWorkspaceCode();
+        await setDoc(
+          doc(db, "companies", companyCode),
+          {
+            companyName: workspaceName,
+            ownerUid: uid,
+            updatedAt: Timestamp.now(),
+          },
+          { merge: true },
+        );
+      }
+
+      // 2) 所属（ワークスペースごとのデータ分離のキー）
+      //    ドキュメントIDを安定させて重複を防ぐ
+      await setDoc(
+        doc(db, "workspaceMemberships", `${companyCode}_${uid}`),
+        {
+          uid,
+          companyCode,
+          role: inviteRole || "owner",
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true },
+      );
+
+      // 3) プロフィール初期化（現在選択中のワークスペース）
+      await setDoc(doc(db, "profiles", uid), {
+        uid,
         displayName: name.trim(),
-        companyName: companyName.trim(),
+        companyName: workspaceName,
         email: email,
-        companyCode: "",
+        companyCode,
         calendarLinked: false,
       });
+
+      // 招待がある場合は使用済みにする
+      if (inviteToken && inviteCompanyCode) {
+        try {
+          await updateDoc(doc(db, "teamInvites", inviteToken), {
+            usedAt: Timestamp.now(),
+            acceptedBy: uid,
+          });
+        } catch {
+          // 招待の更新は失敗しても登録を止めない
+        }
+      }
 
       router.push("/dashboard");
     } catch (error: unknown) {
@@ -83,23 +173,23 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-emerald-50 via-emerald-50 to-emerald-50">
+    <div className="flex min-h-screen bg-gradient-to-br from-orange-50 via-orange-50 to-orange-50">
       {/* Left Side - Branding */}
-      <div className="hidden w-1/2 flex-col justify-center bg-gradient-to-br from-emerald-400 to-emerald-500 p-12 lg:flex">
+      <div className="hidden w-1/2 flex-col justify-center bg-gradient-to-br from-orange-400 to-orange-500 p-12 lg:flex">
         <Link href="/" className="mb-12 flex items-center gap-3">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 text-4xl shadow-xl">
             🐝
           </div>
           <div>
-            <p className="text-3xl font-bold text-emerald-950">生産力</p>
-            <p className="text-sm text-emerald-900">Seisanryoku</p>
+            <p className="text-3xl font-bold text-orange-950">生産力</p>
+            <p className="text-sm text-orange-900">Seisanryoku</p>
           </div>
         </Link>
         <div className="mb-8">
-          <h1 className="mb-4 text-5xl font-bold text-emerald-950">
+          <h1 className="mb-4 text-5xl font-bold text-orange-950">
             今すぐ始めよう！
           </h1>
-          <p className="text-xl text-emerald-900">
+          <p className="text-xl text-orange-900">
             30秒でアカウント作成。蜂のような効率的な工数管理を体験
           </p>
         </div>
@@ -109,8 +199,8 @@ export default function SignupPage() {
               🆓
             </div>
             <div>
-              <p className="font-semibold text-emerald-950">完全無料</p>
-              <p className="text-sm text-emerald-900">
+              <p className="font-semibold text-orange-950">完全無料</p>
+              <p className="text-sm text-orange-900">
                 クレジットカード不要で今すぐ始められます
               </p>
             </div>
@@ -120,8 +210,8 @@ export default function SignupPage() {
               ⚡
             </div>
             <div>
-              <p className="font-semibold text-emerald-950">即日利用開始</p>
-              <p className="text-sm text-emerald-900">
+              <p className="font-semibold text-orange-950">即日利用開始</p>
+              <p className="text-sm text-orange-900">
                 面倒な設定なし。登録後すぐに使えます
               </p>
             </div>
@@ -131,8 +221,8 @@ export default function SignupPage() {
               🔒
             </div>
             <div>
-              <p className="font-semibold text-emerald-950">安全・安心</p>
-              <p className="text-sm text-emerald-900">
+              <p className="font-semibold text-orange-950">安全・安心</p>
+              <p className="text-sm text-orange-900">
                 Firebaseで暗号化。セキュリティは万全です
               </p>
             </div>
@@ -145,19 +235,19 @@ export default function SignupPage() {
         <div className="w-full max-w-md">
           <div className="mb-8 text-center lg:hidden">
             <Link href="/" className="inline-flex items-center gap-2">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-500 text-2xl shadow-lg">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-orange-400 to-orange-500 text-2xl shadow-lg">
                 🐝
               </div>
-              <span className="text-2xl font-bold text-emerald-950">生産力</span>
+              <span className="text-2xl font-bold text-orange-950">生産力</span>
             </Link>
           </div>
 
-          <div className="rounded-3xl border-2 border-emerald-200 bg-white p-8 shadow-2xl">
+          <div className="rounded-3xl border-2 border-orange-200 bg-white p-8 shadow-2xl">
             <div className="mb-2 flex items-center gap-2">
               <span className="text-2xl">👔</span>
-              <h2 className="text-3xl font-bold text-emerald-950">管理者登録</h2>
+              <h2 className="text-3xl font-bold text-orange-950">{inviteToken ? "招待で参加" : "管理者登録"}</h2>
             </div>
-            <p className="mb-6 text-emerald-700">
+            <p className="mb-6 text-orange-700">
               無料でアカウントを作成して今すぐ始める
             </p>
             <div className="mb-6 rounded-xl bg-blue-50 p-4 text-xs text-blue-800">
@@ -174,9 +264,18 @@ export default function SignupPage() {
               </div>
             )}
 
+            {inviteToken && (
+              <div className="mb-6 rounded-xl border border-orange-200 bg-orange-50 p-4 text-xs text-orange-800">
+                <div className="font-extrabold">ワークスペース招待を受け取り中</div>
+                <div className="mt-1">
+                  {inviteLoading ? "招待情報を読み込み中..." : `会社コード: ${inviteCompanyCode || "-"}`}{inviteRole ? ` / 権限: ${inviteRole === "admin" ? "管理者" : "メンバー"}` : ""}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSignup} className="space-y-5">
               <div>
-                <label htmlFor="name" className="mb-2 block text-sm font-semibold text-emerald-900">
+                <label htmlFor="name" className="mb-2 block text-sm font-semibold text-orange-900">
                   お名前 <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -186,27 +285,33 @@ export default function SignupPage() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="山田 太郎"
                   required
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
 
               <div>
-                <label htmlFor="companyName" className="mb-2 block text-sm font-semibold text-emerald-900">
-                  社名 <span className="text-red-500">*</span>
+                <label htmlFor="companyName" className="mb-2 block text-sm font-semibold text-orange-900">
+                  ワークスペース名 <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="companyName"
                   type="text"
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="株式会社サンプル"
-                  required
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  placeholder="例：採用代行事業、広告代理事業...etc"
+                  required={!inviteToken}
+                  disabled={!!inviteToken}
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
+                {inviteToken ? (
+                  <div className="mt-1 text-xs font-bold text-orange-700">
+                    ※ 招待で参加する場合、ワークスペース名は後から自動で反映されます（コード: {inviteCompanyCode || "-"}）
+                  </div>
+                ) : null}
               </div>
 
               <div>
-                <label htmlFor="email" className="mb-2 block text-sm font-semibold text-emerald-900">
+                <label htmlFor="email" className="mb-2 block text-sm font-semibold text-orange-900">
                   メールアドレス <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -216,12 +321,13 @@ export default function SignupPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="your@email.com"
                   required
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  disabled={!!inviteToken}
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
 
               <div>
-                <label htmlFor="password" className="mb-2 block text-sm font-semibold text-emerald-900">
+                <label htmlFor="password" className="mb-2 block text-sm font-semibold text-orange-900">
                   パスワード <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -231,12 +337,12 @@ export default function SignupPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="6文字以上"
                   required
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
 
               <div>
-                <label htmlFor="confirmPassword" className="mb-2 block text-sm font-semibold text-emerald-900">
+                <label htmlFor="confirmPassword" className="mb-2 block text-sm font-semibold text-orange-900">
                   パスワード（確認） <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -246,34 +352,34 @@ export default function SignupPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="もう一度入力"
                   required
-                  className="w-full rounded-xl border-2 border-emerald-200 bg-white px-4 py-3 text-emerald-950 placeholder:text-emerald-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
+                  className="w-full rounded-xl border-2 border-orange-200 bg-white px-4 py-3 text-orange-950 placeholder:text-orange-400 outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full rounded-xl bg-gradient-to-r from-emerald-400 to-emerald-500 py-3 font-bold text-emerald-950 shadow-lg transition hover:scale-105 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-xl bg-gradient-to-r from-orange-400 to-orange-500 py-3 font-bold text-orange-950 shadow-lg transition hover:scale-105 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? "作成中..." : "アカウントを作成"}
               </button>
             </form>
 
             <div className="mt-6 space-y-3 text-center">
-              <p className="text-sm text-emerald-700">
+              <p className="text-sm text-orange-700">
                 既にアカウントをお持ちですか？{" "}
                 <Link
                   href="/login"
-                  className="font-semibold text-emerald-900 hover:text-emerald-700"
+                  className="font-semibold text-orange-900 hover:text-orange-700"
                 >
                   ログイン
                 </Link>
               </p>
-              <div className="border-t border-emerald-200 pt-3">
+              <div className="border-t border-orange-200 pt-3">
                 <p className="text-xs text-blue-700">
                   👤 社員の方は{" "}
                   <Link
-                    href="/employee-login"
+                    href="/login"
                     className="font-semibold text-blue-600 underline hover:text-blue-800"
                   >
                     社員用ログインページ
@@ -283,7 +389,7 @@ export default function SignupPage() {
               </div>
             </div>
 
-            <div className="mt-6 rounded-xl bg-emerald-50 p-4 text-xs text-emerald-700">
+            <div className="mt-6 rounded-xl bg-orange-50 p-4 text-xs text-orange-700">
               <p>
                 アカウント作成により、
                 <Link href="#" className="underline">利用規約</Link>
@@ -297,7 +403,7 @@ export default function SignupPage() {
           <div className="mt-6 text-center">
             <Link
               href="/"
-              className="text-sm text-emerald-700 hover:text-emerald-900"
+              className="text-sm text-orange-700 hover:text-orange-900"
             >
               ← ホームに戻る
             </Link>
@@ -305,6 +411,20 @@ export default function SignupPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-50">
+          <div className="text-2xl font-bold text-orange-800">読み込み中...</div>
+        </div>
+      }
+    >
+      <SignupInner />
+    </Suspense>
   );
 }
 

@@ -6,10 +6,33 @@ service cloud.firestore {
       return request.auth != null;
     }
     
+    function myProfile() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    }
+
+    function myCompanyCode() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/profiles/$(request.auth.uid))
+        ? myProfile().companyCode
+        : null;
+    }
+
+    function isInMyCompany(companyCode) {
+      return isSignedIn()
+        && companyCode != null
+        && myCompanyCode() != null
+        && companyCode == myCompanyCode();
+    }
+
     function isCompanyOwner(companyCode) {
       return isSignedIn()
         && exists(/databases/$(database)/documents/companies/$(companyCode))
         && get(/databases/$(database)/documents/companies/$(companyCode)).data.ownerUid == request.auth.uid;
+    }
+
+    function isWorkspaceMember(companyCode) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/workspaceMemberships/$(companyCode + "_" + request.auth.uid));
     }
     
     // ============================================
@@ -23,13 +46,36 @@ service cloud.firestore {
     // ============================================
     // 会社
     // ============================================
-    // 認証済みユーザーなら読み取り・作成可能
-    // 更新・削除はオーナーのみ
+    // ワークスペース（会社）
+    // - 読み取り: メンバー or オーナー
+    // - 作成: ログイン必須（作成直後に membership を作る想定）
+    // - 更新/削除: オーナーのみ
     match /companies/{companyCode} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && 
-        resource.data.ownerUid == request.auth.uid;
+      allow read: if isSignedIn() && (isWorkspaceMember(companyCode) || resource.data.ownerUid == request.auth.uid);
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ============================================
+    // ワークスペース所属
+    // ============================================
+    match /workspaceMemberships/{membershipId} {
+      // 自分の所属は読める（一覧/切替）
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+
+      // create:
+      // - 自分自身の membership を作る（owner 登録など）
+      // - 会社オーナーがメンバーを追加する
+      allow create: if isSignedIn()
+        && request.resource.data.companyCode is string
+        && request.resource.data.uid is string
+        && (
+          request.resource.data.uid == request.auth.uid
+          || isCompanyOwner(request.resource.data.companyCode)
+        );
+
+      // update/delete は会社オーナーのみ（招待/権限変更など）
+      allow update, delete: if isSignedIn() && isCompanyOwner(resource.data.companyCode);
     }
     
     // ============================================
@@ -39,11 +85,9 @@ service cloud.firestore {
     // 作成は認証済みなら可能
     // 更新・削除は作成者のみ
     match /employees/{employeeId} {
-      // クエリを許可するため、シンプルなルールに変更
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && 
-        resource.data.createdBy == request.auth.uid;
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow update, delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
     
     // ============================================
@@ -52,42 +96,47 @@ service cloud.firestore {
     // 自分のエントリは読み書き可能
     // 同じ会社の管理者も読み取り可能（チームカレンダー用）
     match /timeEntries/{entryId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && 
-        request.auth.uid == request.resource.data.uid;
-      allow update, delete: if request.auth != null && 
-        request.auth.uid == resource.data.uid;
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create: if isSignedIn()
+        && isInMyCompany(request.resource.data.companyCode)
+        && request.auth.uid == request.resource.data.uid;
+      allow update, delete: if isSignedIn()
+        && isInMyCompany(resource.data.companyCode)
+        && request.auth.uid == resource.data.uid;
     }
     
     // ============================================
     // Backlog機能（プロジェクト / 課題 / Wiki / ファイル / コメント）
     // ============================================
     match /projects/{projectId} {
-      // まずは一覧表示が確実に動くように read を緩める（必要に応じて後で締める）
-      allow read: if true;
-      // 書き込みはログイン必須
-      allow create, update, delete: if isSignedIn();
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
     }
     
     match /issues/{issueId} {
-      allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
     }
     
     match /issueComments/{commentId} {
-      allow read: if true;
-      allow create, delete: if isSignedIn();
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
       allow update: if false;
     }
     
     match /wikiPages/{wikiId} {
-      allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+    }
+
+    match /wikiDocs/{docId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
     }
     
     match /projectFiles/{fileId} {
-      allow read: if true;
-      allow create, delete: if isSignedIn();
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
       allow update: if false;
     }
 
@@ -95,30 +144,58 @@ service cloud.firestore {
     // 顧客 / 案件（簡易CRM）
     // ============================================
     match /customers/{customerId} {
-      allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
     }
 
     match /deals/{dealId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+    }
+
+    // ============================================
+    // ドライブ（ファイル管理）
+    // ============================================
+    match /driveFiles/{fileId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+    }
+
+    match /driveItems/{itemId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+    }
+
+    // ============================================
+    // チーム設定
+    // ============================================
+    match /teamSettings/{settingsId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+    }
+
+    match /teamInvites/{inviteId} {
+      // 招待リンクは未ログインでも参照するため read は公開
       allow read: if true;
-      allow create, update, delete: if isSignedIn();
+      // 発行/更新/無効化はオーナーのみ
+      allow create, update, delete: if isSignedIn() && isCompanyOwner(request.resource.data.companyCode);
     }
     
     // ============================================
     // アクティビティ / お知らせ（通知）
     // ============================================
     match /activity/{activityId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
       allow update, delete: if false;
     }
 
     match /notifications/{notificationId} {
       // 自分宛の通知のみ読める（クエリも recipientUid で絞れる）
-      allow read: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
-      allow create: if isSignedIn();
+      allow read: if isSignedIn() && resource.data.recipientUid == request.auth.uid && isInMyCompany(resource.data.companyCode);
+      allow create: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
       // 既読更新のみ想定（厳密にはフィールド制限したいがMVPではupdate許可）
-      allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.recipientUid == request.auth.uid && isInMyCompany(resource.data.companyCode);
       allow delete: if false;
     }
   }

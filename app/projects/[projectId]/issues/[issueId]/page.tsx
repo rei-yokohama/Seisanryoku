@@ -18,7 +18,7 @@ import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../../lib/firebase";
 import type { Issue, IssueComment, Project } from "../../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../../../lib/backlog";
-import { logActivity, pushNotification } from "../../../../../lib/activity";
+import { logActivity, type Activity } from "../../../../../lib/activity";
 import { AppShell } from "../../../../AppShell";
 
 type MemberProfile = {
@@ -64,20 +64,15 @@ export default function IssueDetailPage() {
   const [issue, setIssue] = useState<Issue | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [comments, setComments] = useState<IssueComment[]>([]);
+  const [activities, setActivities] = useState<Activity[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const [editTitle, setEditTitle] = useState("");
-  const [editDescription, setEditDescription] = useState("");
-  const [editStatus, setEditStatus] = useState<Issue["status"]>("TODO");
-  const [editPriority, setEditPriority] = useState<Issue["priority"]>("MEDIUM");
-  const [editAssigneeUid, setEditAssigneeUid] = useState("");
-  const [editStartDate, setEditStartDate] = useState("");
-  const [editDueDate, setEditDueDate] = useState("");
-
   const [commentBody, setCommentBody] = useState("");
   const commentRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const [activeTab, setActiveTab] = useState<"overview" | "activity" | "comments">("overview");
 
   const myDisplayName = useMemo(() => {
     return profile?.displayName || user?.email?.split("@")[0] || "私";
@@ -90,9 +85,17 @@ export default function IssueDetailPage() {
   };
 
   const loadAll = async (u: User, prof: MemberProfile) => {
-    // project
-    const pSnap = await getDoc(doc(db, "projects", projectId));
-    if (pSnap.exists()) setProject({ ...(pSnap.data() as Project), id: projectId });
+    // deals コレクションから案件を取得
+    const pSnap = await getDoc(doc(db, "deals", projectId));
+    if (pSnap.exists()) {
+      const dealData = pSnap.data();
+      setProject({
+        ...dealData,
+        id: projectId,
+        name: dealData.title || "無題",
+        key: dealData.key || dealData.title?.slice(0, 5)?.toUpperCase() || "DEAL",
+      } as Project);
+    }
 
     // employees (company + createdBy fallback)
     const mergedEmp: Employee[] = [];
@@ -102,9 +105,9 @@ export default function IssueDetailPage() {
     }
     const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
     mergedEmp.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
-    const empById = new Map<string, Employee>();
-    for (const e of mergedEmp) empById.set(e.id, e);
-    const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const empMap = new Map<string, Employee>();
+    for (const e of mergedEmp) empMap.set(e.id, e);
+    const empItems = Array.from(empMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setEmployees(empItems);
 
     // issue
@@ -115,13 +118,6 @@ export default function IssueDetailPage() {
     }
     const i = { ...(iSnap.data() as Issue), id: issueId } as Issue;
     setIssue(i);
-    setEditTitle(i.title || "");
-    setEditDescription(i.description || "");
-    setEditStatus(i.status || "TODO");
-    setEditPriority(i.priority || "MEDIUM");
-    setEditAssigneeUid((i.assigneeUid as any) || "");
-    setEditStartDate((i.startDate as any) || "");
-    setEditDueDate((i.dueDate as any) || "");
 
     // comments (companyCodeでindex回避→issueIdでfilter)
     if (prof.companyCode) {
@@ -135,8 +131,21 @@ export default function IssueDetailPage() {
         return am - bm;
       });
       setComments(items);
+
+      // activities (companyCodeでindex回避→issueIdでfilter)
+      const actSnap = await getDocs(query(collection(db, "activity"), where("companyCode", "==", prof.companyCode)));
+      const actItems = actSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as any))
+        .filter((a: any) => a.issueId === issueId) as Activity[];
+      actItems.sort((a, b) => {
+        const am = (a.createdAt as any)?.toMillis?.() || 0;
+        const bm = (b.createdAt as any)?.toMillis?.() || 0;
+        return bm - am; // 新しい順
+      });
+      setActivities(actItems);
     } else {
       setComments([]);
+      setActivities([]);
     }
   };
 
@@ -163,73 +172,21 @@ export default function IssueDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, projectId, issueId]);
 
-  const save = async () => {
+  const addComment = async () => {
     if (!user || !profile || !issue) return;
-    setError("");
-    const t = editTitle.trim();
+    const t = commentBody.trim();
     if (!t) {
-      setError("件名を入力してください");
+      setError("コメントを入力してください");
       return;
     }
     setSaving(true);
-    try {
-      const prevAssignee = issue.assigneeUid || null;
-      const nextAssignee = editAssigneeUid || null;
-      await updateDoc(doc(db, "issues", issue.id), {
-        title: t,
-        description: editDescription.trim(),
-        status: editStatus,
-        priority: editPriority,
-        assigneeUid: nextAssignee,
-        startDate: editStartDate || null,
-        dueDate: editDueDate || null,
-        updatedAt: Timestamp.now(),
-      });
-
-      await logActivity({
-        companyCode: profile.companyCode,
-        actorUid: user.uid,
-        type: "ISSUE_UPDATED",
-        projectId,
-        issueId: issue.id,
-        entityId: issue.id,
-        message: `課題を更新: ${issue.issueKey} ${t}`,
-        link: `/projects/${projectId}/issues/${issue.id}`,
-      });
-
-      if (nextAssignee && nextAssignee !== prevAssignee && nextAssignee !== user.uid) {
-        await pushNotification({
-          companyCode: profile.companyCode,
-          recipientUid: nextAssignee,
-          actorUid: user.uid,
-          type: "ASSIGNED",
-          title: `課題が割り当てられました: ${issue.issueKey}`,
-          body: t,
-          link: `/projects/${projectId}/issues/${issue.id}`,
-        });
-      }
-
-      await loadAll(user, profile);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "更新に失敗しました";
-      setError(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const addComment = async () => {
-    if (!user || !profile || !issue) return;
     setError("");
-    const body = commentBody.trim();
-    if (!body) return;
-    setSaving(true);
     try {
       await addDoc(collection(db, "issueComments"), {
         companyCode: profile.companyCode,
         issueId: issue.id,
         authorUid: user.uid,
-        body,
+        body: t,
         createdAt: Timestamp.now(),
       });
       await logActivity({
@@ -239,14 +196,46 @@ export default function IssueDetailPage() {
         projectId,
         issueId: issue.id,
         entityId: issue.id,
-        message: `コメント追加: ${issue.issueKey}`,
+        message: `${issue.issueKey} にコメントを追加しました`,
         link: `/projects/${projectId}/issues/${issue.id}`,
       });
       setCommentBody("");
       await loadAll(user, profile);
-      requestAnimationFrame(() => commentRef.current?.focus());
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "コメントの追加に失敗しました";
+      setError(msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const archiveIssue = async () => {
+    if (!user || !profile || !issue) return;
+    if (issue.archivedAt) {
+      alert("この課題は既にアーカイブ済みです");
+      return;
+    }
+    if (!confirm("この課題をアーカイブしますか？（一覧ではデフォルト非表示になります）")) return;
+    setSaving(true);
+    setError("");
+    try {
+      await updateDoc(doc(db, "issues", issue.id), {
+        archivedAt: Timestamp.now(),
+        updatedAt: Timestamp.now(),
+      });
+      await logActivity({
+        companyCode: profile.companyCode,
+        actorUid: user.uid,
+        type: "ISSUE_UPDATED",
+        projectId,
+        issueId: issue.id,
+        entityId: issue.id,
+        message: `${issue.issueKey} - アーカイブしました`,
+        link: `/projects/${projectId}/issues/${issue.id}`,
+      });
+      router.push(`/projects/${projectId}/issues`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "アーカイブに失敗しました";
       setError(msg);
     } finally {
       setSaving(false);
@@ -271,7 +260,7 @@ export default function IssueDetailPage() {
         <div className="rounded-lg border border-slate-200 bg-white p-6">
           <div className="text-lg font-extrabold text-slate-900">課題が見つかりません</div>
           <div className="mt-3">
-            <Link href={`/projects/${projectId}/issues`} className="text-sm font-bold text-emerald-700 hover:underline">
+            <Link href={`/projects/${projectId}/issues`} className="text-sm font-bold text-orange-700 hover:underline">
               課題一覧へ戻る
             </Link>
           </div>
@@ -280,12 +269,13 @@ export default function IssueDetailPage() {
     );
   }
 
-  const statusLabel = ISSUE_STATUSES.find(s => s.value === editStatus)?.label || editStatus;
-  const priorityLabel = ISSUE_PRIORITIES.find(p => p.value === editPriority)?.label || editPriority;
+  const statusInfo = ISSUE_STATUSES.find(s => s.value === issue.status);
+  const priorityInfo = ISSUE_PRIORITIES.find(p => p.value === issue.priority);
+  const assignee = assigneeName(issue.assigneeUid);
 
   return (
     <AppShell 
-      title={`${project?.key || ""} ${project?.name || ""}`.trim() || "課題詳細"}
+      title={`${project?.name || ""}`.trim() || "課題詳細"}
       subtitle={
         <div className="flex items-center gap-2 text-xs">
           <Link href={`/projects/${projectId}/issues`} className="hover:underline text-slate-500">課題</Link>
@@ -295,16 +285,22 @@ export default function IssueDetailPage() {
       }
       projectId={projectId}
       headerRight={
-        <button
-          onClick={saveChanges}
-          disabled={saving}
-          className={clsx(
-            "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-            saving ? "bg-emerald-400" : "bg-emerald-600 hover:bg-emerald-700",
+        <div className="flex items-center gap-2">
+          {!issue.archivedAt && (
+            <button
+              onClick={archiveIssue}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
+            >
+              アーカイブ
+            </button>
           )}
-        >
-          {saving ? "保存中..." : "更新"}
-        </button>
+          <Link
+            href={`/projects/${projectId}/issues/${issueId}/edit`}
+            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
+          >
+            編集
+          </Link>
+        </div>
       }
     >
       {error && (
@@ -313,167 +309,298 @@ export default function IssueDetailPage() {
         </div>
       )}
 
-      <div className="rounded-lg border border-slate-200 bg-white p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-xs font-extrabold text-emerald-700">{issue.issueKey}</div>
-              <input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                className="mt-1 w-full max-w-[760px] rounded-md border border-slate-200 px-3 py-2 text-lg font-extrabold text-slate-900 outline-none focus:border-emerald-500"
-              />
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className={clsx(
-                  "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
-                  editStatus === "DONE" ? "bg-emerald-100 text-emerald-700" :
-                  editStatus === "IN_PROGRESS" ? "bg-sky-100 text-sky-700" :
-                  "bg-rose-100 text-rose-700",
-                )}>
-                  {statusLabel}
-                </span>
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-700">
-                  優先度: {priorityLabel}
-                </span>
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-extrabold text-slate-700">
-                  担当: {assigneeName(editAssigneeUid) || "未割当"}
-                </span>
-              </div>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* 左側：基本情報 */}
+        <div className="lg:col-span-3 space-y-4">
+          {/* 課題キーとタイトル */}
+          <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
+                {issue.issueKey}
+              </span>
             </div>
-            <Link
-              href={`/projects/new?projectId=${encodeURIComponent(projectId)}`}
-              className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
-            >
-              ＋課題追加
+            <h1 className="text-lg font-extrabold text-slate-900 leading-tight">{issue.title}</h1>
+          </div>
+
+          {/* 次のステップ */}
+          <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="text-xs font-extrabold text-slate-500 mb-3">この課題の概要</div>
+            <div className="space-y-3 text-sm text-slate-700">
+              <div className="flex items-start gap-2">
+                <div className="flex-shrink-0 w-1 h-1 rounded-full bg-slate-400 mt-2"></div>
+                <div className="flex-1">
+                  <div className="text-xs font-bold text-slate-500">作成日</div>
+                  <div className="text-sm text-slate-900">
+                    {issue.createdAt ? new Date((issue.createdAt as any).toMillis()).toLocaleDateString("ja-JP") : "-"}
+                  </div>
+                </div>
+              </div>
+              {issue.startDate && (
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-1 h-1 rounded-full bg-slate-400 mt-2"></div>
+                  <div className="flex-1">
+                    <div className="text-xs font-bold text-slate-500">開始日</div>
+                    <div className="text-sm text-slate-900">{issue.startDate}</div>
+                  </div>
+                </div>
+              )}
+              {issue.dueDate && (
+                <div className="flex items-start gap-2">
+                  <div className="flex-shrink-0 w-1 h-1 rounded-full bg-slate-400 mt-2"></div>
+                  <div className="flex-1">
+                    <div className="text-xs font-bold text-slate-500">期限</div>
+                    <div className="text-sm text-slate-900">{issue.dueDate}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 中央：タブコンテンツ */}
+        <div className="lg:col-span-6 space-y-4">
+          {/* タブナビゲーション */}
+          <div className="rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-200 flex items-center px-2">
+              <button
+                onClick={() => setActiveTab("overview")}
+                className={clsx(
+                  "px-4 py-3 text-sm font-bold border-b-2 transition",
+                  activeTab === "overview"
+                    ? "border-orange-600 text-orange-700"
+                    : "border-transparent text-slate-600 hover:text-slate-900"
+                )}
+              >
+                概要
+              </button>
+              <button
+                onClick={() => setActiveTab("activity")}
+                className={clsx(
+                  "px-4 py-3 text-sm font-bold border-b-2 transition",
+                  activeTab === "activity"
+                    ? "border-orange-600 text-orange-700"
+                    : "border-transparent text-slate-600 hover:text-slate-900"
+                )}
+              >
+                アクティビティー
+              </button>
+              <button
+                onClick={() => setActiveTab("comments")}
+                className={clsx(
+                  "px-4 py-3 text-sm font-bold border-b-2 transition",
+                  activeTab === "comments"
+                    ? "border-orange-600 text-orange-700"
+                    : "border-transparent text-slate-600 hover:text-slate-900"
+                )}
+              >
+                コメント ({comments.length})
+              </button>
+            </div>
+
+            <div className="p-5">
+              {/* 概要タブ */}
+              {activeTab === "overview" && (
+                <div className="space-y-5">
+                  {issue.description ? (
+                    <div>
+                      <div className="text-xs font-extrabold text-slate-500 mb-2">詳細</div>
+                      <div className="whitespace-pre-wrap text-sm text-slate-800 bg-slate-50 rounded-lg p-4">
+                        {issue.description}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-600">詳細はまだ記入されていません。</div>
+                  )}
+                </div>
+              )}
+
+              {/* アクティビティタブ */}
+              {activeTab === "activity" && (
+                <div className="space-y-3">
+                  {activities.length === 0 ? (
+                    <div className="text-sm text-slate-600">アクティビティはまだありません。</div>
+                  ) : (
+                    activities.map((act, idx) => {
+                      const dt = (act.createdAt as any)?.toDate?.() ? (act.createdAt as any).toDate() as Date : null;
+                      const who = act.actorUid === user.uid ? myDisplayName : (employees.find(e => e.authUid === act.actorUid)?.name || "ユーザー");
+                      return (
+                        <div key={idx} className="flex items-start gap-3 py-3 border-b border-slate-100 last:border-b-0">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-xs font-extrabold text-sky-700 flex-shrink-0">
+                            {who.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 mb-1">
+                              <span className="text-sm font-bold text-slate-900">{who}</span>
+                              <span className="text-xs text-slate-500">{dt ? relativeFromNow(dt) : ""}</span>
+                            </div>
+                            <div className="text-sm text-slate-700">{act.message}</div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {/* コメントタブ */}
+              {activeTab === "comments" && (
+                <div className="space-y-5">
+                  <div className="space-y-4">
+                    {comments.length === 0 ? (
+                      <div className="text-sm text-slate-600">コメントはまだありません。</div>
+                    ) : (
+                      comments.map((c) => {
+                        const dt = (c.createdAt as any)?.toDate?.() ? (c.createdAt as any).toDate() as Date : null;
+                        const who = c.authorUid === user.uid ? myDisplayName : (employees.find(e => e.authUid === c.authorUid)?.name || "ユーザー");
+                        return (
+                          <div key={c.id} className="flex items-start gap-3 py-3 border-b border-slate-100 last:border-b-0">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-sm font-extrabold text-orange-700 flex-shrink-0">
+                              {who.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-baseline gap-2 mb-1">
+                                <div className="text-sm font-extrabold text-slate-900">{who}</div>
+                                <div className="text-xs text-slate-500">{dt ? relativeFromNow(dt) : ""}</div>
+                              </div>
+                              <div className="whitespace-pre-wrap text-sm text-slate-800">{c.body}</div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-200 pt-4 mt-4">
+                    <textarea
+                      ref={commentRef}
+                      value={commentBody}
+                      onChange={(e) => setCommentBody(e.target.value)}
+                      className="min-h-[100px] w-full rounded-lg border border-slate-200 px-3 py-3 text-sm text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                      placeholder="コメントを入力..."
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        onClick={addComment}
+                        disabled={saving || !commentBody.trim()}
+                        className={clsx(
+                          "rounded-lg px-4 py-2 text-sm font-extrabold text-white transition",
+                          saving || !commentBody.trim() ? "bg-orange-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700",
+                        )}
+                      >
+                        {saving ? "投稿中..." : "コメントを投稿"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 右側：サイドバー */}
+        <div className="lg:col-span-3 space-y-4">
+          {/* 案件情報 */}
+          <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="text-xs font-extrabold text-slate-500 mb-3">案件</div>
+            <Link href={`/projects/${projectId}/issues`} className="block group">
+              <div className="text-sm font-bold text-slate-900 group-hover:text-orange-700 transition">
+                {project?.name || "案件名なし"}
+              </div>
             </Link>
           </div>
 
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-12">
-            <div className="md:col-span-4">
-              <div className="text-xs font-extrabold text-slate-500">状態</div>
-              <select
-                value={editStatus}
-                onChange={(e) => setEditStatus(e.target.value as Issue["status"])}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-              >
-                {ISSUE_STATUSES.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-4">
-              <div className="text-xs font-extrabold text-slate-500">優先度</div>
-              <select
-                value={editPriority}
-                onChange={(e) => setEditPriority(e.target.value as Issue["priority"])}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-              >
-                {ISSUE_PRIORITIES.map(p => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-4">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-extrabold text-slate-500">担当者</div>
-                <button
-                  type="button"
-                  onClick={() => setEditAssigneeUid(user.uid)}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+          {/* ステータス・優先度 */}
+          <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="space-y-4">
+              {issue.archivedAt && (
+                <div>
+                  <div className="text-xs font-extrabold text-slate-500 mb-2">アーカイブ</div>
+                  <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold bg-slate-900 text-white">
+                    アーカイブ済み
+                  </span>
+                </div>
+              )}
+              <div>
+                <div className="text-xs font-extrabold text-slate-500 mb-2">ステータス</div>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
+                    issue.status === "DONE"
+                      ? "bg-orange-100 text-orange-700"
+                      : issue.status === "IN_PROGRESS"
+                        ? "bg-sky-100 text-sky-700"
+                        : "bg-rose-100 text-rose-700",
+                  )}
                 >
-                  👤 私が担当
-                </button>
+                  {statusInfo?.label || issue.status}
+                </span>
               </div>
-              <select
-                value={editAssigneeUid}
-                onChange={(e) => setEditAssigneeUid(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-              >
-                <option value="">未割当</option>
-                <option value={user.uid}>{myDisplayName}</option>
-                {employees.filter(e => !!e.authUid && e.authUid !== user.uid).map(e => (
-                  <option key={e.id} value={e.authUid}>{e.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-500">開始日</div>
-              <input
-                type="date"
-                value={editStartDate}
-                onChange={(e) => setEditStartDate(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-              />
-            </div>
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-500">期限日</div>
-              <input
-                type="date"
-                value={editDueDate}
-                onChange={(e) => setEditDueDate(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-              />
+              <div>
+                <div className="text-xs font-extrabold text-slate-500 mb-2">優先度</div>
+                <span
+                  className={clsx(
+                    "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
+                    issue.priority === "HIGH"
+                      ? "bg-red-100 text-red-700"
+                      : issue.priority === "LOW"
+                        ? "bg-slate-100 text-slate-700"
+                        : "bg-amber-100 text-amber-700",
+                  )}
+                >
+                  {priorityInfo?.label || issue.priority}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="mt-5">
-            <div className="text-xs font-extrabold text-slate-500">詳細</div>
-            <textarea
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              className="mt-1 min-h-[180px] w-full rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-800 outline-none focus:border-emerald-500"
-              placeholder="詳細を入力"
-            />
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
-          <div className="text-sm font-extrabold text-slate-900">コメント</div>
-          <div className="mt-4 space-y-4">
-            {comments.length === 0 ? (
-              <div className="text-sm text-slate-600">コメントはまだありません。</div>
+          {/* 担当者 */}
+          <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="text-xs font-extrabold text-slate-500 mb-3">担当者</div>
+            {assignee ? (
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-sm font-extrabold text-orange-700">
+                  {assignee.charAt(0).toUpperCase()}
+                </div>
+                <div className="text-sm font-bold text-slate-900">{assignee}</div>
+              </div>
             ) : (
-              comments.map((c) => {
-                const dt = (c.createdAt as any)?.toDate?.() ? (c.createdAt as any).toDate() as Date : null;
-                const who = c.authorUid === user.uid ? myDisplayName : (employees.find(e => e.authUid === c.authorUid)?.name || "ユーザー");
-                return (
-                  <div key={c.id} className="rounded-lg border border-slate-200 p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm font-extrabold text-slate-900">{who}</div>
-                      <div className="text-xs text-slate-500">{dt ? relativeFromNow(dt) : ""}</div>
-                    </div>
-                    <div className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{c.body}</div>
-                  </div>
-                );
-              })
+              <div className="text-sm text-slate-600">未割当</div>
             )}
           </div>
 
-          <div className="mt-5">
-            <textarea
-              ref={commentRef}
-              value={commentBody}
-              onChange={(e) => setCommentBody(e.target.value)}
-              className="min-h-[90px] w-full rounded-md border border-slate-200 px-3 py-3 text-sm text-slate-800 outline-none focus:border-emerald-500"
-              placeholder="コメントを入力"
-            />
-            <div className="mt-2 flex justify-end">
-              <button
-                onClick={addComment}
-                disabled={saving}
-                className={clsx(
-                  "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-                  saving ? "bg-emerald-400" : "bg-emerald-600 hover:bg-emerald-700",
-                )}
-              >
-                {saving ? "送信中..." : "コメント"}
-              </button>
+          {/* 日付 */}
+          <div className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="space-y-3">
+              {issue.startDate && (
+                <div>
+                  <div className="text-xs font-extrabold text-slate-500 mb-1">開始日</div>
+                  <div className="text-sm text-slate-900">{issue.startDate}</div>
+                </div>
+              )}
+              {issue.dueDate && (
+                <div>
+                  <div className="text-xs font-extrabold text-slate-500 mb-1">期限</div>
+                  <div className="text-sm text-slate-900">{issue.dueDate}</div>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* ラベル */}
+          {issue.labels && issue.labels.length > 0 && (
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <div className="text-xs font-extrabold text-slate-500 mb-3">ラベル</div>
+              <div className="flex flex-wrap gap-2">
+                {issue.labels.map((label, idx) => (
+                  <span key={idx} className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+      </div>
     </AppShell>
   );
 }
-

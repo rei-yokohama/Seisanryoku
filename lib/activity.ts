@@ -4,6 +4,7 @@ import { db } from "./firebase";
 export type ActivityType =
   | "PROJECT_CREATED"
   | "PROJECT_UPDATED"
+  | "PROJECT_DELETED"
   | "ISSUE_CREATED"
   | "ISSUE_UPDATED"
   | "ISSUE_DELETED"
