@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "🐝 生産力 (Seisanryoku) | 蜂のように効率的な工数管理SaaS",
+  title: "生産力 (Seisanryoku) | 統合型ワークスペース & 工数管理",
   description:
-    "蜂のように効率的な工数管理を実現。Googleカレンダーと連携し、チームの生産性を最大化する次世代SaaS。30秒で始められる、無料の工数管理ツール。",
+    "ワークスペースごとにデータを分離し、課題・Wiki・ドライブ・顧客/案件・工数カレンダーを一つに統合。チームの生産性を最大化する次世代SaaS。",
   robots: {
     index: false,
     follow: false,

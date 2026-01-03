@@ -24,7 +24,6 @@ type MemberProfile = {
   companyName?: string | null;
   email?: string | null;
   companyCode: string;
-  calendarLinked?: boolean;
 };
 
 type TimeEntry = {
@@ -481,7 +480,6 @@ export default function TeamCalendarPage() {
           email: u.email || null,
           companyCode: code,
           companyName: emp?.companyName || null,
-          calendarLinked: false,
         });
 
         const loadedEmployees = await loadEmployees(code, u.uid);
@@ -1728,7 +1726,7 @@ export default function TeamCalendarPage() {
                     )}
 
                     <div className="text-[11px] font-bold text-slate-500">
-                      ※ 繰り返しは「毎週」のみ対応（Googleカレンダーと同様の感覚に寄せて順次拡張します）
+                      ※ 繰り返しは「毎週」のみ対応（順次拡張予定）
                     </div>
                   </div>
                 )}

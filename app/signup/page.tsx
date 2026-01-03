@@ -141,7 +141,6 @@ function SignupInner() {
         email: email,
         companyCode,
         defaultCompanyCode: companyCode,
-        calendarLinked: false,
       });
 
       // 招待がある場合は使用済みにする

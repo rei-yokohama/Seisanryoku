@@ -24,7 +24,6 @@ type MemberProfile = {
   companyName?: string | null;
   email?: string | null;
   companyCode: string;
-  calendarLinked?: boolean;
 };
 
 type Employee = {
@@ -34,7 +33,6 @@ type Employee = {
   employmentType: "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託";
   joinDate: string;
   color?: string; // カレンダー表示用の色
-  allowCalendarSync?: boolean; // Googleカレンダー連携を許可するか
   authUid?: string; // Firebase AuthenticationのUID
   password?: string; // 初期パスワード（管理者が参照用）
   companyCode?: string;
@@ -70,7 +68,6 @@ export default function EmployeesPage() {
     employmentType: "正社員" as Employee["employmentType"],
     joinDate: new Date().toISOString().split("T")[0],
     color: EMPLOYEE_COLORS[0].value,
-    allowCalendarSync: true,
   });
 
   // パスワード表示用
@@ -146,7 +143,6 @@ export default function EmployeesPage() {
           employmentType: formData.employmentType,
           joinDate: formData.joinDate,
           color: formData.color,
-          allowCalendarSync: formData.allowCalendarSync,
         });
         setEmployees(prev =>
           prev.map(emp =>
@@ -163,7 +159,6 @@ export default function EmployeesPage() {
           employmentType: "正社員",
           joinDate: new Date().toISOString().split("T")[0],
           color: EMPLOYEE_COLORS[0].value,
-          allowCalendarSync: true,
         });
         setShowForm(false);
         setEditingEmployee(null);
@@ -228,7 +223,6 @@ export default function EmployeesPage() {
           employmentType: "正社員",
           joinDate: new Date().toISOString().split("T")[0],
           color: EMPLOYEE_COLORS[0].value,
-          allowCalendarSync: true,
         });
         setShowForm(false);
         setEditingEmployee(null);
@@ -247,7 +241,6 @@ export default function EmployeesPage() {
       employmentType: employee.employmentType,
       joinDate: employee.joinDate,
       color: employee.color || EMPLOYEE_COLORS[0].value,
-      allowCalendarSync: employee.allowCalendarSync ?? true,
     });
     setShowForm(true);
   };
@@ -273,7 +266,6 @@ export default function EmployeesPage() {
       employmentType: "正社員",
       joinDate: new Date().toISOString().split("T")[0],
       color: EMPLOYEE_COLORS[0].value,
-      allowCalendarSync: true,
     });
   };
 
@@ -469,44 +461,7 @@ export default function EmployeesPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border-2 border-orange-200 bg-orange-50/30 p-4">
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <div className="relative flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.allowCalendarSync}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, allowCalendarSync: e.target.checked }))
-                      }
-                      className="peer h-5 w-5 cursor-pointer appearance-none rounded border-2 border-orange-300 checked:border-orange-600 checked:bg-orange-600 focus:ring-2 focus:ring-orange-200 transition"
-                    />
-                    <svg
-                      className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 12 12"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M3 6L5 8L9 4"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
-                  <div className="flex-1">
-                    <span className="text-sm font-semibold text-orange-900">
-                      📅 Googleカレンダー連携を許可
-                    </span>
-                    <p className="text-xs text-orange-700 mt-1">
-                      この社員がGoogleアカウントと連携してカレンダーデータを同期できるようにします
-                    </p>
-                  </div>
-                </label>
-              </div>
+              {/* カレンダー連携（Google等）は一旦停止 */}
 
               <div className="flex justify-end gap-3">
                 <button
@@ -556,9 +511,6 @@ export default function EmployeesPage() {
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       パスワード
-                    </th>
-                    <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
-                      カレンダー連携
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-semibold text-orange-900">
                       入社日
@@ -640,23 +592,6 @@ export default function EmployeesPage() {
                           </div>
                         ) : (
                           <span className="text-xs text-gray-400">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {employee.allowCalendarSync !== false ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700">
-                            <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" />
-                            </svg>
-                            許可
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">
-                            <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clipRule="evenodd" />
-                            </svg>
-                            不許可
-                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-orange-700">

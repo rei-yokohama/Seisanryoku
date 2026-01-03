@@ -1,8 +1,8 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { onAuthStateChanged, User, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, where, setDoc } from "firebase/firestore";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { auth, db } from "../../lib/firebase";
@@ -16,7 +16,6 @@ type MemberProfile = {
   companyCode: string;
   companyName?: string | null;
   email?: string | null;
-  calendarLinked?: boolean;
 };
 
 type Company = {
@@ -37,7 +36,6 @@ type Employee = {
   email: string;
   authUid?: string;
   companyCode?: string;
-  allowCalendarSync?: boolean;
 };
 
 function clsx(...xs: Array<string | false | null | undefined>) {
@@ -70,7 +68,6 @@ function DashboardInner() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [calendarStatus, setCalendarStatus] = useState("");
 
   const [activeTab, setActiveTab] = useState<"updates" | "activity">("updates");
 
@@ -117,7 +114,6 @@ function DashboardInner() {
               companyName: companyData.name,
               displayName: emp?.name || u.email?.split("@")[0] || "ユーザー",
               email: u.email || null,
-              calendarLinked: false,
             },
           );
         } else {
@@ -130,7 +126,6 @@ function DashboardInner() {
               companyName: null,
               displayName: emp?.name || u.email?.split("@")[0] || "ユーザー",
               email: u.email || null,
-              calendarLinked: false,
             },
           );
         }
@@ -168,55 +163,6 @@ function DashboardInner() {
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const linkCalendar = async () => {
-    if (!user) {
-      alert("ログインしてください");
-      return;
-    }
-    try {
-      setCalendarStatus("連携処理中...");
-      
-      const provider = new GoogleAuthProvider();
-      provider.addScope("https://www.googleapis.com/auth/calendar.events");
-      provider.addScope("https://www.googleapis.com/auth/calendar.readonly");
-      provider.setCustomParameters({ prompt: "consent" });
-
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const token = credential?.accessToken || null;
-
-      if (token) {
-        await setDoc(
-          doc(db, "profiles", user.uid),
-          { 
-            calendarLinked: true,
-            googleAccessToken: token,
-          },
-          { merge: true }
-        );
-        setProfile((prev) => (prev ? { ...prev, calendarLinked: true } : prev));
-        setCalendarStatus("✅ カレンダー連携に成功しました！");
-        setTimeout(() => setCalendarStatus(""), 3000);
-      } else {
-        setCalendarStatus("❌ 連携に失敗しました。もう一度お試しください。");
-        setTimeout(() => setCalendarStatus(""), 3000);
-      }
-    } catch (error) {
-      console.error("Calendar link error:", error);
-      const firebaseError = error as { code?: string; message?: string };
-      let errorMessage = "エラーが発生しました。";
-      
-      if (firebaseError.code === "auth/popup-closed-by-user") {
-        errorMessage = "連携がキャンセルされました。";
-      } else if (firebaseError.code === "auth/popup-blocked") {
-        errorMessage = "ポップアップがブロックされました。ブラウザの設定を確認してください。";
-      }
-      
-      setCalendarStatus("❌ " + errorMessage);
-      setTimeout(() => setCalendarStatus(""), 5000);
-    }
-  };
 
   // ステータス別カウント
   const statusCounts = {
@@ -389,55 +335,7 @@ function DashboardInner() {
 
         {/* 右側：状態サマリーとチャート */}
         <div className="lg:col-span-4 space-y-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-extrabold text-slate-900">Googleカレンダー連携</div>
-                <div className="mt-1 text-xs font-bold text-slate-500">
-                  {profile.calendarLinked ? "連携済み" : "未連携"}
-                </div>
-              </div>
-              <div
-                className={clsx(
-                  "flex h-8 w-8 items-center justify-center rounded-full text-xs font-extrabold",
-                  profile.calendarLinked ? "bg-orange-500 text-white" : "bg-slate-100 text-slate-500",
-                )}
-              >
-                {profile.calendarLinked ? "✓" : "-"}
-              </div>
-            </div>
-
-            {employee?.allowCalendarSync === false ? (
-              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-slate-600">🔒</div>
-                  <div className="text-xs font-bold text-slate-700">管理者により無効化されています</div>
-                </div>
-                <div className="mt-2 text-xs text-slate-500">
-                  Googleカレンダー連携を使用するには、管理者に許可を依頼してください。
-                </div>
-              </div>
-            ) : (
-              <>
-                <button
-                  onClick={linkCalendar}
-                  className={clsx(
-                    "mt-3 w-full rounded-lg px-4 py-2 text-sm font-extrabold shadow-sm transition",
-                    profile.calendarLinked
-                      ? "bg-white text-orange-700 border border-orange-200 hover:bg-orange-50"
-                      : "bg-orange-600 text-white hover:bg-orange-700",
-                  )}
-                >
-                  {profile.calendarLinked ? "再連携する" : "Googleカレンダーと連携"}
-                </button>
-                {calendarStatus ? (
-                  <div className="mt-2 text-xs font-bold text-slate-600 text-center">
-                    {calendarStatus}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
+          {/* カレンダー連携（Google等）は一旦停止 */}
 
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <div className="text-sm font-extrabold text-slate-900 mb-4">状態</div>
@@ -478,7 +376,7 @@ function DashboardInner() {
                   <span className="text-sm font-bold text-slate-900">{statusCounts.IN_PROGRESS}</span>
                   <div className="w-16 h-6 rounded bg-sky-100 flex items-center justify-center">
                     <span className="text-xs font-bold text-sky-700">{statusCounts.IN_PROGRESS}</span>
-                  </div>
+          </div>
               </div>
                 </div>
             

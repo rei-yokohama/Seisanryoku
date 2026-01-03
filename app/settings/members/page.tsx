@@ -24,7 +24,6 @@ type Employee = {
   employmentType: EmploymentType;
   joinDate: string;
   color?: string;
-  allowCalendarSync?: boolean;
   authUid?: string;
   password?: string;
   companyCode?: string;
@@ -54,8 +53,11 @@ export default function MembersPage() {
       const snapByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", companyCode)));
       merged.push(...snapByCompany.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
     }
-    const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", uid)));
-    merged.push(...snapByCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+    // companyCode が無い過去データ救済
+    if (!companyCode) {
+      const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", uid)));
+      merged.push(...snapByCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+    }
     const byId = new Map<string, Employee>();
     for (const e of merged) byId.set(e.id, e);
     const items = Array.from(byId.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));

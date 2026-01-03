@@ -23,7 +23,6 @@ type Employee = {
   employmentType: EmploymentType;
   joinDate: string;
   color?: string;
-  allowCalendarSync?: boolean;
 };
 
 function clsx(...xs: Array<string | false | null | undefined>) {
@@ -66,7 +65,6 @@ export default function MemberCreatePage() {
     employmentType: "正社員",
     joinDate: new Date().toISOString().slice(0, 10),
     color: EMPLOYEE_COLORS[0].value,
-    allowCalendarSync: true,
   });
 
   useEffect(() => {
@@ -130,7 +128,6 @@ export default function MemberCreatePage() {
         employmentType: form.employmentType,
         joinDate: form.joinDate,
         color: form.color,
-        allowCalendarSync: form.allowCalendarSync,
         authUid: authData.uid,
         password,
         companyCode: profile?.companyCode || "",
@@ -286,18 +283,7 @@ export default function MemberCreatePage() {
               </div>
             </div>
 
-            <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <input
-                type="checkbox"
-                checked={form.allowCalendarSync !== false}
-                onChange={(e) => setForm((p) => ({ ...p, allowCalendarSync: e.target.checked }))}
-                className="h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-              />
-              <div>
-                <div className="text-sm font-extrabold text-slate-900">Googleカレンダー連携を許可</div>
-                <div className="text-xs font-bold text-slate-600">この社員がカレンダー同期できるようにします</div>
-              </div>
-            </label>
+            {/* カレンダー連携（Google等）は一旦停止 */}
 
             <div className="flex items-center justify-end gap-3">
               <Link href="/settings/members" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">

@@ -89,7 +89,7 @@ export default function LandingPage() {
           </h1>
           
           <p className="mx-auto mb-12 max-w-2xl text-lg font-bold leading-relaxed text-slate-600 sm:text-xl animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
-            Googleカレンダー連携、Wiki、ドライブ、CRMを統合。<br className="hidden sm:block" />
+            工数カレンダー、Wiki、ドライブ、CRMを統合。<br className="hidden sm:block" />
             ワークスペースごとにデータを完全分離し、安全で効率的なプロジェクト運営を。
           </p>
           
@@ -129,8 +129,8 @@ export default function LandingPage() {
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             <FeatureCard 
               icon="📅"
-              title="Googleカレンダー連携"
-              description="日々の予定を自動で工数エントリに変換。ドラッグ＆ドロップや繰り返し予定にも対応した高品質なUI。"
+              title="工数カレンダー"
+              description="日々の予定を工数エントリとして管理。ドラッグ＆ドロップや繰り返し予定にも対応した高品質なUI。"
             />
             <FeatureCard 
               icon="🧩"
@@ -182,7 +182,7 @@ export default function LandingPage() {
               </div>
               <h3 className="text-lg font-black text-slate-900">カレンダー操作感の大幅改善</h3>
               <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-                ドラッグ＆ドロップでの予定移動、繰り返し予定の設定に対応。Googleカレンダーと同等の操作体験を実現しました。
+                ドラッグ＆ドロップでの予定移動、繰り返し予定の設定に対応。直感的に入力できる操作体験を実現しました。
               </p>
             </div>
           </div>
