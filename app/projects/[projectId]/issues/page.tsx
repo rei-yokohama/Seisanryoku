@@ -6,7 +6,7 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
-import type { Issue, Project } from "../../../../lib/backlog";
+import type { Issue } from "../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../../lib/backlog";
 import { AppShell } from "../../../AppShell";
 
@@ -21,6 +21,14 @@ type Employee = {
   id: string;
   name: string;
   authUid?: string;
+};
+
+type Deal = {
+  id: string;
+  companyCode: string;
+  title: string;
+  key?: string;
+  customerId?: string;
 };
 
 function clsx(...xs: Array<string | false | null | undefined>) {
@@ -41,7 +49,7 @@ export default function ProjectIssuesPage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [project, setProject] = useState<Project | null>(null);
+  const [project, setProject] = useState<Deal | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
 
@@ -74,14 +82,14 @@ export default function ProjectIssuesPage() {
       setProfile(prof);
 
       try {
-        // project
-        const pSnap = await getDoc(doc(db, "projects", projectId));
-        if (!pSnap.exists()) {
+        // deal（案件）
+        const dSnap = await getDoc(doc(db, "deals", projectId));
+        if (!dSnap.exists()) {
           setLoading(false);
           router.push("/projects");
           return;
         }
-        setProject({ ...(pSnap.data() as Project), id: projectId });
+        setProject({ ...(dSnap.data() as Deal), id: projectId });
 
         // employees (company + createdBy fallback)
         const mergedEmp: Employee[] = [];
@@ -89,8 +97,11 @@ export default function ProjectIssuesPage() {
           const snapByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
           mergedEmp.push(...snapByCompany.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
         }
-        const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
-        mergedEmp.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        // companyCode が無い過去データ救済
+        if (!prof.companyCode) {
+          const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
+          mergedEmp.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        }
         const empById = new Map<string, Employee>();
         for (const e of mergedEmp) empById.set(e.id, e);
         const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -170,7 +181,7 @@ export default function ProjectIssuesPage() {
 
   return (
     <AppShell
-      title={`${project?.key || ""} ${project?.name || ""}`.trim() || "課題"}
+      title={`${project?.key || ""} ${project?.title || ""}`.trim() || "課題"}
       subtitle="課題一覧"
       projectId={projectId}
       headerRight={
