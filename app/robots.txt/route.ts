@@ -2,14 +2,16 @@ import { NextResponse } from "next/server";
 
 function siteUrl() {
   const env = process.env.NEXT_PUBLIC_SITE_URL || process.env.SITE_URL;
-  return (env || "http://localhost:3000").replace(/\/$/, "");
+  return (env || "https://www.seisanryoku.jp").replace(/\/$/, "");
 }
 
 export async function GET() {
   const base = siteUrl();
   const body = [
     "User-agent: *",
+    // デフォルトは全てブロックし、SEO対象だけ許可
     "Disallow: /",
+    "Allow: /$",
     "Allow: /help",
     "Allow: /help/",
     "Allow: /releases",

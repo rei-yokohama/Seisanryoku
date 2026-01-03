@@ -4,6 +4,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "リリースノート | 生産力",
   description: "生産力（Seisanryoku）の最新の機能追加・改善内容をまとめたリリースノートです。",
+  alternates: {
+    canonical: "https://www.seisanryoku.jp/releases",
+  },
   robots: {
     index: true,
     follow: true,
