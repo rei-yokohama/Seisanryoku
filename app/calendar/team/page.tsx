@@ -255,6 +255,7 @@ function expandRecurringEntries(entries: TimeEntry[], rangeStart: Date, rangeEnd
 export default function TeamCalendarPage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MemberProfile | null>(null);
+  const [companyOwnerUid, setCompanyOwnerUid] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -323,6 +324,7 @@ export default function TeamCalendarPage() {
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
   const [activeOccurrenceDateKey, setActiveOccurrenceDateKey] = useState<string>("");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [editProject, setEditProject] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editDate, setEditDate] = useState("");
@@ -523,6 +525,7 @@ export default function TeamCalendarPage() {
             const companyData = compSnap.data();
             console.log("チームカレンダー: 会社データ:", companyData);
             console.log("チームカレンダー: ownerUid:", companyData.ownerUid, "現在のuid:", u.uid);
+            setCompanyOwnerUid(companyData.ownerUid || null);
 
             // 個人カレンダーを廃止したため、チームカレンダーは全ユーザーが閲覧できるようにする
             const loadedEmployees = await loadEmployees(data.companyCode, u.uid);
@@ -582,6 +585,15 @@ export default function TeamCalendarPage() {
 
         const loadedEmployees = await loadEmployees(code, u.uid);
         await loadCustomersDeals(code);
+        
+        // 追加: オーナー情報を取得
+        try {
+          const compSnap = await getDoc(doc(db, "companies", code));
+          if (compSnap.exists()) {
+            setCompanyOwnerUid(compSnap.data().ownerUid || null);
+          }
+        } catch { /* noop */ }
+
         const employeeUids = loadedEmployees.map(e => e.authUid).filter((id): id is string => !!id);
         await loadEntries(code, employeeUids);
       }
@@ -724,30 +736,38 @@ export default function TeamCalendarPage() {
         }
       : null;
 
-    await updateDoc(doc(db, "timeEntries", activeEntry.id), {
-      project,
-      summary: editSummary.trim(),
-      start: startIso,
-      end: endIso,
-      repeat,
-      guestUids: Array.from(new Set(editGuestUids)).filter(Boolean),
-    });
+    setIsDeleting(true); // 保存中も isDeleting を借用（または isSaving を作る）
+    try {
+      await updateDoc(doc(db, "timeEntries", activeEntry.id), {
+        project,
+        summary: editSummary.trim(),
+        start: startIso,
+        end: endIso,
+        repeat,
+        guestUids: Array.from(new Set(editGuestUids)).filter(Boolean),
+      });
 
-    // 直後に再ロード
-    const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
-    await loadEntries(profile?.companyCode || "", employeeUids);
+      // 直後に再ロード
+      const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
+      await loadEntries(profile?.companyCode || "", employeeUids);
 
-    const updated: TimeEntry = {
-      ...activeEntry,
-      project,
-      summary: editSummary.trim(),
-      start: startIso,
-      end: endIso,
-      repeat,
-      guestUids: Array.from(new Set(editGuestUids)).filter(Boolean),
-    };
-    setActiveEntry(updated);
-    setDetailEdit(false);
+      const updated: TimeEntry = {
+        ...activeEntry,
+        project,
+        summary: editSummary.trim(),
+        start: startIso,
+        end: endIso,
+        repeat,
+        guestUids: Array.from(new Set(editGuestUids)).filter(Boolean),
+      };
+      setActiveEntry(updated);
+      setDetailEdit(false);
+    } catch (e: any) {
+      console.error("Update failed:", e);
+      alert("更新に失敗しました: " + (e.message || "権限がないか、エラーが発生しました"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const deleteEntry = async () => {
@@ -757,38 +777,71 @@ export default function TeamCalendarPage() {
       return;
     }
     if (!confirm("この予定を削除しますか？")) return;
-    await deleteDoc(doc(db, "timeEntries", activeEntry.id));
-    setDetailOpen(false);
-    setActiveEntry(null);
-    setDetailEdit(false);
+    
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, "timeEntries", activeEntry.id));
+      setDetailOpen(false);
+      setActiveEntry(null);
+      setDetailEdit(false);
 
-    const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
-    await loadEntries(profile?.companyCode || "", employeeUids);
+      const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
+      await loadEntries(profile?.companyCode || "", employeeUids);
+    } catch (e: any) {
+      console.error("Delete failed:", e);
+      alert("削除に失敗しました: " + (e.message || "権限がないか、エラーが発生しました"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const deleteRecurringOne = async () => {
     if (!activeEntry || !activeEntry.repeat) return;
-    const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
-    const nextExdates = Array.from(new Set([...(activeEntry.repeat.exdates || []), key])).sort();
-    await updateDoc(doc(db, "timeEntries", activeEntry.id), {
-      repeat: { ...activeEntry.repeat, exdates: nextExdates },
-    });
+    setIsDeleting(true);
+    try {
+      const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
+      const nextExdates = Array.from(new Set([...(activeEntry.repeat.exdates || []), key])).sort();
+      await updateDoc(doc(db, "timeEntries", activeEntry.id), {
+        repeat: { ...activeEntry.repeat, exdates: nextExdates },
+      });
+    } catch (e: any) {
+      console.error("Delete recurring one failed:", e);
+      alert("削除に失敗しました: " + (e.message || "エラーが発生しました"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const deleteRecurringFromThisDay = async () => {
     if (!activeEntry || !activeEntry.repeat) return;
-    const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
-    const d = new Date(`${key}T00:00:00`);
-    d.setDate(d.getDate() - 1);
-    const until = toDateKey(d);
-    await updateDoc(doc(db, "timeEntries", activeEntry.id), {
-      repeat: { ...activeEntry.repeat, end: { type: "UNTIL", until } },
-    });
+    setIsDeleting(true);
+    try {
+      const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
+      const d = new Date(`${key}T00:00:00`);
+      d.setDate(d.getDate() - 1);
+      const until = toDateKey(d);
+      await updateDoc(doc(db, "timeEntries", activeEntry.id), {
+        repeat: { ...activeEntry.repeat, end: { type: "UNTIL", until } },
+      });
+    } catch (e: any) {
+      console.error("Delete recurring from this day failed:", e);
+      alert("削除に失敗しました: " + (e.message || "エラーが発生しました"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const deleteRecurringAll = async () => {
     if (!activeEntry) return;
-    await deleteDoc(doc(db, "timeEntries", activeEntry.id));
+    setIsDeleting(true);
+    try {
+      await deleteDoc(doc(db, "timeEntries", activeEntry.id));
+    } catch (e: any) {
+      console.error("Delete recurring all failed:", e);
+      alert("削除に失敗しました: " + (e.message || "エラーが発生しました"));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const actorNameFor = (uid: string) => {
@@ -2146,33 +2199,53 @@ export default function TeamCalendarPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setDetailEdit((v) => !v)}
-                  className="rounded-lg bg-white/10 p-2 hover:bg-white/15"
-                  title="編集"
-                  type="button"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => void deleteEntry()}
-                  className="rounded-lg bg-white/10 p-2 hover:bg-white/15"
-                  title="削除"
-                  type="button"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0H7m2 0V5a2 2 0 012-2h2a2 2 0 012 2v2" />
-                  </svg>
-                </button>
+                {(activeEntry.uid === user?.uid || user?.uid === companyOwnerUid) && (
+                  <>
+                    <button
+                      onClick={() => setDetailEdit((v) => !v)}
+                      className={clsx(
+                        "rounded-lg p-2 transition-all",
+                        detailEdit ? "bg-orange-600 text-white" : "bg-white/10 hover:bg-white/15 text-white/70"
+                      )}
+                      title="編集"
+                      type="button"
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => void deleteEntry()}
+                      disabled={isDeleting}
+                      className={clsx(
+                        "rounded-lg p-2 transition-all",
+                        deleteOpen ? "bg-rose-600 text-white" : "bg-white/10 hover:bg-white/15 text-white/70",
+                        isDeleting && "opacity-50 cursor-not-allowed"
+                      )}
+                      title="削除"
+                      type="button"
+                    >
+                      {isDeleting ? (
+                        <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : (
+                        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7h6m2 0H7m2 0V5a2 2 0 012-2h2a2 2 0 012 2v2" />
+                        </svg>
+                      )}
+                    </button>
+                  </>
+                )}
                 <button
                   onClick={() => {
                     setDetailOpen(false);
                     setDetailEdit(false);
+                    setDeleteOpen(false);
                     setActiveEntry(null);
                   }}
-                  className="rounded-lg bg-white/10 p-2 hover:bg-white/15"
+                  className="rounded-lg bg-white/10 p-2 hover:bg-white/15 text-white/70"
                   title="閉じる"
                   type="button"
                 >
@@ -2185,15 +2258,21 @@ export default function TeamCalendarPage() {
 
             <div className="mt-6 space-y-4">
               {deleteOpen && activeEntry.repeat ? (
-                <div className="rounded-xl bg-white/10 p-4">
-                  <div className="text-sm font-extrabold text-white">繰り返し予定の削除</div>
+                <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-5 shadow-inner">
+                  <div className="flex items-center gap-2 text-rose-400">
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div className="text-sm font-extrabold">繰り返し予定の削除</div>
+                  </div>
                   <div className="mt-2 text-xs font-bold text-white/60">
                     対象日: {activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start))}
                   </div>
-                  <div className="mt-4 grid grid-cols-1 gap-2">
+                  <div className="mt-5 grid grid-cols-1 gap-2">
                     <button
                       type="button"
-                      className="rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15"
+                      disabled={isDeleting}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15 disabled:opacity-50 transition-all active:scale-95"
                       onClick={async () => {
                         if (!confirm("この回だけ削除しますか？")) return;
                         await deleteRecurringOne();
@@ -2204,11 +2283,13 @@ export default function TeamCalendarPage() {
                         await loadEntries(profile?.companyCode || "", employeeUids);
                       }}
                     >
+                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
                       この予定だけ削除
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15"
+                      disabled={isDeleting}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15 disabled:opacity-50 transition-all active:scale-95"
                       onClick={async () => {
                         if (!confirm("この日以降の繰り返しを全て削除しますか？")) return;
                         await deleteRecurringFromThisDay();
@@ -2219,11 +2300,13 @@ export default function TeamCalendarPage() {
                         await loadEntries(profile?.companyCode || "", employeeUids);
                       }}
                     >
+                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
                       その日以降の全てを削除
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg bg-rose-500/30 px-4 py-3 text-sm font-extrabold text-rose-50 hover:bg-rose-500/40"
+                      disabled={isDeleting}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-3 text-sm font-extrabold text-white hover:bg-rose-700 disabled:opacity-50 transition-all active:scale-95 shadow-lg"
                       onClick={async () => {
                         if (!confirm("過去も含めて全て削除しますか？")) return;
                         await deleteRecurringAll();
@@ -2234,20 +2317,20 @@ export default function TeamCalendarPage() {
                         await loadEntries(profile?.companyCode || "", employeeUids);
                       }}
                     >
+                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
                       過去も含めて全て削除
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg bg-white/5 px-4 py-3 text-sm font-extrabold text-white/80 hover:bg-white/10"
+                      disabled={isDeleting}
+                      className="mt-2 rounded-lg bg-white/5 px-4 py-2 text-xs font-bold text-white/50 hover:bg-white/10 hover:text-white/70 transition-all"
                       onClick={() => setDeleteOpen(false)}
                     >
                       キャンセル
                     </button>
                   </div>
                 </div>
-              ) : null}
-
-              {!detailEdit ? (
+              ) : !detailEdit ? (
                 <>
                   {activeEntry.summary ? (
                     <div className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">{activeEntry.summary}</div>
@@ -2549,9 +2632,11 @@ export default function TeamCalendarPage() {
                     </button>
                     <button
                       onClick={() => void saveEntryEdit()}
-                      className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
+                      disabled={isDeleting}
+                      className="flex items-center gap-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:opacity-50"
                       type="button"
                     >
+                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
                       保存
                     </button>
                   </div>
