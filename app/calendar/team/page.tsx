@@ -323,7 +323,7 @@ export default function TeamCalendarPage() {
   const [detailEdit, setDetailEdit] = useState(false);
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
   const [activeOccurrenceDateKey, setActiveOccurrenceDateKey] = useState<string>("");
-  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [recurringDeleteOpen, setRecurringDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [editProject, setEditProject] = useState("");
   const [editSummary, setEditSummary] = useState("");
@@ -685,7 +685,7 @@ export default function TeamCalendarPage() {
     setActiveOccurrenceDateKey(toDateKey(new Date(entry.start)));
     setDetailOpen(true);
     setDetailEdit(false);
-    setDeleteOpen(false);
+    setRecurringDeleteOpen(false);
 
     const start = new Date(entry.start);
     const end = new Date(entry.end);
@@ -773,7 +773,7 @@ export default function TeamCalendarPage() {
   const deleteEntry = async () => {
     if (!activeEntry) return;
     if (activeEntry.repeat) {
-      setDeleteOpen(true);
+      setRecurringDeleteOpen(true);
       return;
     }
     if (!confirm("この予定を削除しますか？")) return;
@@ -2224,7 +2224,7 @@ export default function TeamCalendarPage() {
                       disabled={isDeleting}
                       className={clsx(
                         "rounded-lg p-2 transition-all",
-                        deleteOpen ? "bg-rose-600 text-white" : "bg-white/10 hover:bg-white/15 text-white/70",
+                        recurringDeleteOpen ? "bg-rose-600 text-white" : "bg-white/10 hover:bg-white/15 text-white/70",
                         isDeleting && "opacity-50 cursor-not-allowed"
                       )}
                       title="削除"
@@ -2247,7 +2247,7 @@ export default function TeamCalendarPage() {
                   onClick={() => {
                     setDetailOpen(false);
                     setDetailEdit(false);
-                    setDeleteOpen(false);
+                    setRecurringDeleteOpen(false);
                     setActiveEntry(null);
                   }}
                   className="rounded-lg bg-white/10 p-2 hover:bg-white/15 text-white/70"
@@ -2262,80 +2262,7 @@ export default function TeamCalendarPage() {
             </div>
 
             <div className="mt-6 space-y-4">
-              {deleteOpen && activeEntry.repeat ? (
-                <div className="rounded-xl bg-rose-500/10 border border-rose-500/20 p-5 shadow-inner">
-                  <div className="flex items-center gap-2 text-rose-400">
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <div className="text-sm font-extrabold">繰り返し予定の削除</div>
-                  </div>
-                  <div className="mt-2 text-xs font-bold text-white/60">
-                    対象日: {activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start))}
-                  </div>
-                  <div className="mt-5 grid grid-cols-1 gap-2">
-                    <button
-                      type="button"
-                      disabled={isDeleting}
-                      className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15 disabled:opacity-50 transition-all active:scale-95"
-                      onClick={async () => {
-                        if (!confirm("この回だけ削除しますか？")) return;
-                        await deleteRecurringOne();
-                        setDeleteOpen(false);
-                        setDetailOpen(false);
-                        setActiveEntry(null);
-                        const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
-                        await loadEntries(profile?.companyCode || "", employeeUids);
-                      }}
-                    >
-                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                      この予定だけ削除
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isDeleting}
-                      className="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-4 py-3 text-sm font-extrabold text-white hover:bg-white/15 disabled:opacity-50 transition-all active:scale-95"
-                      onClick={async () => {
-                        if (!confirm("この日以降の繰り返しを全て削除しますか？")) return;
-                        await deleteRecurringFromThisDay();
-                        setDeleteOpen(false);
-                        setDetailOpen(false);
-                        setActiveEntry(null);
-                        const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
-                        await loadEntries(profile?.companyCode || "", employeeUids);
-                      }}
-                    >
-                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                      その日以降の全てを削除
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isDeleting}
-                      className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-3 text-sm font-extrabold text-white hover:bg-rose-700 disabled:opacity-50 transition-all active:scale-95 shadow-lg"
-                      onClick={async () => {
-                        if (!confirm("過去も含めて全て削除しますか？")) return;
-                        await deleteRecurringAll();
-                        setDeleteOpen(false);
-                        setDetailOpen(false);
-                        setActiveEntry(null);
-                        const employeeUids = employees.map(e => e.authUid).filter((id): id is string => !!id);
-                        await loadEntries(profile?.companyCode || "", employeeUids);
-                      }}
-                    >
-                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                      過去も含めて全て削除
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isDeleting}
-                      className="mt-2 rounded-lg bg-white/5 px-4 py-2 text-xs font-bold text-white/50 hover:bg-white/10 hover:text-white/70 transition-all"
-                      onClick={() => setDeleteOpen(false)}
-                    >
-                      キャンセル
-                    </button>
-                  </div>
-                </div>
-              ) : !detailEdit ? (
+              {!detailEdit ? (
                 <>
                   {activeEntry.summary ? (
                     <div className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">{activeEntry.summary}</div>
@@ -2648,6 +2575,93 @@ export default function TeamCalendarPage() {
                 </div>
               )}
             </div>
+
+            {recurringDeleteOpen && activeEntry.repeat && (
+              <div className="fixed inset-0 z-[80]">
+                <div className="absolute inset-0 bg-black/60" onClick={() => !isDeleting && setRecurringDeleteOpen(false)} />
+                <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white p-5 shadow-2xl">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-sm font-extrabold text-slate-900">繰り返し予定の削除</div>
+                      <div className="mt-1 text-xs font-bold text-slate-500">
+                        対象日: {activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start))}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      onClick={() => setRecurringDeleteOpen(false)}
+                      className="rounded-lg p-2 text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+                      title="閉じる"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-2">
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-extrabold text-slate-800 hover:bg-slate-50 disabled:opacity-50 active:scale-[0.99]"
+                      onClick={async () => {
+                        if (!confirm("この回だけ削除しますか？")) return;
+                        await deleteRecurringOne();
+                        setRecurringDeleteOpen(false);
+                        setDetailOpen(false);
+                        setActiveEntry(null);
+                        const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
+                        await loadEntries(profile?.companyCode || "", employeeUids);
+                      }}
+                    >
+                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />}
+                      この予定だけ削除
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-extrabold text-slate-800 hover:bg-slate-50 disabled:opacity-50 active:scale-[0.99]"
+                      onClick={async () => {
+                        if (!confirm("この日以降の繰り返しを全て削除しますか？")) return;
+                        await deleteRecurringFromThisDay();
+                        setRecurringDeleteOpen(false);
+                        setDetailOpen(false);
+                        setActiveEntry(null);
+                        const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
+                        await loadEntries(profile?.companyCode || "", employeeUids);
+                      }}
+                    >
+                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-400 border-t-transparent" />}
+                      その日以降の全てを削除
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      className="flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-3 text-sm font-extrabold text-white hover:bg-rose-700 disabled:opacity-50 active:scale-[0.99]"
+                      onClick={async () => {
+                        if (!confirm("過去も含めて全て削除しますか？")) return;
+                        await deleteRecurringAll();
+                        setRecurringDeleteOpen(false);
+                        setDetailOpen(false);
+                        setActiveEntry(null);
+                        const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
+                        await loadEntries(profile?.companyCode || "", employeeUids);
+                      }}
+                    >
+                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                      過去も含めて全て削除
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeleting}
+                      className="mt-1 rounded-lg px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 disabled:opacity-50"
+                      onClick={() => setRecurringDeleteOpen(false)}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
