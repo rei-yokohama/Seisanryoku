@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../../lib/firebase";
+import { ensureProfile } from "../../../../../lib/ensureProfile";
 import type { Issue, IssueComment, Project } from "../../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../../../lib/backlog";
 import { logActivity, type Activity } from "../../../../../lib/activity";
@@ -157,16 +158,21 @@ export default function IssueDetailPage() {
         router.push("/login");
         return;
       }
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      try {
+        const prof = (await ensureProfile(u)) as MemberProfile | null;
+        if (!prof) {
+          setLoading(false);
+          router.push("/login");
+          return;
+        }
+        setProfile(prof);
+        await loadAll(u, prof);
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "読み込みに失敗しました";
+        setError(msg);
+      } finally {
         setLoading(false);
-        router.push("/login");
-        return;
       }
-      const prof = profSnap.data() as MemberProfile;
-      setProfile(prof);
-      await loadAll(u, prof);
-      setLoading(false);
     });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps

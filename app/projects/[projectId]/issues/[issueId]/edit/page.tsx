@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../../../lib/firebase";
+import { ensureProfile } from "../../../../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../../../../lib/backlog";
 import { logActivity, pushNotification } from "../../../../../../lib/activity";
@@ -86,59 +87,62 @@ export default function IssueEditPage() {
         router.push("/login");
         return;
       }
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      try {
+        const prof = (await ensureProfile(u)) as MemberProfile | null;
+        if (!prof) {
+          setLoading(false);
+          router.push("/login");
+          return;
+        }
+        setProfile(prof);
+
+        // deals コレクションから案件を取得
+        const pSnap = await getDoc(doc(db, "deals", projectId));
+        if (pSnap.exists()) {
+          const dealData = pSnap.data();
+          setProject({
+            ...dealData,
+            id: projectId,
+            name: dealData.title || "無題",
+            key: dealData.key || dealData.title?.slice(0, 5)?.toUpperCase() || "DEAL",
+          } as Project);
+        }
+
+        // employees
+        const mergedEmp: Employee[] = [];
+        if (prof.companyCode) {
+          const snapByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+          mergedEmp.push(...snapByCompany.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        }
+        const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
+        mergedEmp.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        const empById = new Map<string, Employee>();
+        for (const e of mergedEmp) empById.set(e.id, e);
+        const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setEmployees(empItems);
+
+        // issue
+        const iSnap = await getDoc(doc(db, "issues", issueId));
+        if (!iSnap.exists()) {
+          setIssue(null);
+          return;
+        }
+        const i = { ...(iSnap.data() as Issue), id: issueId } as Issue;
+        setIssue(i);
+        setEditTitle(i.title || "");
+        setEditDescription(i.description || "");
+        setEditStatus(i.status || "TODO");
+        setEditPriority(i.priority || "MEDIUM");
+        setEditAssigneeUid((i.assigneeUid as any) || "");
+        setEditStartDate((i.startDate as any) || "");
+        setEditDueDate((i.dueDate as any) || "");
+        setEditLabelsText((i.labels || []).join(", "));
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "読み込みに失敗しました";
+        setError(msg);
+      } finally {
         setLoading(false);
-        router.push("/login");
-        return;
       }
-      const prof = profSnap.data() as MemberProfile;
-      setProfile(prof);
-
-      // deals コレクションから案件を取得
-      const pSnap = await getDoc(doc(db, "deals", projectId));
-      if (pSnap.exists()) {
-        const dealData = pSnap.data();
-        setProject({
-          ...dealData,
-          id: projectId,
-          name: dealData.title || "無題",
-          key: dealData.key || dealData.title?.slice(0, 5)?.toUpperCase() || "DEAL",
-        } as Project);
-      }
-
-      // employees
-      const mergedEmp: Employee[] = [];
-      if (prof.companyCode) {
-        const snapByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
-        mergedEmp.push(...snapByCompany.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
-      }
-      const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
-      mergedEmp.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
-      const empById = new Map<string, Employee>();
-      for (const e of mergedEmp) empById.set(e.id, e);
-      const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      setEmployees(empItems);
-
-      // issue
-      const iSnap = await getDoc(doc(db, "issues", issueId));
-      if (!iSnap.exists()) {
-        setIssue(null);
-        setLoading(false);
-        return;
-      }
-      const i = { ...(iSnap.data() as Issue), id: issueId } as Issue;
-      setIssue(i);
-      setEditTitle(i.title || "");
-      setEditDescription(i.description || "");
-      setEditStatus(i.status || "TODO");
-      setEditPriority(i.priority || "MEDIUM");
-      setEditAssigneeUid((i.assigneeUid as any) || "");
-      setEditStartDate((i.startDate as any) || "");
-      setEditDueDate((i.dueDate as any) || "");
-      setEditLabelsText((i.labels || []).join(", "));
-
-      setLoading(false);
     });
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
