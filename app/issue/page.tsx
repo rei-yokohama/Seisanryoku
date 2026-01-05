@@ -446,7 +446,8 @@ export default function IssueHomePage() {
                   <th className="px-4 py-3 text-left">件名</th>
                   <th className="px-4 py-3 text-left">案件</th>
                   <th className="px-4 py-3 text-left">顧客</th>
-                  <th className="px-4 py-3 text-left">担当者</th>
+                  <th className="px-4 py-3 text-left">担当(リーダー)</th>
+                  <th className="px-4 py-3 text-left">サブリーダー</th>
                   <th className="px-4 py-3 text-left">状態</th>
                   <th className="px-4 py-3 text-left">カテゴリ</th>
                   <th className="px-4 py-3 text-left">優先度</th>
@@ -468,7 +469,7 @@ export default function IssueHomePage() {
                     const st = ISSUE_STATUSES.find((s) => s.value === i.status)?.label || i.status;
                     const pr = ISSUE_PRIORITIES.find((pp) => pp.value === i.priority)?.label || i.priority;
                     const cat = getCategoryFromIssue(i);
-                    const href = `/projects/${encodeURIComponent(i.projectId)}/issues/${encodeURIComponent(i.id)}`;
+                    const href = `/issue/${encodeURIComponent(i.id)}`;
                     const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/share/issues/${i.id}`;
                     
                     const copyShareUrl = () => {
@@ -477,6 +478,7 @@ export default function IssueHomePage() {
                     };
 
                     const assignee = assigneeName(i.assigneeUid);
+                    const subAssignee = assigneeName(i.subAssigneeUid);
 
                     return (
                       <tr key={i.id} className="hover:bg-slate-50">
@@ -509,7 +511,19 @@ export default function IssueHomePage() {
                               <div className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-100 text-xs font-extrabold text-orange-700">
                                 {assignee.charAt(0).toUpperCase()}
                               </div>
-                              <span>{assignee}</span>
+                              <span className="font-bold">{assignee}</span>
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {subAssignee ? (
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-extrabold text-slate-600">
+                                {subAssignee.charAt(0).toUpperCase()}
+                              </div>
+                              <span>{subAssignee}</span>
                             </div>
                           ) : (
                             "-"

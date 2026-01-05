@@ -20,8 +20,10 @@ service cloud.firestore {
     function isInMyCompany(companyCode) {
       return isSignedIn()
         && companyCode != null
-        && myCompanyCode() != null
-        && companyCode == myCompanyCode();
+        && (
+          (myCompanyCode() != null && companyCode == myCompanyCode())
+          || exists(/databases/$(database)/documents/workspaceMemberships/$(companyCode + "_" + request.auth.uid))
+        );
     }
 
     function isCompanyOwner(companyCode) {
@@ -89,7 +91,14 @@ service cloud.firestore {
     // 作成は認証済みなら可能
     // 更新・削除は作成者のみ
     match /employees/{employeeId} {
-      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      // 以下のいずれかの条件で読み取り可能：
+      // 1. 同じcompanyCodeを持つ（かつcompanyCodeがnullでない）
+      // 2. 自分が作成したemployee
+      allow read: if isSignedIn() && (
+        (resource.data.companyCode != null && isInMyCompany(resource.data.companyCode))
+        || resource.data.createdBy == request.auth.uid
+      );
+      
       // メンバー作成/削除はオーナーのみ
       allow create: if isSignedIn()
         && isInMyCompany(request.resource.data.companyCode)
@@ -131,7 +140,7 @@ service cloud.firestore {
     }
     
     match /issues/{issueId} {
-      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow read: if isSignedIn() && (resource == null || isInMyCompany(resource.data.companyCode));
       allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
     }
     

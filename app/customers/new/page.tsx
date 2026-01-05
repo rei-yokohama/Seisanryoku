@@ -50,6 +50,7 @@ export default function CustomerNewPage() {
   const [name, setName] = useState("");
   const [type, setType] = useState("CORPORATION");
   const [assigneeUid, setAssigneeUid] = useState("");
+  const [subAssigneeUid, setSubAssigneeUid] = useState(""); // サブリーダー
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -150,12 +151,13 @@ export default function CustomerNewPage() {
 
     setSaving(true);
     try {
-      await addDoc(collection(db, "customers"), {
+      const docRef = await addDoc(collection(db, "customers"), {
         companyCode: profile.companyCode,
         createdBy: user.uid,
         name: n,
         type,
         assigneeUid: assigneeUid || null,
+        subAssigneeUid: subAssigneeUid || null,
         contactName: contactName.trim() || "",
         contactEmail: contactEmail.trim() || "",
         phone: phone.trim() || "",
@@ -313,7 +315,7 @@ export default function CustomerNewPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
                 <div className="md:col-span-6">
                   <div className="flex items-center justify-between">
-                    <div className="text-xs font-extrabold text-slate-600">担当者</div>
+                    <div className="text-xs font-extrabold text-slate-600">担当(リーダー)</div>
                     <button
                       type="button"
                       onClick={() => setAssigneeUid(user.uid)}
@@ -328,6 +330,25 @@ export default function CustomerNewPage() {
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                   >
                     <option value="">未割当</option>
+                    <option value={user.uid}>{myDisplayName}</option>
+                    {employees
+                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                      .map((e) => (
+                        <option key={e.id} value={e.authUid}>
+                          {e.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-6">
+                  <div className="text-xs font-extrabold text-slate-600">サブリーダー</div>
+                  <select
+                    value={subAssigneeUid}
+                    onChange={(e) => setSubAssigneeUid(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                  >
+                    <option value="">未設定</option>
                     <option value={user.uid}>{myDisplayName}</option>
                     {employees
                       .filter((e) => !!e.authUid && e.authUid !== user.uid)

@@ -80,9 +80,14 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
       }
       // Ensure profile exists before starting notifications listener (rules depend on companyCode)
       ensureProfile(u)
-        .then(() => {
+        .then((prof) => {
+          if (!prof?.companyCode) {
+            setUnreadNotifications(0);
+            return;
+          }
           const q = query(
             collection(db, "notifications"),
+            where("companyCode", "==", prof.companyCode),
             where("recipientUid", "==", u.uid),
             where("read", "==", false),
           );
@@ -122,9 +127,9 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
     // preserve basic "selected" feel across query routes
     if (href === "/dashboard") return pathname === "/dashboard";
 
-    // 課題（/issue と /projects/.../issues 配下）を同一カテゴリとして扱う
+    // 課題（/issue 配下全て）を同一カテゴリとして扱う
     if (href === "/issue") {
-      return pathname === "/issue" || pathname === "/issue/new" || (pathname.startsWith("/projects/") && pathname.includes("/issues"));
+      return pathname.startsWith("/issue") || (pathname.startsWith("/projects/") && pathname.includes("/issues"));
     }
     
     // /projects 系のパスは /projects で始まる全てのパスで活性化
@@ -308,9 +313,10 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
       </div>
       
       <div className="flex-1 overflow-y-auto py-2">
-        {[{ icon: "🏠", label: "ホーム", href: `/dashboard${projectId ? `?projectId=${projectId}` : ""}` },
-          { icon: "📋", label: "課題", href: projectId ? `/projects/${encodeURIComponent(projectId)}/issues` : "/issue" },
-          { icon: "📚", label: "Wiki", href: projectId ? `/projects/${encodeURIComponent(projectId)}/wiki` : "/wiki" },
+        {[
+          { icon: "🏠", label: "ホーム", href: "/dashboard" },
+          { icon: "📋", label: "課題", href: "/issue" },
+          { icon: "📚", label: "Wiki", href: "/wiki" },
           { icon: "👥", label: "顧客", href: "/customers" },
           { icon: "💼", label: "案件", href: "/projects" },
           { icon: "💾", label: "ドライブ", href: "/drive" },

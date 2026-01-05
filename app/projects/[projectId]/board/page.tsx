@@ -15,6 +15,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, formatLocalDate } from "../../../../lib/backlog";
 import { logActivity } from "../../../../lib/activity";
@@ -78,13 +79,12 @@ export default function ProjectBoardPage() {
         return;
       }
 
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      const prof = (await ensureProfile(u)) as MemberProfile | null;
+      if (!prof) {
         setLoading(false);
         router.push("/login");
         return;
       }
-      const prof = profSnap.data() as MemberProfile;
       setProfile(prof);
 
       try {
@@ -186,7 +186,7 @@ export default function ProjectBoardPage() {
         issueId: draggingIssueId,
         entityId: draggingIssueId,
         message: `状態変更: ${issue.issueKey} → ${ISSUE_STATUSES.find(s => s.value === status)?.label || status}`,
-        link: `/projects/${projectId}/issues/${draggingIssueId}`,
+        link: `/issue/${draggingIssueId}`,
       });
     } catch (e) {
       // rollback
@@ -202,7 +202,7 @@ export default function ProjectBoardPage() {
     const due = i.dueDate || "";
     return (
       <Link
-        href={`/projects/${projectId}/issues/${i.id}`}
+        href={`/issue/${i.id}`}
         draggable
         onDragStart={() => startDrag(i.id)}
         onDragEnd={endDrag}

@@ -6,6 +6,7 @@ import { collection, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 import { logActivity } from "../../../../lib/activity";
 import { AppShell } from "../../../AppShell";
 
@@ -78,13 +79,12 @@ export default function ProjectEditPage() {
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "profiles", u.uid));
-        if (!snap.exists()) {
+        const prof = (await ensureProfile(u)) as MemberProfile | null;
+        if (!prof) {
           setProfile(null);
           setLoading(false);
           return;
         }
-        const prof = snap.data() as MemberProfile;
         setProfile(prof);
 
         await loadCustomers(u, prof);

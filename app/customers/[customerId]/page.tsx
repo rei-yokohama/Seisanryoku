@@ -28,6 +28,7 @@ type Customer = {
   industry?: string;
   notes?: string;
   assigneeUid?: string;
+  subAssigneeUid?: string; // サブリーダー
   transactionStartDate?: string;
   contractAmount?: string;
   tags?: string[];
@@ -67,6 +68,12 @@ function relativeFromNow(date: Date) {
   return `約 ${day} 日前`;
 }
 
+type Employee = {
+  id: string;
+  name: string;
+  authUid?: string;
+};
+
 export default function CustomerDetailPage() {
   const router = useRouter();
   const params = useParams<{ customerId: string }>();
@@ -76,6 +83,7 @@ export default function CustomerDetailPage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [wikis, setWikis] = useState<WikiDoc[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -109,6 +117,18 @@ export default function CustomerDetailPage() {
         }
         const cust = { id: custSnap.id, ...custSnap.data() } as Customer;
         setCustomer(cust);
+
+        // 社員リスト取得
+        const mergedEmp: Employee[] = [];
+        if (prof.companyCode) {
+          const snapByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+          mergedEmp.push(...snapByCompany.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        }
+        const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
+        mergedEmp.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        const empMap = new Map<string, Employee>();
+        for (const e of mergedEmp) empMap.set(e.id, e);
+        setEmployees(Array.from(empMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
 
         // この顧客に紐づく案件を取得
         const dealsSnap = await getDocs(query(collection(db, "deals"), where("customerId", "==", customerId)));
@@ -171,6 +191,11 @@ export default function CustomerDetailPage() {
       </AppShell>
     );
   }
+
+  const getEmployeeName = (uid?: string) => {
+    if (!uid) return "-";
+    return employees.find(e => e.authUid === uid)?.name || "不明";
+  };
 
   return (
     <AppShell
@@ -301,26 +326,38 @@ export default function CustomerDetailPage() {
                     </div>
                   )}
 
-                  {/* 取引情報 */}
-                  {(customer.transactionStartDate || customer.contractAmount) && (
-                    <div>
-                      <div className="text-xs font-extrabold text-slate-500 mb-3">取引情報</div>
-                      <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                        {customer.transactionStartDate && (
-                          <div className="flex gap-2">
-                            <span className="text-xs font-bold text-slate-500 w-24">取引開始日:</span>
-                            <span className="text-sm text-slate-900">{customer.transactionStartDate}</span>
-                          </div>
-                        )}
-                        {customer.contractAmount && (
-                          <div className="flex gap-2">
-                            <span className="text-xs font-bold text-slate-500 w-24">契約金額:</span>
-                            <span className="text-sm font-bold text-slate-900">{customer.contractAmount}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
+          {/* 取引情報 */}
+          {(customer.transactionStartDate || customer.contractAmount || customer.assigneeUid || customer.subAssigneeUid) && (
+            <div>
+              <div className="text-xs font-extrabold text-slate-500 mb-3">取引情報</div>
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                {customer.assigneeUid && (
+                  <div className="flex gap-2">
+                    <span className="text-xs font-bold text-slate-500 w-24">担当(リーダー):</span>
+                    <span className="text-sm text-slate-900 font-bold">{getEmployeeName(customer.assigneeUid)}</span>
+                  </div>
+                )}
+                {customer.subAssigneeUid && (
+                  <div className="flex gap-2">
+                    <span className="text-xs font-bold text-slate-500 w-24">サブリーダー:</span>
+                    <span className="text-sm text-slate-900">{getEmployeeName(customer.subAssigneeUid)}</span>
+                  </div>
+                )}
+                {customer.transactionStartDate && (
+                  <div className="flex gap-2">
+                    <span className="text-xs font-bold text-slate-500 w-24">取引開始日:</span>
+                    <span className="text-sm text-slate-900">{customer.transactionStartDate}</span>
+                  </div>
+                )}
+                {customer.contractAmount && (
+                  <div className="flex gap-2">
+                    <span className="text-xs font-bold text-slate-500 w-24">契約金額:</span>
+                    <span className="text-sm font-bold text-slate-900">{customer.contractAmount}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
                   {/* 備考 */}
                   {customer.notes && (

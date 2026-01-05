@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
+import { ensureProfile } from "../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, normalizeProjectKey } from "../../../lib/backlog";
 import { logActivity, pushNotification } from "../../../lib/activity";
@@ -114,6 +115,7 @@ function NewIssueInner() {
   const [status, setStatus] = useState<Issue["status"]>("TODO");
   const [priority, setPriority] = useState<Issue["priority"]>("MEDIUM");
   const [assigneeUid, setAssigneeUid] = useState("");
+  const [subAssigneeUid, setSubAssigneeUid] = useState(""); // サブリーダー
   const [startDate, setStartDate] = useState(defaultDates.startDate);
   const [dueDate, setDueDate] = useState(defaultDates.dueDate);
   const [estimateHours, setEstimateHours] = useState("");
@@ -147,13 +149,12 @@ function NewIssueInner() {
         return;
       }
 
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      const prof = (await ensureProfile(u)) as MemberProfile | null;
+      if (!prof) {
         setLoading(false);
         router.push("/login");
         return;
       }
-      const prof = profSnap.data() as MemberProfile;
       setProfile(prof);
 
       // customers
@@ -369,6 +370,7 @@ function NewIssueInner() {
           status,
           priority,
           assigneeUid: assigneeUid || null,
+          subAssigneeUid: subAssigneeUid || null,
           reporterUid: user.uid,
           labels: labelList,
           startDate: startDate || null,
@@ -389,7 +391,7 @@ function NewIssueInner() {
         issueId: result.issueId,
         entityId: result.issueId,
         message: `課題を作成: ${result.issueKey} ${t}`,
-        link: `/projects/${projectId}/issues`,
+        link: `/issue/${result.issueId}`,
       });
 
       if (assigneeUid && assigneeUid !== user.uid) {
@@ -400,12 +402,12 @@ function NewIssueInner() {
           type: "ASSIGNED",
           title: `課題が割り当てられました: ${result.issueKey}`,
           body: t,
-          link: `/projects/${projectId}/issues`,
+          link: `/issue/${result.issueId}`,
         });
       }
 
       // 作成した課題の詳細へ遷移
-      router.push(`/projects/${projectId}/issues/${result.issueId}`);
+      router.push(`/issue/${result.issueId}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "課題の作成に失敗しました";
       setError(msg);
@@ -606,7 +608,7 @@ function NewIssueInner() {
 
                 <div className="md:col-span-6">
                   <div className="flex items-center justify-between">
-                    <div className="text-xs font-extrabold text-slate-600">担当者</div>
+                    <div className="text-xs font-extrabold text-slate-600">担当(リーダー)</div>
                     <button
                       type="button"
                       onClick={() => setAssigneeUid(user.uid)}
@@ -621,6 +623,25 @@ function NewIssueInner() {
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                   >
                     <option value="">未割当</option>
+                    <option value={user.uid}>{myDisplayName}</option>
+                    {employees
+                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                      .map((e) => (
+                        <option key={e.id} value={e.authUid}>
+                          {e.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div className="md:col-span-6">
+                  <div className="text-xs font-extrabold text-slate-600">サブリーダー</div>
+                  <select
+                    value={subAssigneeUid}
+                    onChange={(e) => setSubAssigneeUid(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                  >
+                    <option value="">未設定</option>
                     <option value={user.uid}>{myDisplayName}</option>
                     {employees
                       .filter((e) => !!e.authUid && e.authUid !== user.uid)

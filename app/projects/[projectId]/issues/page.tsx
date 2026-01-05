@@ -342,18 +342,19 @@ export default function ProjectIssuesPage() {
             <div className="overflow-x-auto">
               <table className="min-w-[980px] w-full text-sm">
                 <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
-                  <tr>
-                    <th className="px-4 py-3 text-left">社名</th>
-                    <th className="px-4 py-3 text-left">案件名</th>
-                    <th className="px-4 py-3 text-left">件名</th>
-                    <th className="px-4 py-3 text-left">担当者</th>
-                    <th className="px-4 py-3 text-left">状態</th>
-                    <th className="px-4 py-3 text-left">カテゴリ</th>
-                    <th className="px-4 py-3 text-left">優先度</th>
-                    <th className="px-4 py-3 text-left">発生バージョン</th>
-                    <th className="px-4 py-3 text-left">開始日</th>
-                    <th className="px-4 py-3 text-left">期限日</th>
-                  </tr>
+                    <tr>
+                      <th className="px-4 py-3 text-left">社名</th>
+                      <th className="px-4 py-3 text-left">案件名</th>
+                      <th className="px-4 py-3 text-left">件名</th>
+                      <th className="px-4 py-3 text-left">担当(リーダー)</th>
+                      <th className="px-4 py-3 text-left">サブリーダー</th>
+                      <th className="px-4 py-3 text-left">状態</th>
+                      <th className="px-4 py-3 text-left">カテゴリ</th>
+                      <th className="px-4 py-3 text-left">優先度</th>
+                      <th className="px-4 py-3 text-left">発生バージョン</th>
+                      <th className="px-4 py-3 text-left">開始日</th>
+                      <th className="px-4 py-3 text-left">期限日</th>
+                    </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {pageItems.length === 0 ? (
@@ -372,14 +373,19 @@ export default function ProjectIssuesPage() {
                           <td className="px-4 py-3 text-slate-700">{customer?.name || "-"}</td>
                           <td className="px-4 py-3 text-slate-700">{project?.title || "-"}</td>
                           <td className="px-4 py-3 font-bold text-slate-900">
-                            <Link href={`/projects/${projectId}/issues/${i.id}`} className="hover:underline">
+                            <Link href={`/issue/${i.id}`} className="hover:underline">
                               <span className="mr-2 inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
                                 {i.issueKey}
                               </span>
                               <span>{i.title}</span>
                             </Link>
                           </td>
-                          <td className="px-4 py-3 text-slate-700">{assigneeName(i.assigneeUid) || "-"}</td>
+                          <td className="px-4 py-3 text-slate-700">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold">{assigneeName(i.assigneeUid) || "-"}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">{assigneeName(i.subAssigneeUid) || "-"}</td>
                           <td className="px-4 py-3">
                             <span className={clsx(
                               "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",

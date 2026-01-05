@@ -32,6 +32,7 @@ type Customer = {
   createdBy: string;
   name: string;
   assigneeUid?: string | null;
+  subAssigneeUid?: string | null; // サブリーダー
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -271,7 +272,8 @@ export default function CustomersPage() {
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
                   <th className="px-4 py-3 text-left">顧客</th>
-                  <th className="px-4 py-3 text-left">担当者</th>
+                  <th className="px-4 py-3 text-left">担当(リーダー)</th>
+                  <th className="px-4 py-3 text-left">サブリーダー</th>
                   <th className="px-4 py-3 text-left">電話</th>
                   <th className="px-4 py-3 text-left">更新</th>
                   <th className="px-4 py-3 text-right">操作</th>
@@ -287,6 +289,7 @@ export default function CustomersPage() {
                 ) : (
                   filtered.map((c) => {
                     const owner = (c.assigneeUid && employeesByUid[c.assigneeUid]) || employeesByUid[c.createdBy];
+                    const subLeader = c.subAssigneeUid ? employeesByUid[c.subAssigneeUid] : null;
                     const updated = (c.updatedAt as any) || c.createdAt;
                     return (
                       <tr key={c.id} className="hover:bg-slate-50">
@@ -300,11 +303,26 @@ export default function CustomersPage() {
                             <div className="flex items-center gap-2">
                               <div
                                 className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-extrabold text-white"
-                                style={{ backgroundColor: owner.color || "#CBD5E1" }}
+                                style={{ backgroundColor: owner.color || "#ea580c" }}
                               >
                                 {owner.name.charAt(0).toUpperCase()}
                               </div>
-                              <span>{owner.name}</span>
+                              <span className="font-bold">{owner.name}</span>
+                            </div>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {subLeader?.name ? (
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-extrabold text-white"
+                                style={{ backgroundColor: subLeader.color || "#64748b" }}
+                              >
+                                {subLeader.name.charAt(0).toUpperCase()}
+                              </div>
+                              <span>{subLeader.name}</span>
                             </div>
                           ) : (
                             "-"

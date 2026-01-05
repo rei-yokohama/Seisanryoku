@@ -28,6 +28,7 @@ type CustomerDoc = {
   name: string;
   type?: string;
   assigneeUid?: string | null;
+  subAssigneeUid?: string | null; // サブリーダー
   contactName?: string;
   contactEmail?: string;
   phone?: string;
@@ -68,6 +69,7 @@ export default function CustomerEditPage() {
   const [name, setName] = useState("");
   const [type, setType] = useState("CORPORATION");
   const [assigneeUid, setAssigneeUid] = useState("");
+  const [subAssigneeUid, setSubAssigneeUid] = useState(""); // サブリーダー
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -154,6 +156,7 @@ export default function CustomerEditPage() {
           setName(c.name || "");
           setType((c.type as string) || "CORPORATION");
           setAssigneeUid((c.assigneeUid as string) || "");
+          setSubAssigneeUid((c.subAssigneeUid as string) || "");
           setContactName(c.contactName || "");
           setContactEmail(c.contactEmail || "");
           setPhone(c.phone || "");
@@ -191,6 +194,7 @@ export default function CustomerEditPage() {
         name: n,
         type,
         assigneeUid: assigneeUid || null,
+        subAssigneeUid: subAssigneeUid || null,
         contactName: contactName.trim() || "",
         contactEmail: contactEmail.trim() || "",
         phone: phone.trim() || "",
@@ -291,10 +295,27 @@ export default function CustomerEditPage() {
             </div>
 
             <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-600">担当者</div>
+              <div className="text-xs font-extrabold text-slate-600">担当(リーダー)</div>
               <select
                 value={assigneeUid}
                 onChange={(e) => setAssigneeUid(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+              >
+                <option value="">未設定</option>
+                <option value={user.uid}>私</option>
+                {employees.filter((e) => !!e.authUid && e.authUid !== user.uid).map((e) => (
+                  <option key={e.id} value={e.authUid}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="md:col-span-6">
+              <div className="text-xs font-extrabold text-slate-600">サブリーダー</div>
+              <select
+                value={subAssigneeUid}
+                onChange={(e) => setSubAssigneeUid(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
               >
                 <option value="">未設定</option>

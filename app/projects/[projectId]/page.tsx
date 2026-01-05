@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
+import { ensureProfile } from "../../../lib/ensureProfile";
 import type { Issue, IssueComment, Project, ProjectFile, WikiPage } from "../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, normalizeProjectKey } from "../../../lib/backlog";
 import { logActivity, pushNotification } from "../../../lib/activity";
@@ -174,13 +175,12 @@ function ProjectDetailInner() {
         return;
       }
 
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      const prof = (await ensureProfile(u)) as MemberProfile | null;
+      if (!prof) {
         setLoading(false);
         router.push("/login");
         return;
       }
-      const prof = profSnap.data() as MemberProfile;
       setProfile(prof);
 
       if (prof.companyCode) {

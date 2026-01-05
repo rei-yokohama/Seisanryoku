@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { createUserWithEmailAndPassword, onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, setDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { auth, db } from "../../lib/firebase";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -75,11 +75,21 @@ function SignupInner() {
 
       // 2) profile（現在選択中のワークスペースを付与）
       let resolvedCompanyName = "";
+      let displayName = "";
       try {
         const compSnap = await getDoc(doc(db, "companies", companyCode));
         if (compSnap.exists()) {
           const c = compSnap.data() as any;
           resolvedCompanyName = String(c.companyName || c.name || "").trim();
+        }
+      } catch {
+        // noop
+      }
+      // 既存のプロフィールから表示名を取得
+      try {
+        const profSnap = await getDoc(doc(db, "profiles", uid));
+        if (profSnap.exists()) {
+          displayName = profSnap.data()?.displayName || "";
         }
       } catch {
         // noop
@@ -95,6 +105,20 @@ function SignupInner() {
         },
         { merge: true },
       );
+
+      // 2.5) 社員ドキュメントを作成（既にログイン済みのユーザーの場合）
+      // これにより、チームメンバーとして担当者選択に表示されるようになる
+      await addDoc(collection(db, "employees"), {
+        name: displayName || invitedEmail || userEmail || "不明",
+        email: invitedEmail || userEmail || "",
+        authUid: uid,
+        employmentType: "正社員", // デフォルト
+        joinDate: new Date().toISOString().slice(0, 10),
+        color: "#3B82F6", // デフォルトのブルー
+        companyCode,
+        createdBy: inviteId, // 招待トークンを記録
+        createdAt: Timestamp.now(),
+      });
 
       // 3) 招待を使用済みにする（rulesで許可されていれば成功する）
       try {
@@ -257,6 +281,20 @@ function SignupInner() {
         email: email,
         companyCode,
         defaultCompanyCode: companyCode,
+      });
+
+      // 4) 社員ドキュメントを作成（招待・非招待問わず）
+      // これにより、チームメンバーとして担当者選択に表示されるようになる
+      await addDoc(collection(db, "employees"), {
+        name: name.trim(),
+        email: email,
+        authUid: uid,
+        employmentType: "正社員", // デフォルト
+        joinDate: new Date().toISOString().slice(0, 10),
+        color: "#3B82F6", // デフォルトのブルー
+        companyCode,
+        createdBy: inviteToken ? inviteToken : uid, // 招待の場合はトークン、それ以外は自分
+        createdAt: Timestamp.now(),
       });
 
       // 招待がある場合は使用済みにする

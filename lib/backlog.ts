@@ -38,6 +38,7 @@ export type Issue = {
   status: IssueStatus;
   priority: IssuePriority;
   assigneeUid?: string | null;
+  subAssigneeUid?: string | null; // サブリーダー
   reporterUid: string;
   labels?: string[];
   startDate?: string; // YYYY-MM-DD

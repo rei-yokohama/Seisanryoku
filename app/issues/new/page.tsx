@@ -16,6 +16,7 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
+import { ensureProfile } from "../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, normalizeProjectKey } from "../../../lib/backlog";
 import { logActivity, pushNotification } from "../../../lib/activity";
@@ -105,13 +106,12 @@ function NewIssueInner() {
         return;
       }
 
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      const prof = (await ensureProfile(u)) as MemberProfile | null;
+      if (!prof) {
         setLoading(false);
         router.push("/login");
         return;
       }
-      const prof = profSnap.data() as MemberProfile;
       setProfile(prof);
 
       // projects: companyCode + createdBy (過去データ救済)
@@ -275,7 +275,7 @@ function NewIssueInner() {
         issueId: result.issueId,
         entityId: result.issueId,
         message: `課題を作成: ${result.issueKey} ${t}`,
-        link: `/projects/${projectId}?tab=issues`,
+        link: `/projects/${projectId}/issues/${result.issueId}`,
       });
 
       if (assigneeUid && assigneeUid !== user.uid) {
@@ -290,7 +290,7 @@ function NewIssueInner() {
         });
       }
 
-      router.push(`/projects/${projectId}/issues`);
+      router.push(`/issue/${result.issueId}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "課題の作成に失敗しました";
       setError(msg);

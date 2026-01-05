@@ -382,7 +382,7 @@ export default function DealDetailPage() {
                 {issues.slice(0, 5).map((issue) => (
                   <Link
                     key={issue.id}
-                    href={`/projects/${projectId}/issues/${issue.id}`}
+                    href={`/issue/${issue.id}`}
                     className="block rounded-lg border border-slate-200 p-2 hover:bg-slate-50 transition"
                   >
                     <div className="text-xs font-bold text-orange-700">{issue.issueKey}</div>
