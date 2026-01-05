@@ -5,6 +5,7 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 import type { Project } from "../../../../lib/backlog";
 import { AppShell } from "../../../AppShell";
 
@@ -32,13 +33,13 @@ export default function ProjectGanttPage() {
         return;
       }
 
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+      if (!prof) {
         setLoading(false);
         router.push("/login");
         return;
       }
-      setProfile(profSnap.data() as MemberProfile);
+      setProfile(prof);
 
       try {
         const pSnap = await getDoc(doc(db, "projects", projectId));

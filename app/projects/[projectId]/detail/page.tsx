@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
 import { type Activity } from "../../../../lib/activity";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
@@ -106,13 +107,12 @@ export default function DealDetailPage() {
         return;
       }
       try {
-        const profSnap = await getDoc(doc(db, "profiles", u.uid));
-        if (!profSnap.exists()) {
+        const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!prof) {
           setProfile(null);
           setLoading(false);
           return;
         }
-        const prof = profSnap.data() as MemberProfile;
         setProfile(prof);
 
         // 案件情報取得

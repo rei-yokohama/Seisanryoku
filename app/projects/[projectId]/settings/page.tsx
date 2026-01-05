@@ -8,6 +8,7 @@ import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
 import type { Project } from "../../../../lib/backlog";
 import { logActivity } from "../../../../lib/activity";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
@@ -55,13 +56,12 @@ export default function ProjectSettingsPage() {
         router.push("/login");
         return;
       }
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
+      const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+      if (!prof) {
         setLoading(false);
         router.push("/login");
         return;
       }
-      const prof = profSnap.data() as MemberProfile;
       setProfile(prof);
 
       try {
