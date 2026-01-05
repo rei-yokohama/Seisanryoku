@@ -6,6 +6,7 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 import type { Issue } from "../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../../lib/backlog";
 import { AppShell } from "../../../AppShell";
@@ -78,16 +79,15 @@ export default function ProjectIssuesPage() {
         return;
       }
 
-      const profSnap = await getDoc(doc(db, "profiles", u.uid));
-      if (!profSnap.exists()) {
-        setLoading(false);
-        router.push("/login");
-        return;
-      }
-      const prof = profSnap.data() as MemberProfile;
-      setProfile(prof);
-
       try {
+        const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!prof) {
+          setLoading(false);
+          router.push("/login");
+          return;
+        }
+        setProfile(prof);
+
         // deal（案件）
         const dSnap = await getDoc(doc(db, "deals", projectId));
         if (!dSnap.exists()) {
@@ -137,6 +137,10 @@ export default function ProjectIssuesPage() {
         } else {
           setIssues([]);
         }
+      } catch (e) {
+        console.warn("ProjectIssuesPage init failed:", e);
+        // ここで /login に飛ばすと「ログイン済み→/dashboard」ループになりやすいので、画面側で扱う
+        setIssues([]);
       } finally {
         setLoading(false);
       }
