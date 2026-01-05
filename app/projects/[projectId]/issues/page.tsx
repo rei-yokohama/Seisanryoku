@@ -31,6 +31,11 @@ type Deal = {
   customerId?: string;
 };
 
+type Customer = {
+  id: string;
+  name: string;
+};
+
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -50,6 +55,7 @@ export default function ProjectIssuesPage() {
   const [loading, setLoading] = useState(true);
 
   const [project, setProject] = useState<Deal | null>(null);
+  const [customer, setCustomer] = useState<Customer | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
 
@@ -89,7 +95,20 @@ export default function ProjectIssuesPage() {
           router.push("/projects");
           return;
         }
-        setProject({ ...(dSnap.data() as Deal), id: projectId });
+        const deal = { ...(dSnap.data() as Deal), id: projectId };
+        setProject(deal);
+
+        // customer（社名）
+        if (deal.customerId) {
+          try {
+            const cSnap = await getDoc(doc(db, "customers", deal.customerId));
+            setCustomer(cSnap.exists() ? ({ id: deal.customerId, ...(cSnap.data() as any) } as Customer) : null);
+          } catch {
+            setCustomer(null);
+          }
+        } else {
+          setCustomer(null);
+        }
 
         // employees (company + createdBy fallback)
         const mergedEmp: Employee[] = [];
@@ -320,7 +339,8 @@ export default function ProjectIssuesPage() {
               <table className="min-w-[980px] w-full text-sm">
                 <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                   <tr>
-                    <th className="px-4 py-3 text-left">キー</th>
+                    <th className="px-4 py-3 text-left">社名</th>
+                    <th className="px-4 py-3 text-left">案件名</th>
                     <th className="px-4 py-3 text-left">件名</th>
                     <th className="px-4 py-3 text-left">担当者</th>
                     <th className="px-4 py-3 text-left">状態</th>
@@ -334,7 +354,7 @@ export default function ProjectIssuesPage() {
                 <tbody className="divide-y divide-slate-100">
                   {pageItems.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                      <td colSpan={11} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                         該当する課題がありません
                       </td>
                     </tr>
@@ -345,14 +365,14 @@ export default function ProjectIssuesPage() {
                       const cat = getCategoryFromIssue(i);
                       return (
                         <tr key={i.id} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-extrabold text-orange-700">
-                            <Link href={`/projects/${projectId}/issues/${i.id}`} className="hover:underline">
-                              {i.issueKey}
-                            </Link>
-                          </td>
+                          <td className="px-4 py-3 text-slate-700">{customer?.name || "-"}</td>
+                          <td className="px-4 py-3 text-slate-700">{project?.title || "-"}</td>
                           <td className="px-4 py-3 font-bold text-slate-900">
                             <Link href={`/projects/${projectId}/issues/${i.id}`} className="hover:underline">
-                              {i.title}
+                              <span className="mr-2 inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
+                                {i.issueKey}
+                              </span>
+                              <span>{i.title}</span>
                             </Link>
                           </td>
                           <td className="px-4 py-3 text-slate-700">{assigneeName(i.assigneeUid) || "-"}</td>

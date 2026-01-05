@@ -319,6 +319,11 @@ function NewIssueInner() {
     if (!user || !profile) return;
     setError("");
     const t = title.trim();
+    const companyCode = (profile.companyCode || "").trim();
+    if (!companyCode) {
+      setError("会社情報の読み込みに失敗しました。ページを再読み込みしてください。");
+      return;
+    }
     if (!customerId) {
       setError("顧客を選択してください");
       return;
@@ -355,7 +360,7 @@ function NewIssueInner() {
         const issueRef = doc(db, "issues", shortIssueId);
         tx.set(issueRef, {
           id: shortIssueId,
-          companyCode: profile.companyCode,
+          companyCode,
           customerId,
           projectId,
           issueKey,
@@ -377,7 +382,7 @@ function NewIssueInner() {
       });
 
       await logActivity({
-        companyCode: profile.companyCode,
+        companyCode,
         actorUid: user.uid,
         type: "ISSUE_CREATED",
         projectId,
@@ -389,7 +394,7 @@ function NewIssueInner() {
 
       if (assigneeUid && assigneeUid !== user.uid) {
         await pushNotification({
-          companyCode: profile.companyCode,
+          companyCode,
           recipientUid: assigneeUid,
           actorUid: user.uid,
           type: "ASSIGNED",
@@ -399,7 +404,8 @@ function NewIssueInner() {
         });
       }
 
-      router.push(`/projects/${projectId}/issues`);
+      // 作成した課題の詳細へ遷移
+      router.push(`/projects/${projectId}/issues/${result.issueId}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "課題の作成に失敗しました";
       setError(msg);

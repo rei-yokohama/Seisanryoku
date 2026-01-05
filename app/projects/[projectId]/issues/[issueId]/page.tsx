@@ -114,6 +114,19 @@ export default function IssueDetailPage() {
     // issue
     const iSnap = await getDoc(doc(db, "issues", issueId));
     if (!iSnap.exists()) {
+      // URLが issueKey 等になっているケース救済（companyCodeで全件→issueKey一致を探す）
+      if (prof.companyCode) {
+        const snap = await getDocs(query(collection(db, "issues"), where("companyCode", "==", prof.companyCode)));
+        const found = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Issue))
+          .find((x) => x.issueKey === issueId);
+        if (found?.id) {
+          // 正しいURLへ寄せる（履歴は置換）
+          router.replace(`/projects/${projectId}/issues/${found.id}`);
+          setIssue(found);
+          return;
+        }
+      }
       setIssue(null);
       return;
     }
