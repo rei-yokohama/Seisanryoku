@@ -33,14 +33,100 @@ function SignupInner() {
   const [inviteRole, setInviteRole] = useState<"member" | "admin" | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
 
+  const acceptInviteForLoggedInUser = async (uid: string, userEmail: string | null, inviteId: string) => {
+    setInviteLoading(true);
+    setError("");
+    try {
+      const invSnap = await getDoc(doc(db, "teamInvites", inviteId));
+      if (!invSnap.exists()) {
+        setError("招待リンクが無効です");
+        return;
+      }
+      const inv = invSnap.data() as any;
+      if (inv.usedAt) {
+        setError("この招待リンクは既に使用されています");
+        return;
+      }
+      const companyCode = String(inv.companyCode || "").trim();
+      const invitedEmail = String(inv.email || "").trim().toLowerCase();
+      if (!companyCode || !invitedEmail) {
+        setError("招待データが不正です");
+        return;
+      }
+      const currentEmail = (userEmail || "").trim().toLowerCase();
+      if (currentEmail && currentEmail !== invitedEmail) {
+        setError("この招待リンクは別のメールアドレス宛てです。招待されたメールでログインしてください。");
+        return;
+      }
+      const role: "member" | "admin" = inv.role === "admin" ? "admin" : "member";
+
+      // 1) membership（招待を受け取ったユーザー自身が作成）
+      await setDoc(
+        doc(db, "workspaceMemberships", `${companyCode}_${uid}`),
+        {
+          uid,
+          companyCode,
+          role,
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        },
+        { merge: true },
+      );
+
+      // 2) profile（現在選択中のワークスペースを付与）
+      let resolvedCompanyName = "";
+      try {
+        const compSnap = await getDoc(doc(db, "companies", companyCode));
+        if (compSnap.exists()) {
+          const c = compSnap.data() as any;
+          resolvedCompanyName = String(c.companyName || c.name || "").trim();
+        }
+      } catch {
+        // noop
+      }
+      await setDoc(
+        doc(db, "profiles", uid),
+        {
+          uid,
+          companyCode,
+          defaultCompanyCode: companyCode,
+          email: invitedEmail || userEmail || null,
+          companyName: resolvedCompanyName || undefined,
+        },
+        { merge: true },
+      );
+
+      // 3) 招待を使用済みにする（rulesで許可されていれば成功する）
+      try {
+        await updateDoc(doc(db, "teamInvites", inviteId), {
+          usedAt: Timestamp.now(),
+          acceptedBy: uid,
+        });
+      } catch {
+        // 招待の更新は失敗しても参加を止めない
+      }
+
+      router.push("/dashboard");
+    } catch (e: any) {
+      setError(e?.message || "招待の受け取りに失敗しました");
+    } finally {
+      setInviteLoading(false);
+    }
+  };
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        router.push("/dashboard");
+      if (!user) return;
+      if (token) {
+        // ログイン済みの既存ユーザーが招待リンクを開いた場合は、この場で招待を受け取る
+        void acceptInviteForLoggedInUser(user.uid, user.email, token);
+        return;
       }
+      router.push("/dashboard");
     });
     return () => unsub();
-  }, [router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, token]);
 
   useEffect(() => {
     if (!token) return;

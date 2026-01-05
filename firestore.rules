@@ -194,8 +194,26 @@ service cloud.firestore {
     match /teamInvites/{inviteId} {
       // 招待リンクは未ログインでも参照するため read は公開
       allow read: if true;
-      // 発行/更新/無効化はオーナーのみ
-      allow create, update, delete: if isSignedIn() && isCompanyOwner(request.resource.data.companyCode);
+      // 発行/無効化はオーナーのみ
+      allow create, delete: if isSignedIn() && isCompanyOwner(request.resource.data.companyCode);
+      // 更新:
+      // - オーナー（管理目的）
+      // - 招待された本人が「使用済み」にする（招待メールとログインメールが一致する場合のみ）
+      allow update: if isSignedIn()
+        && (
+          isCompanyOwner(resource.data.companyCode)
+          || (
+            resource.data.usedAt == null
+            && request.resource.data.companyCode == resource.data.companyCode
+            && request.resource.data.email == resource.data.email
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.createdBy == resource.data.createdBy
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.usedAt is timestamp
+            && request.resource.data.acceptedBy == request.auth.uid
+            && request.auth.token.email == resource.data.email
+          )
+        );
     }
     
     // ============================================

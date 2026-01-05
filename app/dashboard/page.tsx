@@ -219,9 +219,9 @@ function DashboardInner() {
     return (
       <AppShell title="ホーム" subtitle="Dashboard">
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm font-bold text-amber-900 space-y-3">
-          <div>初期設定がまだ完了していません。数秒後に自動で反映されます。</div>
+          <div>ワークスペース情報を確認中です。数秒後に自動で反映されます。</div>
           <div className="text-xs font-bold text-amber-800">
-            もし解消しない場合は、ページを再読み込みするか、一度ログアウト→ログインをお試しください。
+            招待リンクから参加した場合は、招待リンクを開き直すか、ページを再読み込みしてください。解消しない場合は一度ログアウト→ログインをお試しください。
           </div>
           <button
             type="button"
