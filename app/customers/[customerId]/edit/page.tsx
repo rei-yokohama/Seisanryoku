@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
 import { logActivity } from "../../../../lib/activity";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
@@ -27,6 +28,8 @@ type CustomerDoc = {
   createdBy: string;
   name: string;
   type?: string;
+  isActive?: boolean | null; // 稼働中/停止中
+  inactivatedAt?: Timestamp | null; // 停止したタイミング
   assigneeUid?: string | null;
   subAssigneeUid?: string | null; // サブリーダー
   contactName?: string;
@@ -68,6 +71,7 @@ export default function CustomerEditPage() {
   // form
   const [name, setName] = useState("");
   const [type, setType] = useState("CORPORATION");
+  const [isActive, setIsActive] = useState(true);
   const [assigneeUid, setAssigneeUid] = useState("");
   const [subAssigneeUid, setSubAssigneeUid] = useState(""); // サブリーダー
   const [contactName, setContactName] = useState("");
@@ -83,6 +87,7 @@ export default function CustomerEditPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [loadedOnce, setLoadedOnce] = useState(false);
+  const initialIsActiveRef = useRef<boolean>(true);
 
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -122,13 +127,12 @@ export default function CustomerEditPage() {
       }
 
       try {
-        const profSnap = await getDoc(doc(db, "profiles", u.uid));
-        if (!profSnap.exists()) {
+        const prof = await ensureProfile(u);
+        if (!prof) {
           setProfile(null);
           setLoading(false);
           return;
         }
-        const prof = profSnap.data() as MemberProfile;
         setProfile(prof);
 
         // employees (for assignee)
@@ -155,6 +159,9 @@ export default function CustomerEditPage() {
         if (!loadedOnce) {
           setName(c.name || "");
           setType((c.type as string) || "CORPORATION");
+          const active = c.isActive !== false;
+          setIsActive(active);
+          initialIsActiveRef.current = active;
           setAssigneeUid((c.assigneeUid as string) || "");
           setSubAssigneeUid((c.subAssigneeUid as string) || "");
           setContactName(c.contactName || "");
@@ -190,9 +197,15 @@ export default function CustomerEditPage() {
     }
     setSaving(true);
     try {
-      await updateDoc(doc(db, "customers", customerId), {
+      const nextIsActive = !!isActive;
+      const wasActive = initialIsActiveRef.current;
+      const willInactivate = wasActive && !nextIsActive;
+      const inactivatedAt = willInactivate ? Timestamp.now() : null;
+
+      const updates: Record<string, any> = {
         name: n,
         type,
+        isActive: nextIsActive,
         assigneeUid: assigneeUid || null,
         subAssigneeUid: subAssigneeUid || null,
         contactName: contactName.trim() || "",
@@ -207,7 +220,24 @@ export default function CustomerEditPage() {
         contractAmount: contractAmount ? Number(contractAmount) : null,
         notes: notes.trim() || "",
         updatedAt: Timestamp.now(),
-      });
+      };
+      // 停止にした瞬間だけ「停止した時刻」を更新
+      if (willInactivate) updates.inactivatedAt = inactivatedAt;
+      // 再稼働にした場合は停止時刻をクリア
+      if (nextIsActive) updates.inactivatedAt = null;
+
+      await updateDoc(doc(db, "customers", customerId), updates);
+
+      if (willInactivate) {
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "CUSTOMER_UPDATED",
+          entityId: customerId,
+          message: `顧客を停止にしました: ${n}`,
+          link: `/customers/${customerId}`,
+        });
+      }
 
       await logActivity({
         companyCode: profile.companyCode,
@@ -218,6 +248,8 @@ export default function CustomerEditPage() {
         link: `/customers/${customerId}`,
       });
 
+      // 次回以降の差分判定のため更新
+      initialIsActiveRef.current = nextIsActive;
       router.push(`/customers/${customerId}`);
     } catch (e: any) {
       setError(e?.message || "保存に失敗しました");
@@ -281,6 +313,18 @@ export default function CustomerEditPage() {
                     {t.label}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            <div className="md:col-span-6">
+              <div className="text-xs font-extrabold text-slate-600">稼働ステータス</div>
+              <select
+                value={isActive ? "ACTIVE" : "INACTIVE"}
+                onChange={(e) => setIsActive(e.target.value === "ACTIVE")}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+              >
+                <option value="ACTIVE">稼働中</option>
+                <option value="INACTIVE">停止中</option>
               </select>
             </div>
 

@@ -1,0 +1,32 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function profileExists() {
+      return firestore.exists(/databases/(default)/documents/profiles/$(request.auth.uid));
+    }
+
+    function profileCompanyCode() {
+      return profileExists()
+        ? firestore.get(/databases/(default)/documents/profiles/$(request.auth.uid)).data.companyCode
+        : null;
+    }
+
+    function membershipExists(companyCode) {
+      return firestore.exists(/databases/(default)/documents/workspaceMemberships/$(request.auth.uid + '_' + companyCode));
+    }
+
+    function isInCompany(companyCode) {
+      return (profileCompanyCode() != null && profileCompanyCode() == companyCode) || membershipExists(companyCode);
+    }
+
+    // Drive uploads: allow any file type. Guarded by company membership.
+    match /drive/{companyCode}/{uid}/{docId}/{fileName} {
+      allow read, write: if isSignedIn() && isInCompany(companyCode);
+    }
+  }
+}
+

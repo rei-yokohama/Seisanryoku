@@ -9,6 +9,7 @@ import { auth, db } from "../../../lib/firebase";
 import { logActivity } from "../../../lib/activity";
 import { Suspense } from "react";
 import { AppShell } from "../../AppShell";
+import { ensureProfile } from "../../../lib/ensureProfile";
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -46,19 +47,31 @@ type Deal = {
   genre?: string;
   description?: string;
   status: DealStatus;
+  leaderUid?: string | null;
+  subLeaderUid?: string | null;
+  revenue?: number | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
 
+function formatYen(n?: number | null) {
+  if (n === null || n === undefined) return "-";
+  if (Number.isNaN(n)) return "-";
+  try {
+    return new Intl.NumberFormat("ja-JP").format(n);
+  } catch {
+    return String(n);
+  }
+}
+
 function formatDateTime(ts?: Timestamp) {
   if (!ts) return "--";
   const date = ts.toDate();
-  const y = date.getFullYear();
   const m = date.getMonth() + 1;
   const d = date.getDate();
   const hh = String(date.getHours()).padStart(2, "0");
   const mm = String(date.getMinutes()).padStart(2, "0");
-  return `${y}年${m}月${d}日 ${hh}:${mm} GMT+9`;
+  return `${m}/${d} ${hh}:${mm}`;
 }
 
 function DealsInner() {
@@ -75,8 +88,9 @@ function DealsInner() {
 
   const [qText, setQText] = useState("");
   const [tab, setTab] = useState<"ALL" | "MINE">("ALL"); // MINE = 自分の顧客（担当）
-  const [statusFilter, setStatusFilter] = useState<DealStatus | "ALL">("ALL");
+  const [statusFilter, setStatusFilter] = useState<DealStatus | "ALL">("ACTIVE"); // デフォルト: 停止は非表示
   const [customerFilter, setCustomerFilter] = useState("ALL");
+  const [leaderFilter, setLeaderFilter] = useState("ALL");
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
   
   const [modalOpen, setModalOpen] = useState(false);
@@ -105,8 +119,12 @@ function DealsInner() {
     setCustomers(custItems);
 
     // employees
-    const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
-    setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+    if (prof.companyCode) {
+      const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+      setEmployees(empSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+    } else {
+      setEmployees([]);
+    }
 
     // deals
     const mergedDeals: Deal[] = [];
@@ -146,13 +164,12 @@ function DealsInner() {
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "profiles", u.uid));
-        if (!snap.exists()) {
+        const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!prof) {
           setProfile(null);
           setLoading(false);
           return;
         }
-        const prof = snap.data() as MemberProfile;
         setProfile(prof);
         await loadAll(u, prof);
       } finally {
@@ -184,12 +201,28 @@ function DealsInner() {
       }
       if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
       if (customerFilter !== "ALL" && d.customerId !== customerFilter) return false;
+      // リーダーフィルタ
+      if (leaderFilter !== "ALL") {
+        const cust = customersById[d.customerId];
+        const leaderId = (d.leaderUid as string) || cust?.assigneeUid || d.createdBy || "";
+        if (leaderId !== leaderFilter) return false;
+      }
       if (!q) return true;
       const cust = customersById[d.customerId]?.name || "";
       const hay = `${d.title || ""} ${d.genre || ""} ${d.description || ""} ${cust}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [deals, qText, tab, statusFilter, customerFilter, customersById, user]);
+  }, [deals, qText, tab, statusFilter, customerFilter, leaderFilter, customersById, user]);
+
+  const totalRevenue = useMemo(() => {
+    let sum = 0;
+    for (const d of filtered) {
+      if (typeof d.revenue === "number" && !Number.isNaN(d.revenue)) {
+        sum += d.revenue;
+      }
+    }
+    return sum;
+  }, [filtered]);
 
   const openEdit = (deal: Deal) => {
     setEditing(deal);
@@ -284,7 +317,10 @@ function DealsInner() {
                 {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
               </button>
             </div>
-            <div className="text-sm font-bold text-slate-700">全 {filtered.length} 件</div>
+            <div className="flex items-center gap-3 text-sm font-bold text-slate-700">
+              <span>全 {filtered.length} 件</span>
+              <span className="text-xs text-slate-500">売上合計: ¥{formatYen(totalRevenue)}</span>
+            </div>
           </div>
 
           {isFilterExpanded && (
@@ -305,7 +341,7 @@ function DealsInner() {
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-12">
-                <div className="md:col-span-4">
+                <div className="md:col-span-3">
                   <div className="text-xs font-extrabold text-slate-500">キーワード</div>
                   <input
                     value={qText}
@@ -314,7 +350,7 @@ function DealsInner() {
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                   />
                 </div>
-                <div className="md:col-span-4">
+                <div className="md:col-span-2">
                   <div className="text-xs font-extrabold text-slate-500">ステータス</div>
                   <select
                     value={statusFilter}
@@ -326,7 +362,7 @@ function DealsInner() {
                     <option value="INACTIVE">停止</option>
                   </select>
                 </div>
-                <div className="md:col-span-4">
+                <div className="md:col-span-3">
                   <div className="text-xs font-extrabold text-slate-500">顧客</div>
                   <select
                     value={customerFilter}
@@ -341,6 +377,24 @@ function DealsInner() {
                     ))}
                   </select>
                 </div>
+                <div className="md:col-span-4">
+                  <div className="text-xs font-extrabold text-slate-500">担当（リーダー）</div>
+                  <select
+                    value={leaderFilter}
+                    onChange={(e) => setLeaderFilter(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  >
+                    <option value="ALL">すべて</option>
+                    <option value={user.uid}>私</option>
+                    {employees
+                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                      .map((e) => (
+                        <option key={e.id} value={e.authUid}>
+                          {e.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
               </div>
             </div>
           )}
@@ -348,39 +402,40 @@ function DealsInner() {
 
         <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[1000px] w-full text-sm">
-              <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
+            <table className="min-w-[900px] w-full text-xs">
+              <thead className="bg-slate-50 text-[11px] font-extrabold text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-left">案件</th>
-                  <th className="px-4 py-3 text-left">顧客</th>
-                  <th className="px-4 py-3 text-left">担当者</th>
-                  <th className="px-4 py-3 text-left">状態</th>
-                  <th className="px-4 py-3 text-left">更新</th>
-                  <th className="px-4 py-3 text-right">操作</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">案件</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">顧客</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">カテゴリ</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">リーダー</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">売上</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">状態</th>
+                  <th className="px-3 py-2 text-left whitespace-nowrap">更新</th>
+                  <th className="px-3 py-2 text-right whitespace-nowrap">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={8} className="px-3 py-8 text-center text-xs font-bold text-slate-500">
                       該当する案件がありません
                     </td>
                   </tr>
                 ) : (
                   filtered.map((d) => {
                     const cust = customersById[d.customerId];
-                    const assigneeUid = cust?.assigneeUid || "";
-                    const assignee = (assigneeUid && employeesByUid[assigneeUid]) || employeesByUid[d.createdBy];
+                    const leaderId = (d.leaderUid as string) || cust?.assigneeUid || "";
+                    const leader = (leaderId && employeesByUid[leaderId]) || employeesByUid[d.createdBy];
                     const updated = (d.updatedAt as any) || d.createdAt;
                     return (
                       <tr key={d.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-slate-900">
+                        <td className="px-3 py-2 font-bold text-slate-900 whitespace-nowrap">
                           <Link href={`/projects/${d.id}/detail`} className="hover:underline">
                             {d.title || "無題"}
                           </Link>
-                          {d.genre ? <div className="mt-1 text-xs font-bold text-slate-500">#{d.genre}</div> : null}
                         </td>
-                        <td className="px-4 py-3 text-slate-800 font-bold">
+                        <td className="px-3 py-2 text-slate-800 font-bold whitespace-nowrap">
                           {cust ? (
                             <Link href={`/customers/${cust.id}`} className="hover:underline">
                               {cust.name}
@@ -389,39 +444,55 @@ function DealsInner() {
                             <span className="text-slate-400">-</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {assignee?.name ? (
-                            <div className="flex items-center gap-2">
+                        <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                          {d.genre ? (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                              {d.genre}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                          {leader?.name ? (
+                            <div className="flex items-center gap-1.5">
                               <div
-                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-extrabold text-white"
-                                style={{ backgroundColor: assignee.color || "#CBD5E1" }}
+                                className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
+                                style={{ backgroundColor: leader.color || "#CBD5E1" }}
                               >
-                                {assignee.name.charAt(0).toUpperCase()}
+                                {leader.name.charAt(0).toUpperCase()}
                               </div>
-                              <span>{assignee.name}</span>
+                              <span>{leader.name}</span>
                             </div>
                           ) : (
                             "-"
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2 text-slate-700 font-bold whitespace-nowrap">
+                          {d.revenue === null || d.revenue === undefined ? (
+                            <span className="text-slate-400">-</span>
+                          ) : (
+                            <span>¥{formatYen(d.revenue)}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
                           <span
                             className={clsx(
-                              "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-extrabold",
                               d.status === "ACTIVE" ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-700",
                             )}
                           >
                             {d.status === "ACTIVE" ? "稼働中" : "停止"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{formatDateTime(updated)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => openEdit(d)}
-                            className="rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"
+                        <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{formatDateTime(updated)}</td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <Link
+                            href={`/projects/${d.id}/edit`}
+                            className="inline-block rounded-md bg-orange-50 px-2 py-0.5 text-[10px] font-bold text-orange-700 hover:bg-orange-100"
                           >
                             編集
-                          </button>
+                          </Link>
                         </td>
                       </tr>
                     );
@@ -475,7 +546,7 @@ function DealsInner() {
               </div>
 
               <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">案件ジャンル</div>
+                <div className="mb-1 text-sm font-bold text-slate-700">カテゴリ</div>
                 <input
                   value={editGenre}
                   onChange={(e) => setEditGenre(e.target.value)}

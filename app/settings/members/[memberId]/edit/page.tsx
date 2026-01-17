@@ -78,6 +78,7 @@ export default function MemberEditPage() {
   const [employmentType, setEmploymentType] = useState<EmploymentType>("正社員");
   const [joinDate, setJoinDate] = useState(new Date().toISOString().slice(0, 10));
   const [color, setColor] = useState<string>(EMPLOYEE_COLORS[0].value);
+  const [role, setRole] = useState<WorkspaceMembership["role"]>("member");
 
   const isOwner = useMemo(() => {
     return !!user && !!company && company.ownerUid === user.uid;
@@ -87,6 +88,11 @@ export default function MemberEditPage() {
     if (!user || !employee) return false;
     return isOwner || employee.authUid === user.uid;
   }, [employee, isOwner, user]);
+
+  const targetIsCompanyOwner = useMemo(() => {
+    if (!company || !employee?.authUid) return false;
+    return company.ownerUid === employee.authUid;
+  }, [company, employee?.authUid]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -132,12 +138,15 @@ export default function MemberEditPage() {
             const mSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${emp.authUid}`));
             const m = mSnap.exists() ? (mSnap.data() as WorkspaceMembership) : null;
             setMembership(m);
+            setRole(m?.role || (targetIsCompanyOwner ? "owner" : "member"));
           } catch (e) {
             console.warn(e);
             setMembership(null);
+            setRole(targetIsCompanyOwner ? "owner" : "member");
           }
         } else {
           setMembership(null);
+          setRole(targetIsCompanyOwner ? "owner" : "member");
         }
       } finally {
         setLoading(false);
@@ -167,6 +176,27 @@ export default function MemberEditPage() {
         color,
         updatedAt: Timestamp.now(),
       } as any);
+
+      // 権限変更（workspaceMemberships.role）はオーナーのみ
+      if (isOwner && profile.companyCode && employee.authUid) {
+        const membershipId = `${profile.companyCode}_${employee.authUid}`;
+        const membershipRef = doc(db, "workspaceMemberships", membershipId);
+
+        // 会社の ownerUid の人は owner 固定（誤操作でオーナー不在になるのを防ぐ）
+        const nextRole: WorkspaceMembership["role"] = targetIsCompanyOwner ? "owner" : role;
+
+        // 未作成の場合もあるので setDoc(merge) で確実に反映
+        await setDoc(
+          membershipRef,
+          {
+            uid: employee.authUid,
+            companyCode: profile.companyCode,
+            role: nextRole,
+            updatedAt: Timestamp.now(),
+          } as WorkspaceMembership,
+          { merge: true },
+        );
+      }
 
       router.push(`/settings/members/${encodeURIComponent(employee.id)}`);
     } catch (e: any) {
@@ -310,13 +340,39 @@ export default function MemberEditPage() {
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-extrabold text-slate-900">権限（閲覧のみ）</div>
-              <div className="mt-1 text-xs font-bold text-slate-500">いったん権限変更は停止し、表示のみとします。</div>
+              <div className="text-sm font-extrabold text-slate-900">権限</div>
+              <div className="mt-1 text-xs font-bold text-slate-500">
+                {isOwner ? "オーナーのみ権限変更できます。" : "権限変更はオーナーのみ可能です（閲覧のみ）。"}
+              </div>
             </div>
             <div className="text-xs font-bold text-slate-500">{company?.companyName ? company.companyName : profile.companyCode}</div>
           </div>
-          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-700">
-            現在のロール: <span className="text-slate-900">{membership?.role ? membership.role : "未設定"}</span>
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
+            <div className="md:col-span-6">
+              <div className="text-xs font-extrabold text-slate-500">現在のロール</div>
+              <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-700">
+                <span className="text-slate-900">{membership?.role ? membership.role : targetIsCompanyOwner ? "owner" : "未設定"}</span>
+              </div>
+            </div>
+            <div className="md:col-span-6">
+              <div className="text-xs font-extrabold text-slate-500">変更（オーナーのみ）</div>
+              <select
+                value={targetIsCompanyOwner ? "owner" : role}
+                onChange={(e) => setRole(e.target.value as WorkspaceMembership["role"])}
+                disabled={!isOwner || targetIsCompanyOwner}
+                className={clsx(
+                  "mt-1 w-full rounded-md border px-3 py-2 text-sm font-bold outline-none focus:ring-1 focus:ring-orange-500",
+                  !isOwner || targetIsCompanyOwner ? "border-slate-200 bg-slate-100 text-slate-600" : "border-slate-200 bg-white text-slate-900",
+                )}
+              >
+                <option value="member">member（メンバー）</option>
+                <option value="admin">admin（管理者）</option>
+                <option value="owner">owner（オーナー）</option>
+              </select>
+              {targetIsCompanyOwner ? (
+                <div className="mt-1 text-[11px] font-bold text-slate-500">※ このユーザーは会社オーナーのため owner 固定です。</div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

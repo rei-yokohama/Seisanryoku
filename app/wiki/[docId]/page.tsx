@@ -7,6 +7,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, query, Timestamp, updateDo
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
 import { logActivity } from "../../../lib/activity";
+import { ensureProfile } from "../../../lib/ensureProfile";
 import { AppShell } from "../../AppShell";
 
 type MemberProfile = {
@@ -113,15 +114,55 @@ export default function WikiDocPage() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
-  const saveTimer = useRef<number | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
-  const lastSavedHashRef = useRef<string>("");
-  const lastLoggedAtRef = useRef<number>(0);
+  const draftHtmlRef = useRef<string>("");
+  const lastAppliedHtmlRef = useRef<string>("");
+
+  const doSaveNow = async (opts?: { force?: boolean }) => {
+    if (!user) return;
+    try {
+      setError("");
+      if (!profile?.companyCode) {
+        setError("会社コードが未設定です（/settings/company で会社情報を設定してください）");
+        return;
+      }
+      // いま見えているDOMを保存対象にする
+      const el = editorRef.current;
+      if (el) draftHtmlRef.current = el.innerHTML;
+
+      const mergedContents: Record<string, string> = {
+        ...contents,
+        [activeNodeId]: draftHtmlRef.current,
+      };
+
+      setSaving(true);
+      const payload: any = {
+        companyCode: profile.companyCode,
+        title: title.trim() || "無題",
+        nodes,
+        contents: mergedContents,
+        updatedAt: Timestamp.now(),
+      };
+      // 紐づけは null も含めて保存（シンプルに一発で状態が一致する）
+      payload.customerId = customerId || null;
+      payload.dealId = dealId || null;
+      payload.scopeType = dealId ? "DEAL" : "GLOBAL";
+      payload.scopeId = dealId || null;
+
+      await updateDoc(doc(db, "wikiDocs", docId), payload);
+      setSavedAt(new Date());
+    } catch (e: any) {
+      const code = e?.code ? String(e.code) : "";
+      const msg = e?.message ? String(e.message) : "";
+      setError(code && msg ? `${code}: ${msg}` : msg || "保存に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const load = async (u: User) => {
-    const profSnap = await getDoc(doc(db, "profiles", u.uid));
-    if (!profSnap.exists()) throw new Error("プロフィールがありません");
-    const prof = profSnap.data() as MemberProfile;
+    const prof = (await ensureProfile(u)) as MemberProfile | null;
+    if (!prof) throw new Error("ワークスペース情報を確認できませんでした（招待リンクの再実行、または管理者に再招待をご依頼ください）");
     setProfile(prof);
 
     const snap = await getDoc(doc(db, "wikiDocs", docId));
@@ -169,14 +210,6 @@ export default function WikiDocPage() {
     setNodes(nextNodes.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
     setContents(nextContents);
     setActiveNodeId(nextNodes[0]?.id || rootId);
-    // 初期ハッシュ（差分検出用）
-    lastSavedHashRef.current = JSON.stringify({
-      title: d.title || "無題",
-      nodes: nextNodes,
-      contents: nextContents,
-      customerId: nextCustomerId || null,
-      dealId: nextDealId || null,
-    });
 
     // linkage candidates
     if (prof.companyCode) {
@@ -231,68 +264,6 @@ export default function WikiDocPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId]);
 
-  const scheduleSave = () => {
-    if (!user) return;
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(async () => {
-      try {
-        // 顧客/案件が未設定の間は保存しない（必須仕様）
-        if (!customerId || !dealId) return;
-        setSaving(true);
-        await updateDoc(doc(db, "wikiDocs", docId), {
-          title: title.trim() || "無題",
-          nodes,
-          contents,
-          customerId,
-          dealId,
-          // 互換: 既存クエリのため案件紐づけとしても保持
-          scopeType: "DEAL",
-          scopeId: dealId,
-          updatedAt: Timestamp.now(),
-        });
-        setSavedAt(new Date());
-
-        // アクティビティ（更新）: 連打を避けて間引き（20秒に1回）
-        const now = Date.now();
-        const nextHash = JSON.stringify({
-          title: title.trim() || "無題",
-          nodes,
-          contents,
-          customerId,
-          dealId,
-        });
-        const changed = nextHash !== lastSavedHashRef.current;
-        if (changed && now - lastLoggedAtRef.current > 20000) {
-          lastLoggedAtRef.current = now;
-          lastSavedHashRef.current = nextHash;
-          await logActivity({
-            companyCode: profile?.companyCode || "",
-            actorUid: user.uid,
-            type: "WIKI_UPDATED",
-            projectId: dealId,
-            entityId: docId,
-            message: `Wikiを更新: ${title.trim() || "無題"}`,
-            link: `/wiki/${docId}`,
-          });
-        } else if (changed) {
-          // ハッシュだけ更新（次のログ発火に備える）
-          lastSavedHashRef.current = nextHash;
-        }
-      } catch (e: any) {
-        setError(e?.message || "保存に失敗しました");
-      } finally {
-        setSaving(false);
-      }
-    }, 600);
-  };
-
-  useEffect(() => {
-    if (!user) return;
-    if (loading) return;
-    scheduleSave();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, nodes, contents, customerId, dealId]);
-
   const canDelete = useMemo(() => {
     // MVP: ログインしていれば削除可能（ルールは後で締める）
     return !!user;
@@ -334,15 +305,20 @@ export default function WikiDocPage() {
     return m;
   }, [nodes]);
 
-  const updateActiveHtmlFromDom = () => {
+  const updateDraftFromDom = () => {
     const el = editorRef.current;
     if (!el) return;
     const html = el.innerHTML;
-    setContents((prev) => ({ ...prev, [activeNodeId]: html }));
+    draftHtmlRef.current = html;
   };
 
   const setActiveAndSyncDom = (nextId: string) => {
-    updateActiveHtmlFromDom();
+    const el = editorRef.current;
+    if (el) {
+      const html = el.innerHTML;
+      draftHtmlRef.current = html;
+      setContents((prev) => ({ ...prev, [activeNodeId]: html }));
+    }
     setActiveNodeId(nextId);
     // DOM同期は useEffect で
   };
@@ -350,14 +326,19 @@ export default function WikiDocPage() {
   useEffect(() => {
     const el = editorRef.current;
     if (!el) return;
-    // 選択を飛ばさないために focused のときは末尾へ
-    el.innerHTML = contents[activeNodeId] ?? "";
-  }, [activeNodeId, contents]);
+    const nextHtml = contents[activeNodeId] ?? "";
+    // 入力中に毎回 innerHTML を書き戻すと重くなる＆カーソルが飛ぶので、タブ切替時だけ同期
+    if (lastAppliedHtmlRef.current !== nextHtml) {
+      el.innerHTML = nextHtml;
+      lastAppliedHtmlRef.current = nextHtml;
+      draftHtmlRef.current = nextHtml;
+    }
+  }, [activeNodeId]);
 
   const exec = (cmd: string, value?: string) => {
     // eslint-disable-next-line deprecation/deprecation
     document.execCommand(cmd, false, value);
-    updateActiveHtmlFromDom();
+    updateDraftFromDom();
   };
 
   const addSibling = () => {
@@ -427,6 +408,15 @@ export default function WikiDocPage() {
           <Link href="/wiki" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
             ← 一覧
           </Link>
+          <button
+            onClick={() => void doSaveNow({ force: true })}
+            disabled={saving || loading || !user}
+            className="rounded-full bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
+            type="button"
+            title="今の内容を保存"
+          >
+            {saving ? "保存中..." : "保存"}
+          </button>
           {canDelete ? (
             <button onClick={handleDelete} className="rounded-full bg-red-50 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-100">
               削除
@@ -439,7 +429,7 @@ export default function WikiDocPage() {
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
         {!loading && (!customerId || !dealId) ? (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
-            このWikiは <span className="font-extrabold">顧客</span> と <span className="font-extrabold">案件</span> の両方に紐づける必要があります（未設定の間は保存されません）。
+            このWikiは <span className="font-extrabold">顧客</span> と <span className="font-extrabold">案件</span> の両方に紐づけ推奨です（未選択でも本文は保存されます）。
           </div>
         ) : null}
 
@@ -510,6 +500,15 @@ export default function WikiDocPage() {
                       </option>
                     ))}
                   </select>
+                  <button
+                    onClick={() => void doSaveNow({ force: true })}
+                    disabled={saving || loading || !user}
+                    className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
+                    type="button"
+                    title="この内容を保存"
+                  >
+                    {saving ? "保存中..." : "保存"}
+                  </button>
                 </div>
               </div>
 
@@ -642,8 +641,12 @@ export default function WikiDocPage() {
                     className="min-h-[68vh] w-full rounded-xl border border-slate-200 bg-white px-5 py-5 text-[15px] leading-7 text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                     contentEditable
                     suppressContentEditableWarning
-                    onInput={updateActiveHtmlFromDom}
-                    onBlur={updateActiveHtmlFromDom}
+                    onInput={updateDraftFromDom}
+                    onBlur={() => {
+                      updateDraftFromDom();
+                      // blur した時点の内容は state にも反映（タブ切替や再描画のため）
+                      setContents((prev) => ({ ...prev, [activeNodeId]: draftHtmlRef.current }));
+                    }}
                     spellCheck={false}
                     style={{ maxWidth: "none" }}
                     data-placeholder="ここに入力…（上のバーで装飾できます）"

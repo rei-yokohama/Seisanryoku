@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { addDoc, collection, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
+import { collection, Timestamp, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
-import { logActivity } from "../../../lib/activity";
+import { ensureProfile } from "../../../lib/ensureProfile";
 import { AppShell } from "../../AppShell";
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -32,7 +32,8 @@ type Customer = {
   createdBy: string;
   name: string;
   assigneeUid?: string | null;
-  subAssigneeUid?: string | null; // サブリーダー
+  subAssigneeUid?: string | null; // NOTE: 一覧では表示しない（編集画面等では使う可能性あり）
+  isActive?: boolean | null; // 稼働中/停止中
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -42,15 +43,9 @@ type Customer = {
   updatedAt?: Timestamp;
 };
 
-function formatDateTime(ts?: Timestamp) {
-  if (!ts) return "--";
-  const date = ts.toDate();
-  const y = date.getFullYear();
-  const m = date.getMonth() + 1;
-  const d = date.getDate();
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mm = String(date.getMinutes()).padStart(2, "0");
-  return `${y}年${m}月${d}日 ${hh}:${mm} GMT+9`;
+function isCustomerActive(c: Customer) {
+  // 過去データ互換: フィールドが無い場合は稼働中扱い
+  return c.isActive !== false;
 }
 
 export default function CustomersPage() {
@@ -58,33 +53,44 @@ export default function CustomersPage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [qText, setQText] = useState("");
   const [tab, setTab] = useState<"ALL" | "MINE">("ALL"); // MINE = 自分の顧客（担当）
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE"); // デフォルト: 稼働中のみ
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Customer | null>(null);
-  const [name, setName] = useState("");
-  const [contactName, setContactName] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [contactPhone, setContactPhone] = useState("");
-  const [notes, setNotes] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
   const loadAll = async (u: User, prof: MemberProfile) => {
+    setError("");
     // customers
     const merged: Customer[] = [];
     if (prof.companyCode) {
-      const byCompany = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
-      merged.push(...byCompany.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
+      try {
+        const byCompany = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
+        merged.push(...byCompany.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
+      } catch (e: any) {
+        const code = String(e?.code || "");
+        const msg = String(e?.message || "");
+        setCustomers([]);
+        setEmployees([]);
+        setError(code && msg ? `${code}: ${msg}` : msg || "顧客一覧の読み込みに失敗しました");
+        return;
+      }
     } else {
       // companyCode が未設定の過去データ救済（ワークスペース分離のため通常は使わない）
-      const byCreator = await getDocs(query(collection(db, "customers"), where("createdBy", "==", u.uid)));
-      merged.push(...byCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
+      try {
+        const byCreator = await getDocs(query(collection(db, "customers"), where("createdBy", "==", u.uid)));
+        merged.push(...byCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
+      } catch (e: any) {
+        const code = String(e?.code || "");
+        const msg = String(e?.message || "");
+        setCustomers([]);
+        setEmployees([]);
+        setError(code && msg ? `${code}: ${msg}` : msg || "顧客一覧の読み込みに失敗しました");
+        return;
+      }
     }
 
     const map = new Map<string, Customer>();
@@ -97,8 +103,16 @@ export default function CustomersPage() {
     setCustomers(items);
 
     // employees
-    const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
-    setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+    try {
+      const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+      setEmployees(empSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+    } catch (e: any) {
+      const code = String(e?.code || "");
+      const msg = String(e?.message || "");
+      setEmployees([]);
+      setError(code && msg ? `${code}: ${msg}` : msg || "社員一覧の読み込みに失敗しました");
+      return;
+    }
   };
 
   useEffect(() => {
@@ -110,13 +124,12 @@ export default function CustomersPage() {
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "profiles", u.uid));
-        if (!snap.exists()) {
+        const prof = await ensureProfile(u);
+        if (!prof) {
           setProfile(null);
           setLoading(false);
           return;
         }
-        const prof = snap.data() as MemberProfile;
         setProfile(prof);
         await loadAll(u, prof);
       } finally {
@@ -133,63 +146,21 @@ export default function CustomersPage() {
       // 「自分の顧客」= 担当者が自分
       list = list.filter((c) => (c.assigneeUid || "") === user.uid);
     }
+    if (statusFilter === "ACTIVE") list = list.filter((c) => isCustomerActive(c));
+    if (statusFilter === "INACTIVE") list = list.filter((c) => !isCustomerActive(c));
     const q = qText.trim().toLowerCase();
     if (!q) return list;
     return list.filter((c) => {
       const hay = `${c.name || ""} ${c.contactName || ""} ${c.contactEmail || ""} ${c.notes || ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [customers, qText, tab, user]);
+  }, [customers, qText, tab, user, statusFilter]);
 
   const employeesByUid = useMemo(() => {
     const m: Record<string, Employee> = {};
     for (const e of employees) if (e.authUid) m[e.authUid] = e;
     return m;
   }, [employees]);
-
-  const openEdit = (c: Customer) => {
-    setEditing(c);
-    setName(c.name || "");
-    setContactName(c.contactName || "");
-    setContactEmail(c.contactEmail || "");
-    setContactPhone(c.contactPhone || "");
-    setNotes(c.notes || "");
-    setError("");
-    setModalOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (!user || !profile || !editing) return;
-    const n = name.trim();
-    if (!n) {
-      setError("顧客名を入力してください");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      await updateDoc(doc(db, "customers", editing.id), {
-        name: n,
-        contactName: contactName.trim(),
-        contactEmail: contactEmail.trim(),
-        notes: notes.trim(),
-        updatedAt: Timestamp.now(),
-      });
-      await logActivity({
-        companyCode: profile.companyCode,
-        actorUid: user.uid,
-        type: "CUSTOMER_UPDATED",
-        message: `顧客を更新しました: ${n}`,
-        link: "/customers",
-      });
-      await loadAll(user, profile);
-      setModalOpen(false);
-    } catch (e: any) {
-      setError(e?.message || "更新に失敗しました");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -215,6 +186,11 @@ export default function CustomersPage() {
         </div>
       }
     >
+      {error ? (
+        <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+          {error}
+        </div>
+      ) : null}
       <div className="px-0 py-1">
         {/* 検索条件（/issue と同じ雛形） */}
         <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -251,6 +227,36 @@ export default function CustomersPage() {
                 </button>
               </div>
 
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold text-slate-700">
+                <button
+                  onClick={() => setStatusFilter("ACTIVE")}
+                  className={clsx(
+                    "rounded-full px-3 py-1.5",
+                    statusFilter === "ACTIVE" ? "bg-emerald-600 text-white" : "bg-slate-100",
+                  )}
+                >
+                  稼働中
+                </button>
+                <button
+                  onClick={() => setStatusFilter("INACTIVE")}
+                  className={clsx(
+                    "rounded-full px-3 py-1.5",
+                    statusFilter === "INACTIVE" ? "bg-slate-700 text-white" : "bg-slate-100",
+                  )}
+                >
+                  停止中
+                </button>
+                <button
+                  onClick={() => setStatusFilter("ALL")}
+                  className={clsx(
+                    "rounded-full px-3 py-1.5",
+                    statusFilter === "ALL" ? "bg-orange-600 text-white" : "bg-slate-100",
+                  )}
+                >
+                  すべて
+                </button>
+              </div>
+
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-12">
                 <div className="md:col-span-6">
                   <div className="text-xs font-extrabold text-slate-500">キーワード</div>
@@ -268,35 +274,42 @@ export default function CustomersPage() {
 
         <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[1000px] w-full text-sm">
+            <table className="min-w-[760px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
                   <th className="px-4 py-3 text-left">顧客</th>
+                  <th className="px-4 py-3 text-left">稼働</th>
                   <th className="px-4 py-3 text-left">担当(リーダー)</th>
-                  <th className="px-4 py-3 text-left">サブリーダー</th>
-                  <th className="px-4 py-3 text-left">電話</th>
-                  <th className="px-4 py-3 text-left">更新</th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       該当する顧客がありません
                     </td>
                   </tr>
                 ) : (
                   filtered.map((c) => {
                     const owner = (c.assigneeUid && employeesByUid[c.assigneeUid]) || employeesByUid[c.createdBy];
-                    const subLeader = c.subAssigneeUid ? employeesByUid[c.subAssigneeUid] : null;
-                    const updated = (c.updatedAt as any) || c.createdAt;
+                    const active = isCustomerActive(c);
                     return (
                       <tr key={c.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-bold text-slate-900">
                           <Link href={`/customers/${c.id}`} className="hover:underline">
                             {c.name}
                           </Link>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={clsx(
+                              "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-extrabold",
+                              active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-700",
+                            )}
+                          >
+                            {active ? "稼働中" : "停止中"}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-slate-700">
                           {owner?.name ? (
@@ -313,30 +326,13 @@ export default function CustomersPage() {
                             "-"
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {subLeader?.name ? (
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-extrabold text-white"
-                                style={{ backgroundColor: subLeader.color || "#64748b" }}
-                              >
-                                {subLeader.name.charAt(0).toUpperCase()}
-                              </div>
-                              <span>{subLeader.name}</span>
-                            </div>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700">{c.contactPhone || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{formatDateTime(updated)}</td>
                         <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => openEdit(c)}
-                            className="rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"
+                          <Link
+                            href={`/customers/${encodeURIComponent(c.id)}/edit`}
+                            className="inline-flex rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"
                           >
                             編集
-                          </button>
+                          </Link>
                         </td>
                       </tr>
                     );
@@ -347,79 +343,6 @@ export default function CustomersPage() {
           </div>
         </div>
       </div>
-
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <div className="text-xs font-bold text-slate-500">編集</div>
-                <div className="text-2xl font-extrabold text-slate-900">顧客</div>
-              </div>
-              <button onClick={() => setModalOpen(false)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-                閉じる
-              </button>
-            </div>
-
-            {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
-
-            <div className="mt-5 grid grid-cols-1 gap-4">
-              <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">顧客名 *</div>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                  placeholder="例：株式会社〇〇"
-                />
-              </div>
-
-              <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">担当者名</div>
-                <input
-                  value={contactName}
-                  onChange={(e) => setContactName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                  placeholder="例：山田 太郎"
-                />
-              </div>
-
-              <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">メールアドレス</div>
-                <input
-                  value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                  placeholder="例：yamada@example.com"
-                />
-              </div>
-
-              <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">備考</div>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="h-32 w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                  placeholder="顧客に関するメモ"
-                />
-              </div>
-            </div>
-
-            <div className="mt-6 flex items-center justify-end gap-3">
-              <button onClick={() => setModalOpen(false)} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-                キャンセル
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
-              >
-                {saving ? "更新中..." : "更新"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </AppShell>
   );
 }

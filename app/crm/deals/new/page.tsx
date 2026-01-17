@@ -2,17 +2,19 @@
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { addDoc, collection, doc, getDoc, getDocs, query, Timestamp, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDocs, query, setDoc, Timestamp, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
 import { logActivity } from "../../../../lib/activity";
 import { AppShell } from "../../../AppShell";
+import { ensureProfile } from "../../../../lib/ensureProfile";
 
 type MemberProfile = {
   uid: string;
   companyCode: string;
   displayName?: string | null;
+  dealGenres?: string[] | null;
 };
 
 type Customer = {
@@ -22,7 +24,24 @@ type Customer = {
   createdBy: string;
 };
 
+type Employee = {
+  id: string;
+  name: string;
+  authUid?: string;
+  color?: string;
+};
+
 type DealStatus = "ACTIVE" | "INACTIVE";
+
+function normalizeOptions(xs: Array<string | null | undefined>) {
+  const set = new Set<string>();
+  for (const x of xs) {
+    const t = String(x || "").trim();
+    if (!t) continue;
+    set.add(t);
+  }
+  return Array.from(set).slice(0, 30);
+}
 
 function DealNewInner() {
   const router = useRouter();
@@ -33,12 +52,20 @@ function DealNewInner() {
   const [loading, setLoading] = useState(true);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
 
   const [customerId, setCustomerId] = useState("");
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState("");
+  const [genreOptions, setGenreOptions] = useState<string[]>([]);
+  const [genreEditorOpen, setGenreEditorOpen] = useState(false);
+  const [newGenre, setNewGenre] = useState("");
+  const [savingGenres, setSavingGenres] = useState(false);
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<DealStatus>("ACTIVE");
+  const [leaderUid, setLeaderUid] = useState("");
+  const [subLeaderUid, setSubLeaderUid] = useState("");
+  const [revenue, setRevenue] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -60,6 +87,17 @@ function DealNewInner() {
     return items;
   };
 
+  const loadEmployees = async (prof: MemberProfile) => {
+    if (!prof.companyCode) {
+      setEmployees([]);
+      return;
+    }
+    const snap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee));
+    list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    setEmployees(list);
+  };
+
   useEffect(() => {
     const initialCustomer = searchParams.get("customerId") || "";
     if (initialCustomer) setCustomerId(initialCustomer);
@@ -77,15 +115,16 @@ function DealNewInner() {
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "profiles", u.uid));
-        if (!snap.exists()) {
+        const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!prof) {
           setProfile(null);
           setLoading(false);
           return;
         }
-        const prof = snap.data() as MemberProfile;
         setProfile(prof);
+        setGenreOptions(normalizeOptions(prof.dealGenres || []));
         const items = await loadCustomers(u, prof);
+        await loadEmployees(prof);
         if (!customerId && items.length > 0) setCustomerId(items[0].id);
       } finally {
         setLoading(false);
@@ -96,6 +135,35 @@ function DealNewInner() {
   }, []);
 
   const customerName = useMemo(() => customers.find((c) => c.id === customerId)?.name || "", [customers, customerId]);
+
+  const saveGenreOptions = async (next: string[]) => {
+    if (!user) return;
+    setSavingGenres(true);
+    try {
+      await setDoc(doc(db, "profiles", user.uid), { dealGenres: next }, { merge: true });
+      setGenreOptions(next);
+    } catch (e: any) {
+      const code = String(e?.code || "");
+      const msg = String(e?.message || "");
+      setError(code && msg ? `${code}: ${msg}` : msg || "ジャンル候補の保存に失敗しました");
+    } finally {
+      setSavingGenres(false);
+    }
+  };
+
+  const addGenreOption = async () => {
+    const t = newGenre.trim();
+    if (!t) return;
+    const next = normalizeOptions([...genreOptions, t]);
+    setNewGenre("");
+    await saveGenreOptions(next);
+  };
+
+  const removeGenreOption = async (g: string) => {
+    const next = genreOptions.filter((x) => x !== g);
+    await saveGenreOptions(next);
+    if (genre === g) setGenre("");
+  };
 
   const handleSubmit = async () => {
     if (!user || !profile) return;
@@ -112,6 +180,17 @@ function DealNewInner() {
     setSaving(true);
     setError("");
     try {
+      const revenueTrimmed = revenue.trim();
+      const revenueValue: number | null = revenueTrimmed ? Number(revenueTrimmed) : null;
+      if (revenueTrimmed) {
+        const revenueNum = Number(revenueTrimmed);
+        if (Number.isNaN(revenueNum) || revenueNum < 0) {
+          setError("売上は 0 以上の数値で入力してください");
+          setSaving(false);
+          return;
+        }
+      }
+
       await addDoc(collection(db, "deals"), {
         companyCode: profile.companyCode,
         createdBy: user.uid,
@@ -120,6 +199,9 @@ function DealNewInner() {
         genre: genre.trim() || "",
         description: description.trim() || "",
         status,
+        leaderUid: leaderUid || null,
+        subLeaderUid: subLeaderUid || null,
+        revenue: revenueValue,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
       });
@@ -200,13 +282,72 @@ function DealNewInner() {
               </div>
 
               <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">案件ジャンル</div>
-                <input
-                  value={genre}
-                  onChange={(e) => setGenre(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                  placeholder="例：開発 / 広告 / 相談 / 運用"
-                />
+                <div className="mb-1 text-sm font-bold text-slate-700">カテゴリ</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={genre}
+                    onChange={(e) => setGenre(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none sm:flex-1"
+                  >
+                    <option value="">未設定</option>
+                    {genreOptions.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setGenreEditorOpen((v) => !v)}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    候補を編集
+                  </button>
+                </div>
+                {genreEditorOpen ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        value={newGenre}
+                        onChange={(e) => setNewGenre(e.target.value)}
+                        placeholder="ジャンル候補を追加"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none sm:flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void addGenreOption()}
+                        disabled={savingGenres}
+                        className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
+                      >
+                        追加
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {genreOptions.length === 0 ? (
+                        <div className="text-xs font-bold text-slate-500">候補がありません</div>
+                      ) : (
+                        genreOptions.map((g) => (
+                          <span
+                            key={g}
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-extrabold text-slate-700"
+                          >
+                            {g}
+                            <button
+                              type="button"
+                              onClick={() => void removeGenreOption(g)}
+                              disabled={savingGenres}
+                              className="text-slate-400 hover:text-rose-600 disabled:text-slate-300"
+                              title="削除"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))
+                      )}
+                    </div>
+                    <div className="mt-2 text-[11px] font-bold text-slate-500">※ 候補はあなた専用です（他ユーザーには影響しません）</div>
+                  </div>
+                ) : null}
               </div>
 
               <div>
@@ -219,6 +360,55 @@ function DealNewInner() {
                   <option value="ACTIVE">稼働中</option>
                   <option value="INACTIVE">停止</option>
                 </select>
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm font-bold text-slate-700">リーダー</div>
+                <select
+                  value={leaderUid}
+                  onChange={(e) => setLeaderUid(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
+                >
+                  <option value="">未設定</option>
+                  <option value={user.uid}>私</option>
+                  {employees
+                    .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                    .map((e) => (
+                      <option key={e.id} value={e.authUid}>
+                        {e.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm font-bold text-slate-700">サブリーダー</div>
+                <select
+                  value={subLeaderUid}
+                  onChange={(e) => setSubLeaderUid(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
+                >
+                  <option value="">未設定</option>
+                  <option value={user.uid}>私</option>
+                  {employees
+                    .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                    .map((e) => (
+                      <option key={e.id} value={e.authUid}>
+                        {e.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm font-bold text-slate-700">売上（数値）</div>
+                <input
+                  value={revenue}
+                  onChange={(e) => setRevenue(e.target.value)}
+                  inputMode="numeric"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  placeholder="例：500000"
+                />
               </div>
 
               <div>

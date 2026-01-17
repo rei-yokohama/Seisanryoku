@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { auth, db, storage } from "../../lib/firebase";
 import { logActivity } from "../../lib/activity";
+import { ensureProfile } from "../../lib/ensureProfile";
 import { AppShell } from "../AppShell";
 
 type MemberProfile = {
@@ -73,6 +74,20 @@ export default function DrivePage() {
   const [busy, setBusy] = useState(false);
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
 
+  // アップロード進捗管理
+  const [uploadProgress, setUploadProgress] = useState<
+    Array<{
+      name: string;
+      progress: number;
+      status: "uploading" | "done" | "error";
+      transferredBytes: number;
+      totalBytes: number;
+      errorCode?: string;
+      storagePath?: string;
+    }>
+  >([]);
+  const lastUploadDebugRef = useRef<{ fileName: string; storagePath: string } | null>(null);
+
   const loadItems = async (u: User, prof: MemberProfile) => {
     const merged: DriveItem[] = [];
     if (prof.companyCode) {
@@ -103,12 +118,13 @@ export default function DrivePage() {
         return;
       }
       try {
-        const snap = await getDoc(doc(db, "profiles", u.uid));
-        if (!snap.exists()) {
+        const prof = (await ensureProfile(u)) as MemberProfile | null;
+        if (!prof) {
+          setProfile(null);
+          setError("ワークスペース情報を確認できませんでした。招待リンクを開き直すか、管理者に再招待を依頼してください。");
           setLoading(false);
           return;
         }
-        const prof = snap.data() as MemberProfile;
         setProfile(prof);
         await loadItems(u, prof);
       } catch (e: any) {
@@ -169,7 +185,12 @@ export default function DrivePage() {
 
   const handleUploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    if (!user || !profile) return;
+    if (!user) return;
+    if (!profile) {
+      setError("ワークスペース情報を確認中です。数秒待ってから再度お試しください。");
+      setSuccess("");
+      return;
+    }
     if (!currentFolderId) {
       setError("アップロードするには、先にアップロード先フォルダを開いてください。");
       setSuccess("");
@@ -184,21 +205,52 @@ export default function DrivePage() {
     setBusy(true);
     setError("");
     setSuccess("");
+    
+    // 進捗状態の初期化
+    const uploads = Array.from(files);
+    setUploadProgress(uploads.map((f) => ({ name: f.name, progress: 0, status: "uploading", transferredBytes: 0, totalBytes: f.size || 0 })));
+
     try {
-      const uploads = Array.from(files);
-      for (const f of uploads) {
+      for (let i = 0; i < uploads.length; i++) {
+        const f = uploads[i];
         const docRef = doc(collection(db, "driveItems"));
         const storagePath = joinPath(["drive", profile.companyCode, user.uid, docRef.id, f.name]);
+        lastUploadDebugRef.current = { fileName: f.name, storagePath };
         const sref = storageRef(storage, storagePath);
         const task = uploadBytesResumable(sref, f, { contentType: f.type || undefined });
+        
         await new Promise<void>((resolve, reject) => {
           task.on(
             "state_changed",
-            undefined,
-            (err) => reject(err),
+            (snapshot) => {
+              // 進捗を計算
+              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+              setUploadProgress(prev => 
+                prev.map((item, idx) => 
+                  idx === i
+                    ? {
+                        ...item,
+                        progress: Math.round(progress),
+                        transferredBytes: snapshot.bytesTransferred,
+                        totalBytes: snapshot.totalBytes,
+                        storagePath,
+                      }
+                    : item
+                )
+              );
+            },
+            (err) => {
+              setUploadProgress(prev => 
+                prev.map((item, idx) => 
+                  idx === i ? { ...item, status: "error", errorCode: String(err?.code || ""), storagePath } : item
+                )
+              );
+              reject(err);
+            },
             () => resolve(),
           );
         });
+        
         const url = await getDownloadURL(sref);
 
         await setDoc(docRef, {
@@ -214,6 +266,13 @@ export default function DrivePage() {
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         });
+
+        // 完了をマーク
+        setUploadProgress(prev => 
+          prev.map((item, idx) => 
+            idx === i ? { ...item, progress: 100, status: "done", transferredBytes: f.size || item.transferredBytes, totalBytes: f.size || item.totalBytes, storagePath } : item
+          )
+        );
       }
 
       await logActivity({
@@ -226,8 +285,13 @@ export default function DrivePage() {
 
       await loadItems(user, profile);
       setSuccess("アップロードしました");
+      
+      // 3秒後に進捗表示をクリア
+      setTimeout(() => setUploadProgress([]), 3000);
     } catch (e: any) {
-      setError(e?.message || "アップロードに失敗しました");
+      const code = e?.code ? String(e.code) : "";
+      const msg = e?.message ? String(e.message) : "";
+      setError(code && msg ? `${code}: ${msg}` : msg || "アップロードに失敗しました");
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -345,6 +409,55 @@ export default function DrivePage() {
       <div className="mx-auto w-full max-w-6xl">
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
         {success ? <div className="mb-4 rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700">{success}</div> : null}
+
+        {/* アップロード進捗表示 */}
+        {uploadProgress.length > 0 && (
+          <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <div className="mb-3 text-sm font-extrabold text-blue-900">
+              アップロード中 ({uploadProgress.filter(p => p.status === "done").length}/{uploadProgress.length})
+            </div>
+            {typeof window !== "undefined" && window.location.hostname === "localhost" && lastUploadDebugRef.current ? (
+              <div className="mb-3 rounded-lg border border-blue-200 bg-white/60 p-3 text-xs font-bold text-slate-700">
+                <div>Debug: bucket = <span className="font-extrabold">{process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "-"}</span></div>
+                <div>Debug: lastFile = <span className="font-extrabold">{lastUploadDebugRef.current.fileName}</span></div>
+                <div>Debug: storagePath = <span className="font-extrabold">{lastUploadDebugRef.current.storagePath}</span></div>
+              </div>
+            ) : null}
+            <div className="space-y-3">
+              {uploadProgress.map((item, idx) => (
+                <div key={idx}>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="truncate font-bold text-blue-900">{item.name}</span>
+                    <span className={clsx(
+                      "font-extrabold",
+                      item.status === "done" ? "text-green-700" : 
+                      item.status === "error" ? "text-red-700" : "text-blue-700"
+                    )}>
+                      {item.status === "done" ? "完了" : 
+                       item.status === "error" ? (item.errorCode ? `エラー (${item.errorCode})` : "エラー") : `${item.progress}%`}
+                    </span>
+                  </div>
+                  <div className="mb-1 flex items-center justify-between text-[11px] font-bold text-slate-600">
+                    <span>
+                      {Math.round((item.transferredBytes || 0) / 1024 / 1024)}MB / {Math.max(1, Math.round((item.totalBytes || 0) / 1024 / 1024))}MB
+                    </span>
+                    {item.storagePath ? <span className="truncate max-w-[55%] text-slate-500">{item.storagePath}</span> : null}
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-blue-100">
+                    <div 
+                      className={clsx(
+                        "h-full transition-all duration-300",
+                        item.status === "done" ? "bg-green-600" :
+                        item.status === "error" ? "bg-red-600" : "bg-blue-600"
+                      )}
+                      style={{ width: `${item.progress}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="px-0 py-1">
           {/* 検索条件（/issue と同じトーン） */}
