@@ -130,16 +130,31 @@ export default function WikiDocPage() {
       const el = editorRef.current;
       if (el) draftHtmlRef.current = el.innerHTML;
 
-      const mergedContents: Record<string, string> = {
-        ...contents,
-        [activeNodeId]: draftHtmlRef.current,
-      };
+      // Firestore は undefined を受け付けないので、すべての値を文字列に正規化
+      const mergedContents: Record<string, string> = {};
+      for (const [k, v] of Object.entries(contents)) {
+        if (k && typeof k === "string") {
+          mergedContents[k] = typeof v === "string" ? v : "";
+        }
+      }
+      // アクティブノードの内容を上書き
+      if (activeNodeId) {
+        mergedContents[activeNodeId] = typeof draftHtmlRef.current === "string" ? draftHtmlRef.current : "";
+      }
+
+      // nodes も正規化（undefined や null の値を除去）
+      const sanitizedNodes = nodes.map((n) => ({
+        id: n.id || "",
+        parentId: n.parentId ?? null,
+        title: n.title || "",
+        order: typeof n.order === "number" ? n.order : 0,
+      }));
 
       setSaving(true);
-      const payload: any = {
+      const payload: Record<string, any> = {
         companyCode: profile.companyCode,
         title: title.trim() || "無題",
-        nodes,
+        nodes: sanitizedNodes,
         contents: mergedContents,
         updatedAt: Timestamp.now(),
       };
