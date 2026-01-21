@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
 import { logActivity } from "../../../lib/activity";
@@ -107,6 +107,18 @@ export default function WikiDocPage() {
   const [activeNodeId, setActiveNodeId] = useState<string>("root");
   const [customerId, setCustomerId] = useState<string>("");
   const [dealId, setDealId] = useState<string>("");
+  const [docCompanyCode, setDocCompanyCode] = useState<string>("");
+  const [lastSaveDebug, setLastSaveDebug] = useState<{
+    at: string;
+    ok: boolean;
+    reason?: string;
+    userUid?: string;
+    profileCompanyCode?: string;
+    docCompanyCode?: string;
+    effectiveCompanyCode?: string;
+    activeNodeId?: string;
+    htmlLength?: number;
+  } | null>(null);
 
   const [deals, setDeals] = useState<Deal[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -119,16 +131,39 @@ export default function WikiDocPage() {
   const lastAppliedHtmlRef = useRef<string>("");
 
   const doSaveNow = async (opts?: { force?: boolean }) => {
-    if (!user) return;
+    if (!user) {
+      setError("ログインが必要です");
+      setLastSaveDebug({
+        at: new Date().toISOString(),
+        ok: false,
+        reason: "NOT_SIGNED_IN",
+      });
+      return;
+    }
+    setSaving(true);
+    setError("");
+    
     try {
-      setError("");
-      if (!profile?.companyCode) {
+      const effectiveCompanyCode = (profile?.companyCode || docCompanyCode || "").trim();
+      if (!effectiveCompanyCode) {
         setError("会社コードが未設定です（/settings/company で会社情報を設定してください）");
+        setLastSaveDebug({
+          at: new Date().toISOString(),
+          ok: false,
+          reason: "NO_COMPANY_CODE",
+          userUid: user.uid,
+          profileCompanyCode: profile?.companyCode || "",
+          docCompanyCode: docCompanyCode || "",
+          effectiveCompanyCode,
+        });
+        setSaving(false);
         return;
       }
+      
       // いま見えているDOMを保存対象にする
       const el = editorRef.current;
-      if (el) draftHtmlRef.current = el.innerHTML;
+      const currentHtml = el ? el.innerHTML : "";
+      const htmlLength = currentHtml.length;
 
       // Firestore は undefined を受け付けないので、すべての値を文字列に正規化
       const mergedContents: Record<string, string> = {};
@@ -139,7 +174,7 @@ export default function WikiDocPage() {
       }
       // アクティブノードの内容を上書き
       if (activeNodeId) {
-        mergedContents[activeNodeId] = typeof draftHtmlRef.current === "string" ? draftHtmlRef.current : "";
+        mergedContents[activeNodeId] = currentHtml;
       }
 
       // nodes も正規化（undefined や null の値を除去）
@@ -150,26 +185,53 @@ export default function WikiDocPage() {
         order: typeof n.order === "number" ? n.order : 0,
       }));
 
-      setSaving(true);
       const payload: Record<string, any> = {
-        companyCode: profile.companyCode,
+        companyCode: effectiveCompanyCode,
         title: title.trim() || "無題",
         nodes: sanitizedNodes,
         contents: mergedContents,
         updatedAt: Timestamp.now(),
       };
-      // 紐づけは null も含めて保存（シンプルに一発で状態が一致する）
+      // 紐づけは null も含めて保存
       payload.customerId = customerId || null;
       payload.dealId = dealId || null;
       payload.scopeType = dealId ? "DEAL" : "GLOBAL";
       payload.scopeId = dealId || null;
 
-      await updateDoc(doc(db, "wikiDocs", docId), payload);
+      // updateDoc は doc が無いと失敗するので、setDoc(merge) で安全に保存
+      await setDoc(doc(db, "wikiDocs", docId), payload, { merge: true });
+
       setSavedAt(new Date());
+      setContents(mergedContents);
+      lastAppliedHtmlRef.current = mergedContents[activeNodeId] ?? "";
+      draftHtmlRef.current = mergedContents[activeNodeId] ?? "";
+      setLastSaveDebug({
+        at: new Date().toISOString(),
+        ok: true,
+        userUid: user.uid,
+        profileCompanyCode: profile?.companyCode || "",
+        docCompanyCode: docCompanyCode || "",
+        effectiveCompanyCode,
+        activeNodeId,
+        htmlLength,
+      });
+      setError("");
     } catch (e: any) {
       const code = e?.code ? String(e.code) : "";
       const msg = e?.message ? String(e.message) : "";
-      setError(code && msg ? `${code}: ${msg}` : msg || "保存に失敗しました");
+      const errorMsg = code && msg ? `${code}: ${msg}` : msg || "保存に失敗しました";
+      setError(errorMsg);
+      setLastSaveDebug({
+        at: new Date().toISOString(),
+        ok: false,
+        reason: code || "UNKNOWN",
+        userUid: user.uid,
+        profileCompanyCode: profile?.companyCode || "",
+        docCompanyCode: docCompanyCode || "",
+        effectiveCompanyCode: (profile?.companyCode || docCompanyCode || "").trim(),
+        activeNodeId,
+        htmlLength: (editorRef.current?.innerHTML || "").length,
+      });
     } finally {
       setSaving(false);
     }
@@ -183,6 +245,7 @@ export default function WikiDocPage() {
     const snap = await getDoc(doc(db, "wikiDocs", docId));
     if (!snap.exists()) throw new Error("ドキュメントが見つかりません");
     const d = snap.data() as WikiDoc;
+    setDocCompanyCode(String(d.companyCode || ""));
     setTitle(d.title || "無題");
 
     // linkage (must be customer + deal)
@@ -222,9 +285,24 @@ export default function WikiDocPage() {
       }
     }
 
+    console.log("[Wiki Load] nextContents:", nextContents);
+    console.log("[Wiki Load] activeNodeId:", nextNodes[0]?.id || rootId);
+
     setNodes(nextNodes.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
     setContents(nextContents);
     setActiveNodeId(nextNodes[0]?.id || rootId);
+
+    // 強制的にDOM同期
+    setTimeout(() => {
+      const el = editorRef.current;
+      if (el) {
+        const html = nextContents[nextNodes[0]?.id || rootId] ?? "";
+        console.log("[Wiki Load] 強制DOM同期:", html);
+        el.innerHTML = html;
+        lastAppliedHtmlRef.current = html;
+        draftHtmlRef.current = html;
+      }
+    }, 100);
 
     // linkage candidates
     if (prof.companyCode) {
@@ -342,13 +420,14 @@ export default function WikiDocPage() {
     const el = editorRef.current;
     if (!el) return;
     const nextHtml = contents[activeNodeId] ?? "";
-    // 入力中に毎回 innerHTML を書き戻すと重くなる＆カーソルが飛ぶので、タブ切替時だけ同期
+    // 入力中に毎回 innerHTML を書き戻すと重くなる＆カーソルが飛ぶので、
+    // タブ切替 or Firestore からの読み込みで内容が変わったときだけ同期
     if (lastAppliedHtmlRef.current !== nextHtml) {
       el.innerHTML = nextHtml;
       lastAppliedHtmlRef.current = nextHtml;
       draftHtmlRef.current = nextHtml;
     }
-  }, [activeNodeId]);
+  }, [activeNodeId, contents]);
 
   const exec = (cmd: string, value?: string) => {
     // eslint-disable-next-line deprecation/deprecation
@@ -441,7 +520,28 @@ export default function WikiDocPage() {
       }
     >
       <div className="w-full">
-        {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
+        {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">⚠️ エラー: {error}</div> : null}
+        {typeof window !== "undefined" && window.location.hostname === "localhost" && lastSaveDebug ? (
+          <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-700">
+            <div className="text-[11px] font-extrabold text-slate-900">Debug（保存）</div>
+            <div className="mt-1 grid grid-cols-1 gap-1">
+              <div>at: <span className="font-mono">{lastSaveDebug.at}</span></div>
+              <div>ok: <span className={lastSaveDebug.ok ? "text-green-700" : "text-red-700"}>{String(lastSaveDebug.ok)}</span></div>
+              {lastSaveDebug.reason ? <div>reason: <span className="font-mono">{lastSaveDebug.reason}</span></div> : null}
+              <div>userUid: <span className="font-mono">{lastSaveDebug.userUid || "-"}</span></div>
+              <div>profileCompanyCode: <span className="font-mono">{lastSaveDebug.profileCompanyCode || "-"}</span></div>
+              <div>docCompanyCode: <span className="font-mono">{lastSaveDebug.docCompanyCode || "-"}</span></div>
+              <div>effectiveCompanyCode: <span className="font-mono">{lastSaveDebug.effectiveCompanyCode || "-"}</span></div>
+              <div>activeNodeId: <span className="font-mono">{lastSaveDebug.activeNodeId || "-"}</span></div>
+              <div>htmlLength: <span className="font-mono">{String(lastSaveDebug.htmlLength ?? "-")}</span></div>
+            </div>
+          </div>
+        ) : null}
+        {!error && savedAt ? (
+          <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-3 text-sm font-bold text-green-700">
+            ✅ 保存しました（{savedAt.toLocaleTimeString()}）
+          </div>
+        ) : null}
         {!loading && (!customerId || !dealId) ? (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
             このWikiは <span className="font-extrabold">顧客</span> と <span className="font-extrabold">案件</span> の両方に紐づけ推奨です（未選択でも本文は保存されます）。

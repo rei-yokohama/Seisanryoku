@@ -191,12 +191,6 @@ export default function DrivePage() {
       setSuccess("");
       return;
     }
-    if (!currentFolderId) {
-      setError("アップロードするには、先にアップロード先フォルダを開いてください。");
-      setSuccess("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
     if (!profile.companyCode) {
       setError("会社コードが未設定です（/settings/company で会社情報を設定してください）");
       return;
@@ -390,8 +384,8 @@ export default function DrivePage() {
           <button
             onClick={triggerUpload}
             className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition disabled:opacity-50 disabled:hover:bg-orange-600"
-            disabled={busy || !currentFolderId}
-            title={!currentFolderId ? "アップロードはフォルダを開いてから実行できます" : "アップロード"}
+            disabled={busy}
+            title="ファイルをアップロード"
           >
             アップロード
           </button>
@@ -515,12 +509,6 @@ export default function DrivePage() {
             全 {currentChildren.length} 件
           </div>
         </div>
-
-        {!currentFolderId ? (
-          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-800">
-            アップロードはフォルダを開いてから実行できます（マイドライブ直下へのアップロードは不可）。
-          </div>
-        ) : null}
 
         <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="overflow-x-auto">
