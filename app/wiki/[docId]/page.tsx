@@ -296,28 +296,37 @@ export default function WikiDocPage() {
     const rawNodes = sanitizeWikiNodes(d.nodes);
     const rawContents = sanitizeContentsMap(d.contents);
 
-    // legacy migration: 旧 `content` プロパティがある場合は、最初のノードに移行するか、新規ノードを作る
+    // 方針:
+    // - 「本文(root)」タブは廃止（常に非表示）
+    // - 既存データに root の内容がある場合は、新しい通常タブに移してから root を取り除く
     let nextNodes = [...rawNodes];
-    let nextContents = { ...rawContents };
+    let nextContents: Record<string, string> = { ...rawContents };
 
-    // 互換: 以前の新規作成で「本文(root)だけ・中身空」を作っていたので、
-    // それは新UIでは「タブなし（入力不可）」として扱う
-    if (
-      nextNodes.length === 1
-      && (nextNodes[0].id === "root" || nextNodes[0].title === "本文")
-      && !String(nextContents[nextNodes[0].id] || "").trim()
-    ) {
-      nextNodes = [];
-      nextContents = {};
-    }
+    const rootId = "root";
+    const rootNode = nextNodes.find((n) => n.id === rootId) || null;
+    const rootHtml = String(nextContents[rootId] || "").trim();
 
-    if (nextNodes.length === 0) {
-      const legacy = (d.content || "").trim();
-      if (legacy) {
-        // コンテンツがある場合は「本文」タブとして復旧
-        const rootId = "root";
-        nextNodes = [{ id: rootId, parentId: null, title: "本文", order: 0 }];
-        nextContents[rootId] = `<p>${escapeHtml(legacy).replaceAll("\n", "<br/>")}</p>`;
+    // legacy: 旧 `content` があるなら rootHtml 相当として扱う
+    const legacyPlain = String(d.content || "").trim();
+    const legacyHtml = legacyPlain ? `<p>${escapeHtml(legacyPlain).replaceAll("\n", "<br/>")}</p>` : "";
+    const effectiveRootHtml = rootHtml || legacyHtml;
+
+    // root ノードと root コンテンツは取り除く（本文廃止）
+    nextNodes = nextNodes.filter((n) => n.id !== rootId);
+    if (rootId in nextContents) delete nextContents[rootId];
+
+    // root に内容があった場合は、新しい通常タブに移す（データを失わない）
+    if (effectiveRootHtml) {
+      const migrateId = genId(10);
+      // order は既存の最小より前に入れる
+      const minOrder = nextNodes.length ? Math.min(...nextNodes.map((n) => n.order ?? 0)) : 0;
+      nextNodes.unshift({ id: migrateId, parentId: null, title: "移行内容", order: minOrder - 1 });
+      nextContents[migrateId] = effectiveRootHtml;
+    } else {
+      // root しかなくて空だった旧データは「タブなし」として扱う
+      if (rootNode && nextNodes.length === 0 && Object.keys(nextContents).length === 0) {
+        nextNodes = [];
+        nextContents = {};
       }
     }
 

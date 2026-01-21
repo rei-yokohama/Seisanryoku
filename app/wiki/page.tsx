@@ -56,15 +56,24 @@ export default function WikiHomePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
   const loadDocs = async (u: User, prof: MemberProfile) => {
     const merged: WikiDoc[] = [];
-    if (prof.companyCode) {
-      const snapByCompany = await getDocs(query(collection(db, "wikiDocs"), where("companyCode", "==", prof.companyCode)));
-      merged.push(...snapByCompany.docs.map((d) => ({ id: d.id, ...d.data() } as WikiDoc)));
-    } else {
-      const snapByCreator = await getDocs(query(collection(db, "wikiDocs"), where("createdBy", "==", u.uid)));
-      merged.push(...snapByCreator.docs.map((d) => ({ id: d.id, ...d.data() } as WikiDoc)));
+    try {
+      if (prof.companyCode) {
+        const snapByCompany = await getDocs(query(collection(db, "wikiDocs"), where("companyCode", "==", prof.companyCode)));
+        merged.push(...snapByCompany.docs.map((d) => ({ id: d.id, ...d.data() } as WikiDoc)));
+      } else {
+        const snapByCreator = await getDocs(query(collection(db, "wikiDocs"), where("createdBy", "==", u.uid)));
+        merged.push(...snapByCreator.docs.map((d) => ({ id: d.id, ...d.data() } as WikiDoc)));
+      }
+    } catch (e: any) {
+      const code = String(e?.code || "");
+      const msg = String(e?.message || "");
+      setError(code && msg ? `${code}: ${msg}` : msg || "読み込みに失敗しました（Wiki一覧）");
+      setDocs([]);
+      return;
     }
     const byId = new Map<string, WikiDoc>();
     for (const d of merged) byId.set(d.id, d);
@@ -83,14 +92,23 @@ export default function WikiHomePage() {
       setEmployees([]);
       return;
     }
-    const [dealSnap, custSnap, empSnap] = await Promise.all([
-      getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode))),
-      getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode))),
-      getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode))),
-    ]);
-    setDeals(dealSnap.docs.map(d => ({ id: d.id, ...d.data() } as Deal)));
-    setCustomers(custSnap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)));
-    setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+    try {
+      const [dealSnap, custSnap, empSnap] = await Promise.all([
+        getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode))),
+        getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode))),
+        getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode))),
+      ]);
+      setDeals(dealSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Deal)));
+      setCustomers(custSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Customer)));
+      setEmployees(empSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+    } catch (e: any) {
+      const code = String(e?.code || "");
+      const msg = String(e?.message || "");
+      setDeals([]);
+      setCustomers([]);
+      setEmployees([]);
+      setError((prev) => prev || (code && msg ? `${code}: ${msg}` : msg || "読み込みに失敗しました（紐づけ情報）"));
+    }
   };
 
   useEffect(() => {
@@ -210,6 +228,11 @@ export default function WikiHomePage() {
     }
   };
 
+  const exitEditMode = () => {
+    setEditMode(false);
+    setSelectedIds(new Set());
+  };
+
   function linkCustomerId(d: WikiDoc) {
     const direct = String(d.customerId || "");
     if (direct) return direct;
@@ -250,6 +273,7 @@ export default function WikiHomePage() {
     setError("");
     try {
       const companyCode = profile.companyCode || "";
+      if (!companyCode) throw new Error("会社コードが未設定です（/settings/company で会社情報を設定してください）");
       const ref = await addDoc(collection(db, "wikiDocs"), {
         companyCode,
         createdBy: user.uid,
@@ -285,7 +309,25 @@ export default function WikiHomePage() {
       subtitle="Google Docs風"
       headerRight={
         <div className="flex items-center gap-2">
-          {selectedCount > 0 ? (
+          {editMode ? (
+            <button
+              onClick={exitEditMode}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
+              type="button"
+            >
+              完了
+            </button>
+          ) : (
+            <button
+              onClick={() => setEditMode(true)}
+              disabled={loading || docs.length === 0}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              type="button"
+            >
+              編集
+            </button>
+          )}
+          {editMode && selectedCount > 0 ? (
             <button
               onClick={() => void bulkDelete()}
               disabled={bulkDeleting || loading}
@@ -350,16 +392,18 @@ export default function WikiHomePage() {
             <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
-                  <th className="w-10 px-3 py-3 text-left">
-                    <input
-                      type="checkbox"
-                      checked={allFilteredSelected}
-                      onChange={toggleSelectAllFiltered}
-                      disabled={loading || filtered.length === 0}
-                      title="全選択"
-                      className="h-4 w-4 accent-orange-600"
-                    />
-                  </th>
+                  {editMode ? (
+                    <th className="w-10 px-3 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={toggleSelectAllFiltered}
+                        disabled={loading || filtered.length === 0}
+                        title="全選択"
+                        className="h-4 w-4 accent-orange-600"
+                      />
+                    </th>
+                  ) : null}
                   <th className="px-4 py-3 text-left">タイトル</th>
                   <th className="px-4 py-3 text-left">紐づけ</th>
                   <th className="px-4 py-3 text-left">作成者</th>
@@ -369,13 +413,13 @@ export default function WikiHomePage() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={editMode ? 5 : 4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       読み込み中...
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={editMode ? 5 : 4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       ドキュメントがまだありません。右上から作成してください。
                     </td>
                   </tr>
@@ -386,19 +430,32 @@ export default function WikiHomePage() {
                     const checked = selectedIds.has(d.id);
                     return (
                       <tr key={d.id} className="hover:bg-slate-50">
-                        <td className="w-10 px-3 py-3">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleSelect(d.id)}
-                            className="h-4 w-4 accent-orange-600"
-                            aria-label="選択"
-                          />
-                        </td>
+                        {editMode ? (
+                          <td className="w-10 px-3 py-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSelect(d.id)}
+                              className="h-4 w-4 accent-orange-600"
+                              aria-label="選択"
+                            />
+                          </td>
+                        ) : null}
                         <td className="px-4 py-3 font-bold text-slate-900">
-                          <Link href={`/wiki/${d.id}`} className="hover:underline">
-                            {d.title || "無題"}
-                          </Link>
+                          {editMode ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleSelect(d.id)}
+                              className="hover:underline"
+                              title="選択"
+                            >
+                              {d.title || "無題"}
+                            </button>
+                          ) : (
+                            <Link href={`/wiki/${d.id}`} className="hover:underline">
+                              {d.title || "無題"}
+                            </Link>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-xs font-bold text-slate-700">{linked}</td>
                         <td className="px-4 py-3 text-xs font-bold text-slate-700">{creatorName(d) || "-"}</td>
