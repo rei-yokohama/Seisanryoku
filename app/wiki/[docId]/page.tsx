@@ -91,6 +91,34 @@ function collectDescendants(nodes: WikiNode[], rootId: string) {
   return out;
 }
 
+function sanitizeWikiNodes(input: unknown): WikiNode[] {
+  if (!Array.isArray(input)) return [];
+  const out: WikiNode[] = [];
+  for (const raw of input) {
+    const r = raw as any;
+    const id = typeof r?.id === "string" ? r.id.trim() : "";
+    if (!id) continue; // 空IDは破棄（Firestore map のキーとしても危険）
+    out.push({
+      id,
+      parentId: typeof r?.parentId === "string" ? r.parentId : r?.parentId == null ? null : String(r.parentId),
+      title: typeof r?.title === "string" ? r.title : "",
+      order: typeof r?.order === "number" ? r.order : 0,
+    });
+  }
+  return out;
+}
+
+function sanitizeContentsMap(input: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!input || typeof input !== "object") return out;
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    const key = typeof k === "string" ? k.trim() : "";
+    if (!key) continue;
+    out[key] = typeof v === "string" ? v : "";
+  }
+  return out;
+}
+
 export default function WikiDocPage() {
   const router = useRouter();
   const params = useParams<{ docId: string }>();
@@ -104,7 +132,7 @@ export default function WikiDocPage() {
   const [title, setTitle] = useState("");
   const [nodes, setNodes] = useState<WikiNode[]>([]);
   const [contents, setContents] = useState<Record<string, string>>({});
-  const [activeNodeId, setActiveNodeId] = useState<string>("root");
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string>("");
   const [dealId, setDealId] = useState<string>("");
   const [docCompanyCode, setDocCompanyCode] = useState<string>("");
@@ -177,13 +205,8 @@ export default function WikiDocPage() {
         mergedContents[activeNodeId] = currentHtml;
       }
 
-      // nodes も正規化（undefined や null の値を除去）
-      const sanitizedNodes = nodes.map((n) => ({
-        id: n.id || "",
-        parentId: n.parentId ?? null,
-        title: n.title || "",
-        order: typeof n.order === "number" ? n.order : 0,
-      }));
+      // nodes も正規化
+      const sanitizedNodes = sanitizeWikiNodes(nodes);
 
       const payload: Record<string, any> = {
         companyCode: effectiveCompanyCode,
@@ -203,8 +226,13 @@ export default function WikiDocPage() {
 
       setSavedAt(new Date());
       setContents(mergedContents);
-      lastAppliedHtmlRef.current = mergedContents[activeNodeId] ?? "";
-      draftHtmlRef.current = mergedContents[activeNodeId] ?? "";
+      if (activeNodeId) {
+        lastAppliedHtmlRef.current = mergedContents[activeNodeId] ?? "";
+        draftHtmlRef.current = mergedContents[activeNodeId] ?? "";
+      } else {
+        lastAppliedHtmlRef.current = "";
+        draftHtmlRef.current = "";
+      }
       setLastSaveDebug({
         at: new Date().toISOString(),
         ok: true,
@@ -212,7 +240,7 @@ export default function WikiDocPage() {
         profileCompanyCode: profile?.companyCode || "",
         docCompanyCode: docCompanyCode || "",
         effectiveCompanyCode,
-        activeNodeId,
+        activeNodeId: activeNodeId ?? undefined,
         htmlLength,
       });
       setError("");
@@ -229,7 +257,7 @@ export default function WikiDocPage() {
         profileCompanyCode: profile?.companyCode || "",
         docCompanyCode: docCompanyCode || "",
         effectiveCompanyCode: (profile?.companyCode || docCompanyCode || "").trim(),
-        activeNodeId,
+        activeNodeId: activeNodeId ?? undefined,
         htmlLength: (editorRef.current?.innerHTML || "").length,
       });
     } finally {
@@ -265,44 +293,38 @@ export default function WikiDocPage() {
     }
 
     // nodes/contents (migration from old `content`)
-    const rootId = "root";
-    const nextNodes: WikiNode[] =
-      Array.isArray(d.nodes) && d.nodes.length > 0
-        ? d.nodes
-        : [{ id: rootId, parentId: null, title: "本文", order: 0 }];
-    const nextContents: Record<string, string> =
-      d.contents && typeof d.contents === "object"
-        ? (d.contents as Record<string, string>)
-        : {};
+    const rawNodes = sanitizeWikiNodes(d.nodes);
+    const rawContents = sanitizeContentsMap(d.contents);
 
-    if (!nextContents[rootId]) {
+    // legacy migration: 旧 `content` プロパティがある場合は、最初のノードに移行するか、新規ノードを作る
+    let nextNodes = [...rawNodes];
+    let nextContents = { ...rawContents };
+
+    // 互換: 以前の新規作成で「本文(root)だけ・中身空」を作っていたので、
+    // それは新UIでは「タブなし（入力不可）」として扱う
+    if (
+      nextNodes.length === 1
+      && (nextNodes[0].id === "root" || nextNodes[0].title === "本文")
+      && !String(nextContents[nextNodes[0].id] || "").trim()
+    ) {
+      nextNodes = [];
+      nextContents = {};
+    }
+
+    if (nextNodes.length === 0) {
       const legacy = (d.content || "").trim();
       if (legacy) {
-        // 旧: プレーンテキスト → ざっくりHTML化
+        // コンテンツがある場合は「本文」タブとして復旧
+        const rootId = "root";
+        nextNodes = [{ id: rootId, parentId: null, title: "本文", order: 0 }];
         nextContents[rootId] = `<p>${escapeHtml(legacy).replaceAll("\n", "<br/>")}</p>`;
-      } else {
-        nextContents[rootId] = "";
       }
     }
 
-    console.log("[Wiki Load] nextContents:", nextContents);
-    console.log("[Wiki Load] activeNodeId:", nextNodes[0]?.id || rootId);
-
-    setNodes(nextNodes.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)));
+    const sortedNodes = nextNodes.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    setNodes(sortedNodes);
     setContents(nextContents);
-    setActiveNodeId(nextNodes[0]?.id || rootId);
-
-    // 強制的にDOM同期
-    setTimeout(() => {
-      const el = editorRef.current;
-      if (el) {
-        const html = nextContents[nextNodes[0]?.id || rootId] ?? "";
-        console.log("[Wiki Load] 強制DOM同期:", html);
-        el.innerHTML = html;
-        lastAppliedHtmlRef.current = html;
-        draftHtmlRef.current = html;
-      }
-    }, 100);
+    setActiveNodeId(sortedNodes.length > 0 ? sortedNodes[0].id : null);
 
     // linkage candidates
     if (prof.companyCode) {
@@ -380,7 +402,7 @@ export default function WikiDocPage() {
     }
   };
 
-  const activeHtml = contents[activeNodeId] ?? "";
+  const activeHtml = activeNodeId ? (contents[activeNodeId] ?? "") : "";
   const activeNode = useMemo(() => nodes.find(n => n.id === activeNodeId) || null, [nodes, activeNodeId]);
 
   // tree helpers
@@ -407,19 +429,18 @@ export default function WikiDocPage() {
 
   const setActiveAndSyncDom = (nextId: string) => {
     const el = editorRef.current;
-    if (el) {
+    if (el && activeNodeId) {
       const html = el.innerHTML;
       draftHtmlRef.current = html;
       setContents((prev) => ({ ...prev, [activeNodeId]: html }));
     }
     setActiveNodeId(nextId);
-    // DOM同期は useEffect で
   };
 
   useEffect(() => {
     const el = editorRef.current;
     if (!el) return;
-    const nextHtml = contents[activeNodeId] ?? "";
+    const nextHtml = activeNodeId ? (contents[activeNodeId] ?? "") : "";
     // 入力中に毎回 innerHTML を書き戻すと重くなる＆カーソルが飛ぶので、
     // タブ切替 or Firestore からの読み込みで内容が変わったときだけ同期
     if (lastAppliedHtmlRef.current !== nextHtml) {
@@ -436,12 +457,22 @@ export default function WikiDocPage() {
   };
 
   const addSibling = () => {
-    if (!activeNode) return;
-    const parentId = activeNode.parentId;
     const nextId = genId(10);
-    const siblings = nodes.filter(n => (n.parentId ?? null) === (parentId ?? null));
-    const maxOrder = siblings.reduce((m, n) => Math.max(m, n.order ?? 0), 0);
-    const next: WikiNode = { id: nextId, parentId, title: "新しいタブ", order: maxOrder + 1 };
+    let parentId: string | null = null;
+    let nextOrder = 0;
+
+    if (activeNode) {
+      parentId = activeNode.parentId;
+      const siblings = nodes.filter(n => (n.parentId ?? null) === (parentId ?? null));
+      const maxOrder = siblings.reduce((m, n) => Math.max(m, n.order ?? 0), 0);
+      nextOrder = maxOrder + 1;
+    } else {
+      // 全くノードがない場合
+      const maxOrder = nodes.filter(n => n.parentId === null).reduce((m, n) => Math.max(m, n.order ?? 0), 0);
+      nextOrder = maxOrder + 1;
+    }
+
+    const next: WikiNode = { id: nextId, parentId, title: "新しいタブ", order: nextOrder };
     setNodes((prev) => [...prev, next]);
     setContents((prev) => ({ ...prev, [nextId]: "" }));
     setActiveNodeId(nextId);
@@ -469,11 +500,7 @@ export default function WikiDocPage() {
 
   const deleteActive = () => {
     if (!activeNode) return;
-    if (activeNode.parentId == null) {
-      alert("本文タブは削除できません");
-      return;
-    }
-    if (!confirm("このタブ（子孫タブ含む）を削除しますか？")) return;
+    if (!confirm(`このタブ「${activeNode.title}」（子孫タブ含む）を削除しますか？`)) return;
     const descendants = collectDescendants(nodes, activeNode.id);
     const idsToRemove = new Set<string>([activeNode.id, ...descendants]);
     const remainNodes = nodes.filter(n => !idsToRemove.has(n.id));
@@ -483,7 +510,7 @@ export default function WikiDocPage() {
     }
     setNodes(remainNodes);
     setContents(remainContents);
-    setActiveNodeId("root");
+    setActiveNodeId(remainNodes.length > 0 ? remainNodes[0].id : null);
   };
 
   const customerName = useMemo(() => customers.find((c) => c.id === customerId)?.name || "", [customers, customerId]);
@@ -726,14 +753,26 @@ export default function WikiDocPage() {
                   <button onClick={addSibling} className="w-full rounded-lg bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 border border-slate-200">
                     ＋ タブ追加
                   </button>
-                  <button onClick={addChild} className="w-full rounded-lg bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 border border-slate-200">
+                  <button
+                    onClick={addChild}
+                    disabled={!activeNodeId}
+                    className="w-full rounded-lg bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                     ＋ 子タブ追加
                   </button>
                   <div className="grid grid-cols-2 gap-2">
-                    <button onClick={renameActive} className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 border border-slate-200">
+                    <button
+                      onClick={renameActive}
+                      disabled={!activeNodeId}
+                      className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 border border-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                       名前変更
                     </button>
-                    <button onClick={deleteActive} className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-red-700 hover:bg-red-50 border border-red-200">
+                    <button
+                      onClick={deleteActive}
+                      disabled={!activeNodeId}
+                      className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-red-700 hover:bg-red-50 border border-red-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                       削除
                     </button>
                   </div>
@@ -745,7 +784,7 @@ export default function WikiDocPage() {
                 <div className="px-4 py-4">
                   <div className="mb-2 flex items-center justify-between">
                     <div className="text-sm font-extrabold text-slate-900">
-                      {activeNode?.title || "本文"}
+                      {activeNode?.title || (nodes.length === 0 ? "準備中" : "タブを選択してください")}
                     </div>
                     <div className="text-xs font-bold text-slate-500">
                       横幅最大（描きやすいモード）
@@ -753,20 +792,30 @@ export default function WikiDocPage() {
                   </div>
                   <div
                     ref={editorRef}
-                    className="min-h-[68vh] w-full rounded-xl border border-slate-200 bg-white px-5 py-5 text-[15px] leading-7 text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                    contentEditable
+                    className={clsx(
+                      "min-h-[68vh] w-full rounded-xl border border-slate-200 bg-white px-5 py-5 text-[15px] leading-7 text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100",
+                      !activeNodeId && "bg-slate-50 cursor-not-allowed"
+                    )}
+                    contentEditable={!!activeNodeId}
                     suppressContentEditableWarning
                     onInput={updateDraftFromDom}
                     onBlur={() => {
+                      if (!activeNodeId) return;
                       updateDraftFromDom();
                       // blur した時点の内容は state にも反映（タブ切替や再描画のため）
                       setContents((prev) => ({ ...prev, [activeNodeId]: draftHtmlRef.current }));
                     }}
                     spellCheck={false}
                     style={{ maxWidth: "none" }}
-                    data-placeholder="ここに入力…（上のバーで装飾できます）"
                   />
-                  {activeHtml.length === 0 ? (
+                  {!activeNodeId ? (
+                    <div className="pointer-events-none -mt-[68vh] flex h-[68vh] items-center justify-center rounded-xl bg-slate-50/50 px-6 py-6 text-center text-slate-400">
+                      <div className="space-y-2">
+                        <div className="text-lg font-bold">＋ 左側のボタンからタブを追加して入力を開始してください</div>
+                        <div className="text-sm">（本文タブは廃止されました。用途に合わせてタブを自由に作成してください）</div>
+                      </div>
+                    </div>
+                  ) : activeHtml.length === 0 ? (
                     <div className="pointer-events-none -mt-[68vh] px-6 py-6 text-sm text-slate-400">
                       ここに入力…（上のバーで太字・見出し・箇条書き・リンクなどが使えます）
                     </div>

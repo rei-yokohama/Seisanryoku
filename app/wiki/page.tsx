@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { addDoc, collection, doc, getDoc, getDocs, query, Timestamp, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, Timestamp, where, writeBatch } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
 import { logActivity } from "../../lib/activity";
@@ -54,6 +54,8 @@ export default function WikiHomePage() {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const loadDocs = async (u: User, prof: MemberProfile) => {
     const merged: WikiDoc[] = [];
@@ -138,10 +140,77 @@ export default function WikiHomePage() {
   const filtered = useMemo(() => {
     const q = qText.trim().toLowerCase();
     if (!q) return docs;
-    return docs.filter((d) => (d.title || "").toLowerCase().includes(q));
-  }, [docs, qText]);
+    return docs.filter((d) => {
+      const hay = `${d.title || ""} ${linkText(d)} ${creatorName(d)}`.toLowerCase();
+      return hay.includes(q);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docs, qText, dealsById, customersById, employeeNameByAuthUid, user]);
 
-  const linkCustomerId = (d: WikiDoc) => {
+  const allFilteredSelected = useMemo(() => {
+    if (filtered.length === 0) return false;
+    return filtered.every((d) => selectedIds.has(d.id));
+  }, [filtered, selectedIds]);
+
+  const selectedCount = selectedIds.size;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const shouldSelectAll = !filtered.every((d) => next.has(d.id));
+      if (shouldSelectAll) {
+        for (const d of filtered) next.add(d.id);
+      } else {
+        for (const d of filtered) next.delete(d.id);
+      }
+      return next;
+    });
+  };
+
+  const bulkDelete = async () => {
+    if (!user || !profile) return;
+    if (selectedIds.size === 0) return;
+
+    const ids = Array.from(selectedIds);
+    const ok = confirm(`選択した ${ids.length} 件のWikiを削除しますか？（この操作は取り消せません）`);
+    if (!ok) return;
+
+    setBulkDeleting(true);
+    setError("");
+    try {
+      const batch = writeBatch(db);
+      for (const id of ids) {
+        batch.delete(doc(db, "wikiDocs", id));
+      }
+      await batch.commit();
+
+      await logActivity({
+        companyCode: profile.companyCode || "",
+        actorUid: user.uid,
+        type: "WIKI_DELETED",
+        message: `Wikiドキュメントを一括削除しました（${ids.length}件）`,
+        link: "/wiki",
+      });
+
+      setDocs((prev) => prev.filter((d) => !selectedIds.has(d.id)));
+      setSelectedIds(new Set());
+    } catch (e: any) {
+      setError(e?.message || "削除に失敗しました");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  function linkCustomerId(d: WikiDoc) {
     const direct = String(d.customerId || "");
     if (direct) return direct;
     const legacyCustomer = d.scopeType === "CUSTOMER" ? String(d.scopeId || "") : "";
@@ -149,16 +218,16 @@ export default function WikiHomePage() {
     const legacyDeal = d.scopeType === "DEAL" ? String(d.scopeId || "") : String(d.dealId || "");
     if (legacyDeal) return dealsById[legacyDeal]?.customerId || "";
     return "";
-  };
+  }
 
-  const linkDealId = (d: WikiDoc) => {
+  function linkDealId(d: WikiDoc) {
     const direct = String(d.dealId || "");
     if (direct) return direct;
     const legacyDeal = d.scopeType === "DEAL" ? String(d.scopeId || "") : "";
     return legacyDeal;
-  };
+  }
 
-  const linkText = (d: WikiDoc) => {
+  function linkText(d: WikiDoc) {
     const cid = linkCustomerId(d);
     const did = linkDealId(d);
     const cn = cid ? customersById[cid]?.name || "" : "";
@@ -167,13 +236,13 @@ export default function WikiHomePage() {
     if (cn) return `顧客: ${cn}`;
     if (dn) return `案件: ${dn}`;
     return "未紐づけ";
-  };
+  }
 
-  const creatorName = (d: WikiDoc) => {
+  function creatorName(d: WikiDoc) {
     if (!user) return d.createdBy || "";
     if (d.createdBy === user.uid) return "私";
     return employeeNameByAuthUid[d.createdBy] || (d.createdBy ? d.createdBy.slice(0, 8) : "");
-  };
+  }
 
   const createDoc = async () => {
     if (!user || !profile) return;
@@ -181,14 +250,13 @@ export default function WikiHomePage() {
     setError("");
     try {
       const companyCode = profile.companyCode || "";
-      const rootId = "root";
       const ref = await addDoc(collection(db, "wikiDocs"), {
         companyCode,
         createdBy: user.uid,
         title: "無題のドキュメント",
-        // Google Docs風：タブ（親/子/孫）を単一ドキュメント内に保持
-        nodes: [{ id: rootId, parentId: null, title: "本文", order: 0 }],
-        contents: { [rootId]: "" },
+        // 新規作成直後は「タブなし」状態にする（タブ追加してから入力）
+        nodes: [],
+        contents: {},
         scopeType: "GLOBAL" as WikiScopeType,
         scopeId: null,
         // 互換性：過去実装の content を残しておく（新UIでは使わない）
@@ -216,13 +284,27 @@ export default function WikiHomePage() {
       title="Wiki"
       subtitle="Google Docs風"
       headerRight={
-        <button
-          onClick={createDoc}
-          disabled={creating}
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition disabled:bg-orange-300"
-        >
-          {creating ? "作成中..." : "＋ 新規"}
-        </button>
+        <div className="flex items-center gap-2">
+          {selectedCount > 0 ? (
+            <button
+              onClick={() => void bulkDelete()}
+              disabled={bulkDeleting || loading}
+              className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-extrabold text-red-700 hover:bg-red-100 disabled:opacity-50"
+              title="選択したWikiを削除"
+              type="button"
+            >
+              {bulkDeleting ? "削除中..." : `選択を削除（${selectedCount}）`}
+            </button>
+          ) : null}
+          <button
+            onClick={createDoc}
+            disabled={creating}
+            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition disabled:bg-orange-300"
+            type="button"
+          >
+            {creating ? "作成中..." : "＋ 新規"}
+          </button>
+        </div>
       }
     >
       <div className="px-0 py-1">
@@ -243,7 +325,7 @@ export default function WikiHomePage() {
                 {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
               </button>
             </div>
-            <div className="text-sm font-bold text-slate-700">全 {filtered.length} 件</div>
+              <div className="text-sm font-bold text-slate-700">全 {filtered.length} 件</div>
           </div>
 
           {isFilterExpanded && (
@@ -268,6 +350,16 @@ export default function WikiHomePage() {
             <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
+                  <th className="w-10 px-3 py-3 text-left">
+                    <input
+                      type="checkbox"
+                      checked={allFilteredSelected}
+                      onChange={toggleSelectAllFiltered}
+                      disabled={loading || filtered.length === 0}
+                      title="全選択"
+                      className="h-4 w-4 accent-orange-600"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left">タイトル</th>
                   <th className="px-4 py-3 text-left">紐づけ</th>
                   <th className="px-4 py-3 text-left">作成者</th>
@@ -277,13 +369,13 @@ export default function WikiHomePage() {
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       読み込み中...
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       ドキュメントがまだありません。右上から作成してください。
                     </td>
                   </tr>
@@ -291,8 +383,18 @@ export default function WikiHomePage() {
                   filtered.map((d) => {
                     const updated = (d.updatedAt as any)?.toDate?.() as Date | undefined;
                     const linked = linkText(d);
+                    const checked = selectedIds.has(d.id);
                     return (
                       <tr key={d.id} className="hover:bg-slate-50">
+                        <td className="w-10 px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSelect(d.id)}
+                            className="h-4 w-4 accent-orange-600"
+                            aria-label="選択"
+                          />
+                        </td>
                         <td className="px-4 py-3 font-bold text-slate-900">
                           <Link href={`/wiki/${d.id}`} className="hover:underline">
                             {d.title || "無題"}
