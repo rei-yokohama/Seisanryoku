@@ -116,6 +116,7 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
       { icon: "I", label: "課題", href: "/issue" },
       { icon: "💼", label: "案件", href: "/projects" },
       { icon: "C", label: "顧客", href: "/customers" },
+      { icon: "¥", label: "収支", href: "/balance" },
       { icon: "T", label: "タスク", href: "/my/tasks" },
       { icon: "Cal", label: "カレンダー", href: "/calendar" },
       { icon: "E", label: "社員", href: "/employees" },
@@ -319,6 +320,7 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
           { icon: "📚", label: "Wiki", href: "/wiki" },
           { icon: "👥", label: "顧客", href: "/customers" },
           { icon: "💼", label: "案件", href: "/projects" },
+          { icon: "💴", label: "収支", href: "/balance" },
           { icon: "💾", label: "ドライブ", href: "/drive" },
           { icon: "📅", label: "カレンダー", href: "/calendar" },
           { icon: "⚙️", label: "設定", href: "/settings" }
