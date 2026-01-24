@@ -161,13 +161,23 @@ export default function MemberCreatePage() {
       // workspaceMemberships（権限）: オーナーのみ他人の権限を付与可能
       if (profile?.companyCode && authData.uid) {
         const membershipId = `${profile.companyCode}_${authData.uid}`;
-        const nextRole: "owner" | "admin" | "member" = "member"; // いったんロールは閲覧のみ（作成時は member 固定）
+        const nextRole: "owner" | "member" = "member"; // 作成時は member 固定
+        const defaultPermissions = {
+          members: false,
+          projects: true,
+          issues: true,
+          customers: false,
+          files: true,
+          billing: false,
+          settings: false,
+        };
         await setDoc(
           doc(db, "workspaceMemberships", membershipId),
           {
             uid: authData.uid,
             companyCode: profile.companyCode,
             role: nextRole,
+            permissions: defaultPermissions,
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now(),
           },

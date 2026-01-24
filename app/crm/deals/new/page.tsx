@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { addDoc, collection, doc, getDocs, query, setDoc, Timestamp, where } from "firebase/firestore";
 import Link from "next/link";
@@ -41,6 +41,145 @@ function normalizeOptions(xs: Array<string | null | undefined>) {
     set.add(t);
   }
   return Array.from(set).slice(0, 30);
+}
+
+type SearchableSelectProps = {
+  options: { id: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  emptyMessage?: string;
+};
+
+function SearchableSelect({ options, value, onChange, placeholder = "検索...", emptyMessage = "選択肢がありません" }: SearchableSelectProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selectedOption = options.find((o) => o.id === value);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, search]);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [filtered]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+        setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSelect = (id: string) => {
+    onChange(id);
+    setIsOpen(false);
+    setSearch("");
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!isOpen) {
+      if (e.key === "ArrowDown" || e.key === "Enter") {
+        e.preventDefault();
+        setIsOpen(true);
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setHighlightedIndex((i) => Math.min(i + 1, filtered.length - 1));
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setHighlightedIndex((i) => Math.max(i - 1, 0));
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (filtered[highlightedIndex]) {
+          handleSelect(filtered[highlightedIndex].id);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        setIsOpen(false);
+        setSearch("");
+        break;
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full sm:flex-1">
+      <button
+        type="button"
+        onClick={() => {
+          setIsOpen(!isOpen);
+          if (!isOpen) setTimeout(() => inputRef.current?.focus(), 0);
+        }}
+        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-3 text-left text-sm font-bold text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+      >
+        <span className={selectedOption ? "text-slate-900" : "text-slate-400"}>
+          {selectedOption?.label || emptyMessage}
+        </span>
+        <svg className={`h-4 w-4 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-xl border border-slate-200 bg-white shadow-lg">
+          <div className="border-b border-slate-100 p-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-orange-500 focus:bg-white"
+              autoComplete="off"
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto p-1">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-center text-sm font-bold text-slate-400">
+                該当する項目がありません
+              </div>
+            ) : (
+              filtered.map((option, index) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => handleSelect(option.id)}
+                  onMouseEnter={() => setHighlightedIndex(index)}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm font-bold transition ${
+                    option.id === value
+                      ? "bg-orange-100 text-orange-700"
+                      : index === highlightedIndex
+                        ? "bg-slate-100 text-slate-900"
+                        : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DealNewInner() {
@@ -250,18 +389,13 @@ function DealNewInner() {
               <div>
                 <div className="mb-1 text-sm font-bold text-slate-700">顧客 *</div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <select
+                  <SearchableSelect
+                    options={customers.map((c) => ({ id: c.id, label: c.name }))}
                     value={customerId}
-                    onChange={(e) => setCustomerId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 sm:flex-1"
-                  >
-                    {customers.length === 0 ? <option value="">顧客がありません（先に顧客を追加）</option> : null}
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setCustomerId}
+                    placeholder="顧客を検索..."
+                    emptyMessage={customers.length === 0 ? "顧客がありません" : "選択してください"}
+                  />
                   <Link
                     href="/customers/new"
                     className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"

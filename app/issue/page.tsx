@@ -310,7 +310,6 @@ export default function IssueHomePage() {
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <button className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700">短いURL</button>
               <button className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700">検索条件を保存</button>
             </div>
           </div>
@@ -443,16 +442,16 @@ export default function IssueHomePage() {
             <table className="min-w-[1000px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-left">件名</th>
-                  <th className="px-4 py-3 text-left">案件</th>
-                  <th className="px-4 py-3 text-left">顧客</th>
-                  <th className="px-4 py-3 text-left">担当(リーダー)</th>
-                  <th className="px-4 py-3 text-left">サブリーダー</th>
-                  <th className="px-4 py-3 text-left">状態</th>
-                  <th className="px-4 py-3 text-left">カテゴリ</th>
-                  <th className="px-4 py-3 text-left">優先度</th>
-                  <th className="px-4 py-3 text-left">期限日</th>
-                  <th className="px-4 py-3 text-left">共有</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">件名</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">案件</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">顧客</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">担当</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">サブ担当</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">状態</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">カテゴリ</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">優先度</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">期限日</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">共有</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -482,54 +481,54 @@ export default function IssueHomePage() {
 
                     return (
                       <tr key={i.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-slate-900">
-                          <Link href={href} className="hover:underline">
+                        <td className="px-4 py-3 font-bold text-slate-900 whitespace-nowrap">
+                          <Link href={href} className="hover:underline block max-w-[200px] truncate" title={i.title}>
                             {i.title}
                           </Link>
                         </td>
-                        <td className="px-4 py-3 text-slate-800 font-bold">
+                        <td className="px-4 py-3 text-slate-800 font-bold whitespace-nowrap">
                           {p ? (
-                            <Link href={`/projects/${p.id}/issues`} className="hover:underline">
+                            <Link href={`/projects/${p.id}/issues`} className="hover:underline block max-w-[120px] truncate" title={p.name}>
                               {p.name}
                             </Link>
                           ) : (
                             <span className="text-slate-400">-</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-800 font-bold">
+                        <td className="px-4 py-3 text-slate-800 font-bold whitespace-nowrap">
                           {cust ? (
-                            <Link href={`/customers/${encodeURIComponent(cust.id)}`} className="hover:underline">
+                            <Link href={`/customers/${encodeURIComponent(cust.id)}`} className="hover:underline block max-w-[100px] truncate" title={cust.name}>
                               {cust.name}
                             </Link>
                           ) : (
                             <span className="text-slate-400">-</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
                           {assignee ? (
                             <div className="flex items-center gap-2">
-                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-100 text-xs font-extrabold text-orange-700">
+                              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-orange-100 text-xs font-extrabold text-orange-700">
                                 {assignee.charAt(0).toUpperCase()}
                               </div>
-                              <span className="font-bold">{assignee}</span>
+                              <span className="font-bold max-w-[80px] truncate" title={assignee}>{assignee}</span>
                             </div>
                           ) : (
                             "-"
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
                           {subAssignee ? (
                             <div className="flex items-center gap-2">
-                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-extrabold text-slate-600">
+                              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-extrabold text-slate-600">
                                 {subAssignee.charAt(0).toUpperCase()}
                               </div>
-                              <span>{subAssignee}</span>
+                              <span className="max-w-[80px] truncate" title={subAssignee}>{subAssignee}</span>
                             </div>
                           ) : (
                             "-"
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 whitespace-nowrap">
                           <span
                             className={clsx(
                               "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
@@ -543,10 +542,10 @@ export default function IssueHomePage() {
                             {st}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{cat || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700">{pr}</td>
-                        <td className="px-4 py-3 text-slate-700">{i.dueDate || "-"}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{cat || "-"}</td>
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{pr}</td>
+                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{i.dueDate || "-"}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
                           <button
                             onClick={copyShareUrl}
                             className="rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"

@@ -15,6 +15,11 @@ const NAV: NavItem[] = [
   { href: "/help/issues", label: "課題", icon: "✅" },
   { href: "/help/wiki", label: "Wiki", icon: "📚" },
   { href: "/help/drive", label: "ドライブ", icon: "🗂️" },
+  { href: "/help/projects", label: "案件", icon: "💼" },
+  { href: "/help/customers", label: "顧客", icon: "👥" },
+  { href: "/help/balance", label: "収支", icon: "💴" },
+  { href: "/help/calendar", label: "カレンダー", icon: "📅" },
+  { href: "/help/settings", label: "設定", icon: "⚙️" },
 ];
 
 function HelpNavLink({ item }: { item: NavItem }) {

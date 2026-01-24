@@ -31,11 +31,22 @@ type Employee = {
   createdBy: string;
 };
 
+type Permissions = {
+  members: boolean;
+  projects: boolean;
+  issues: boolean;
+  customers: boolean;
+  files: boolean;
+  billing: boolean;
+  settings: boolean;
+};
+
 type WorkspaceMembership = {
   id: string;
   companyCode: string;
   uid: string;
-  role: "owner" | "admin" | "member";
+  role: "owner" | "admin" | "member"; // admin は後方互換のため残す
+  permissions?: Permissions;
 };
 
 function clsx(...xs: Array<string | false | null | undefined>) {
@@ -44,7 +55,7 @@ function clsx(...xs: Array<string | false | null | undefined>) {
 
 function roleLabel(role?: WorkspaceMembership["role"] | null) {
   if (role === "owner") return "オーナー";
-  if (role === "admin") return "管理者";
+  if (role === "admin") return "メンバー"; // admin は member 扱い（後方互換）
   if (role === "member") return "メンバー";
   return "-";
 }
@@ -312,17 +323,17 @@ export default function MembersPage() {
 
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[980px] w-full text-sm">
+            <table className="w-full min-w-[1000px] text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-left">名前</th>
-                  <th className="px-4 py-3 text-left">メール</th>
-                  {isSuperAdmin ? <th className="px-4 py-3 text-left">初期パスワード</th> : null}
-                  <th className="px-4 py-3 text-left">権限</th>
-                  <th className="px-4 py-3 text-left">雇用形態</th>
-                  <th className="px-4 py-3 text-left">認証</th>
-                  <th className="px-4 py-3 text-left">入社日</th>
-                  <th className="px-4 py-3 text-right">操作</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">名前</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">メール</th>
+                  {isSuperAdmin ? <th className="px-4 py-3 text-left whitespace-nowrap">初期パスワード</th> : null}
+                  <th className="px-4 py-3 text-left whitespace-nowrap">権限</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">雇用形態</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">認証</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">入社日</th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -341,19 +352,19 @@ export default function MembersPage() {
                     const canSeeRole = isSuperAdmin || uidForRole === user?.uid || isAdminRow;
                     return (
                     <tr key={e.id} className={clsx("hover:bg-slate-50", isAdminRow && "bg-orange-50/30")}>
-                      <td className="px-4 py-3 font-extrabold text-slate-900">
-                        <div className="flex items-center gap-2 min-w-0">
+                      <td className="px-4 py-3 font-extrabold text-slate-900 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
                           <div
-                            className="h-5 w-5 rounded-full border border-white shadow-sm"
+                            className="h-5 w-5 flex-shrink-0 rounded-full border border-white shadow-sm"
                             style={{ backgroundColor: e.color || "#3B82F6" }}
                             aria-hidden="true"
                           />
-                          <span className="truncate">{e.name}</span>
+                          <span className="truncate max-w-[150px]">{e.name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{e.email}</td>
+                      <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{e.email}</td>
                       {isSuperAdmin ? (
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 whitespace-nowrap">
                           {e.password ? (
                             <div className="flex items-center gap-2">
                               <code className="rounded bg-slate-100 px-2 py-1 text-xs font-mono text-slate-900">
@@ -379,17 +390,17 @@ export default function MembersPage() {
                           )}
                         </td>
                       ) : null}
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
                           {canSeeRole ? roleLabel(role as any) : "-"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">
                         <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
                           {e.employmentType}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         {e.authUid ? (
                           <span className="inline-flex rounded-full bg-orange-100 px-2 py-1 text-xs font-extrabold text-orange-700">
                             認証済み
@@ -400,8 +411,8 @@ export default function MembersPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-700">{e.joinDate || "-"}</td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">{e.joinDate || "-"}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-2">
                           {isAdminRow ? (
                             <Link

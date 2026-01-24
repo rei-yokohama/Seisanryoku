@@ -33,10 +33,31 @@ type Company = {
   companyName?: string;
 };
 
+type Permissions = {
+  members: boolean;
+  projects: boolean;
+  issues: boolean;
+  customers: boolean;
+  files: boolean;
+  billing: boolean;
+  settings: boolean;
+};
+
+const PERMISSION_LABELS: Record<keyof Permissions, string> = {
+  members: "メンバー管理",
+  projects: "プロジェクト管理",
+  issues: "イシュー管理",
+  customers: "顧客管理",
+  files: "ファイル管理",
+  billing: "請求・売上管理",
+  settings: "ワークスペース設定",
+};
+
 type WorkspaceMembership = {
   uid: string;
   companyCode: string;
   role: "owner" | "admin" | "member";
+  permissions?: Permissions;
 };
 
 export default function MemberDetailPage() {
@@ -148,7 +169,7 @@ export default function MemberDetailPage() {
     );
   }
 
-  const roleLabel = membership?.role === "owner" ? "オーナー" : membership?.role === "admin" ? "管理者" : membership?.role === "member" ? "メンバー" : "未設定";
+  const roleLabel = membership?.role === "owner" ? "オーナー" : (membership?.role === "admin" || membership?.role === "member") ? "メンバー" : "未設定";
 
   return (
     <AppShell
@@ -206,6 +227,40 @@ export default function MemberDetailPage() {
               {company?.companyName ? <div className="text-xs font-bold text-slate-500">{company.companyName}</div> : null}
             </div>
           </div>
+        </div>
+
+        {/* 権限詳細 */}
+        <div className="rounded-lg border border-slate-200 bg-white p-5">
+          <div className="text-sm font-extrabold text-slate-900">権限詳細</div>
+          {membership?.role === "owner" ? (
+            <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+              <div className="text-sm font-bold text-orange-700">オーナー権限: 全ての操作が可能</div>
+            </div>
+          ) : membership?.permissions ? (
+            <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-4">
+              {(Object.keys(PERMISSION_LABELS) as (keyof Permissions)[]).map((key) => (
+                <div
+                  key={key}
+                  className={`rounded-lg border p-3 ${
+                    membership.permissions?.[key]
+                      ? "border-green-200 bg-green-50"
+                      : "border-slate-200 bg-slate-50"
+                  }`}
+                >
+                  <div className="text-xs font-bold text-slate-700">{PERMISSION_LABELS[key]}</div>
+                  <div
+                    className={`mt-1 text-sm font-extrabold ${
+                      membership.permissions?.[key] ? "text-green-700" : "text-slate-400"
+                    }`}
+                  >
+                    {membership.permissions?.[key] ? "許可" : "不可"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 text-sm font-bold text-slate-500">権限情報がありません</div>
+          )}
         </div>
       </div>
     </AppShell>

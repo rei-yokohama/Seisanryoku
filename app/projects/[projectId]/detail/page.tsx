@@ -26,8 +26,14 @@ type Deal = {
   genre?: string;
   description?: string;
   status: string;
+  revenue?: number | null;
   createdAt?: any;
   updatedAt?: any;
+  // status tracking (LTV)
+  firstActivatedAt?: any | null;
+  activeStartedAt?: any | null;
+  lastInactivatedAt?: any | null;
+  activePeriods?: Array<{ startedAt: any; endedAt: any }> | null;
 };
 
 type Customer = {
@@ -79,6 +85,22 @@ function relativeFromNow(date: Date) {
   if (hr < 24) return `約 ${hr} 時間前`;
   const day = Math.floor(hr / 24);
   return `約 ${day} 日前`;
+}
+
+function fmtJp(ts: any) {
+  try {
+    const d = ts?.toDate?.() ? (ts.toDate() as Date) : null;
+    return d ? d.toLocaleString("ja-JP") : "-";
+  } catch {
+    return "-";
+  }
+}
+
+function toMillis(ts: any) {
+  if (!ts) return null;
+  if (typeof ts?.toMillis === "function") return ts.toMillis() as number;
+  if (typeof ts?.seconds === "number") return ts.seconds * 1000;
+  return null;
 }
 
 export default function DealDetailPage() {
@@ -210,6 +232,29 @@ export default function DealDetailPage() {
     );
   }
 
+  const periods = Array.isArray(deal.activePeriods) ? deal.activePeriods : [];
+  const baseStartTs = deal.firstActivatedAt || deal.createdAt || null;
+  const currentStartTs = deal.activeStartedAt || baseStartTs;
+  const lastStopTs =
+    deal.lastInactivatedAt ||
+    (periods.length > 0 ? periods[periods.length - 1]?.endedAt : null);
+
+  let activeMs = 0;
+  for (const p of periods) {
+    const st = toMillis(p?.startedAt);
+    const en = toMillis(p?.endedAt);
+    if (!st || !en) continue;
+    activeMs += Math.max(0, en - st);
+  }
+  if (deal.status === "ACTIVE") {
+    const st = toMillis(currentStartTs);
+    if (st) activeMs += Math.max(0, Date.now() - st);
+  }
+  const activeDays = activeMs / (1000 * 60 * 60 * 24);
+  const revenue = Number(deal.revenue) || 0;
+  const yen = (n: number) => new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 }).format(isFinite(n) ? n : 0);
+  const revPerDay = activeDays > 0 ? revenue / activeDays : 0;
+
   return (
     <AppShell
       title={deal.title}
@@ -248,6 +293,31 @@ export default function DealDetailPage() {
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <div className="text-xs font-extrabold text-slate-500 mb-3">この案件の概要</div>
             <div className="space-y-3 text-sm text-slate-700">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-xs font-extrabold text-slate-600">稼働/LTV</div>
+                <div className="mt-2 space-y-2 text-xs font-bold text-slate-700">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">稼働開始</span>
+                    <span className="text-slate-900">{fmtJp(baseStartTs)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">稼働停止</span>
+                    <span className="text-slate-900">{deal.status === "INACTIVE" ? fmtJp(lastStopTs) : "-"}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">稼働累計</span>
+                    <span className="text-slate-900">{activeDays.toFixed(1)}日</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">売上（登録値）</span>
+                    <span className="text-slate-900">{yen(revenue)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">LTV目安（売上/稼働日）</span>
+                    <span className="text-slate-900">{activeDays > 0 ? yen(revPerDay) : "-"}</span>
+                  </div>
+                </div>
+              </div>
               {deal.createdAt && (
                 <div className="flex items-start gap-2">
                   <div className="flex-shrink-0 w-1 h-1 rounded-full bg-slate-400 mt-2"></div>

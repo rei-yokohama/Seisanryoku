@@ -7,7 +7,7 @@ function isLocalHost(host?: string | null) {
   return host.startsWith("localhost") || host.startsWith("127.0.0.1") || host.startsWith("0.0.0.0");
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   // On Firebase Hosting (frameworks), the incoming `Host` header can be the Cloud Run service host.
   // Prefer the original requested host forwarded by the proxy.
   const hostHeader =
@@ -40,5 +40,4 @@ export const config = {
     "/((?!_next/|favicon.ico|robots.txt|sitemap.xml|assets/|images/).*)",
   ],
 };
-
 

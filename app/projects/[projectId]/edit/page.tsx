@@ -33,6 +33,8 @@ type Employee = {
 
 type DealStatus = "ACTIVE" | "INACTIVE";
 
+type ActivePeriod = { startedAt: any; endedAt: any };
+
 type DealDoc = {
   companyCode: string;
   createdBy: string;
@@ -44,6 +46,11 @@ type DealDoc = {
   leaderUid?: string | null;
   subLeaderUid?: string | null;
   revenue?: number | null;
+  // status tracking (for LTV)
+  firstActivatedAt?: any | null;
+  activeStartedAt?: any | null;
+  lastInactivatedAt?: any | null;
+  activePeriods?: ActivePeriod[] | null;
 };
 
 function normalizeOptions(xs: Array<string | null | undefined>) {
@@ -221,7 +228,13 @@ export default function ProjectEditPage() {
         }
       }
 
-      await updateDoc(doc(db, "deals", projectId), {
+      const dealRef = doc(db, "deals", projectId);
+      const beforeSnap = await getDoc(dealRef);
+      const before = beforeSnap.exists() ? (beforeSnap.data() as any) : null;
+      const prevStatus = (before?.status as DealStatus) || "ACTIVE";
+      const now = Timestamp.now();
+
+      const updatePayload: Record<string, any> = {
         customerId,
         title: t,
         genre: genre.trim() || "",
@@ -230,8 +243,31 @@ export default function ProjectEditPage() {
         leaderUid: leaderUid || null,
         subLeaderUid: subLeaderUid || null,
         revenue: revenueValue,
-        updatedAt: Timestamp.now(),
-      });
+        updatedAt: now,
+      };
+
+      const statusChanged = status !== prevStatus;
+      if (statusChanged) {
+        if (status === "ACTIVE") {
+          // 再稼働開始
+          updatePayload.activeStartedAt = now;
+          if (!before?.firstActivatedAt) updatePayload.firstActivatedAt = now;
+        } else {
+          // 停止：稼働期間を追加
+          const prevActiveStartedAt = before?.activeStartedAt || null;
+          const startedAt = prevActiveStartedAt || before?.firstActivatedAt || before?.createdAt || now;
+          const prevPeriods: any[] = Array.isArray(before?.activePeriods) ? before.activePeriods : [];
+          const sanitizedPrev = prevPeriods
+            .filter((p) => p && p.startedAt && p.endedAt)
+            .map((p) => ({ startedAt: p.startedAt, endedAt: p.endedAt }));
+          updatePayload.activePeriods = [...sanitizedPrev, { startedAt, endedAt: now }];
+          updatePayload.activeStartedAt = null;
+          updatePayload.lastInactivatedAt = now;
+          if (!before?.firstActivatedAt) updatePayload.firstActivatedAt = startedAt;
+        }
+      }
+
+      await updateDoc(dealRef, updatePayload);
 
       await logActivity({
         companyCode: profile.companyCode,
@@ -242,6 +278,46 @@ export default function ProjectEditPage() {
         message: `案件を更新しました: ${t}（顧客: ${customerName || "未設定"}）`,
         link: `/projects/${projectId}/detail`,
       });
+
+      if (statusChanged) {
+        const jp = (ts: any) => (ts?.toDate?.() ? (ts.toDate() as Date).toLocaleString("ja-JP") : "");
+        const label = (s: DealStatus) => (s === "ACTIVE" ? "稼働中" : "停止");
+        const afterStartedAt = status === "ACTIVE" ? now : (updatePayload.firstActivatedAt || before?.firstActivatedAt || before?.createdAt || now);
+        const afterStoppedAt =
+          status === "INACTIVE" ? now : (before?.lastInactivatedAt || "");
+
+        // 稼働累計（停止時は periods を合算、稼働中は periods + 現在稼働分）
+        const periods: any[] = status === "INACTIVE"
+          ? (updatePayload.activePeriods || [])
+          : (Array.isArray(before?.activePeriods) ? before.activePeriods : []);
+        let totalMs = 0;
+        for (const p of periods) {
+          const st = p?.startedAt?.toMillis?.() ? p.startedAt.toMillis() : null;
+          const en = p?.endedAt?.toMillis?.() ? p.endedAt.toMillis() : null;
+          if (!st || !en) continue;
+          totalMs += Math.max(0, en - st);
+        }
+        if (status === "ACTIVE") {
+          const curStart = now.toMillis();
+          // 今回の切替直後なので 0ms だが、表示の整合のため加算は行わない
+          void curStart;
+        }
+        const totalDays = totalMs / (1000 * 60 * 60 * 24);
+        const ltv = Number.isFinite(revenueValue as any) ? (revenueValue as number) : (Number(before?.revenue) || 0);
+
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "DEAL_STATUS_CHANGED",
+          projectId,
+          entityId: projectId,
+          message:
+            `稼働ステータスを「${label(prevStatus)}」→「${label(status)}」に変更しました`
+            + `（開始: ${jp(afterStartedAt)}${status === "INACTIVE" ? ` / 停止: ${jp(afterStoppedAt)}` : ""}`
+            + ` / 稼働累計: ${totalDays.toFixed(1)}日 / 売上: ¥${(ltv || 0).toLocaleString("ja-JP")}）`,
+          link: `/projects/${projectId}/detail`,
+        });
+      }
 
       router.push(`/projects/${projectId}/detail`);
     } catch (e: any) {

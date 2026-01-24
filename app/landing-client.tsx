@@ -18,6 +18,22 @@ function FeatureCard({ icon, title, description }: { icon: string; title: string
   );
 }
 
+function MenuCard({ icon, title, description }: { icon: string; title: string; description: string }) {
+  return (
+    <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-orange-300 hover:shadow-lg">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-lg group-hover:bg-orange-50 transition">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-extrabold text-slate-900">{title}</div>
+          <div className="mt-1 text-xs font-bold leading-relaxed text-slate-600">{description}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LandingClient() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -52,6 +68,11 @@ export default function LandingClient() {
               <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none">Seisanryoku</p>
             </div>
           </Link>
+          <div className="hidden items-center gap-6 text-sm font-extrabold text-slate-600 md:flex">
+            <Link href="#capabilities" className="hover:text-orange-600 transition">できること</Link>
+            <Link href="#features" className="hover:text-orange-600 transition">特長</Link>
+            <Link href="/help" className="hover:text-orange-600 transition">ヘルプ</Link>
+          </div>
           <div className="flex items-center gap-4">
             <Link href="/login" className="text-sm font-extrabold text-slate-600 hover:text-orange-600 transition">
               ログイン
@@ -111,6 +132,49 @@ export default function LandingClient() {
               <div className="mt-1 text-sm font-extrabold text-slate-900">ワークスペース分離</div>
               <div className="mt-1 text-xs font-bold text-slate-600">事業ごとのデータを完全に分離します。</div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Capabilities (based on global menu) */}
+      <section id="capabilities" className="bg-white py-16 sm:py-20">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="max-w-2xl">
+              <div className="text-sm font-black uppercase tracking-widest text-orange-600">Global Menu</div>
+              <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
+                できることが、一目で分かる
+              </h2>
+              <p className="mt-2 text-sm font-bold leading-relaxed text-slate-600">
+                左のグローバルメニューを軸に、情報が分散しない運用を作ります。
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/signup"
+                className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-extrabold text-white shadow-lg shadow-orange-200 transition hover:bg-orange-700 active:scale-95"
+              >
+                無料で始める
+              </Link>
+              <Link
+                href="/login"
+                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-extrabold text-slate-700 transition hover:bg-slate-50 active:scale-95"
+              >
+                ログイン
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <MenuCard icon="🏠" title="ダッシュボード" description="今日やること、通知、進捗の入口。チームの状況を俯瞰できます。" />
+            <MenuCard icon="📋" title="課題" description="タスクの作成・担当・ステータス管理。案件と紐づいて流れが途切れません。" />
+            <MenuCard icon="📚" title="Wiki" description="ナレッジをタブで整理。会議メモ・手順・要件を一箇所に集約。" />
+            <MenuCard icon="👥" title="顧客" description="顧客情報と稼働状況を管理。案件の入口として迷いが減ります。" />
+            <MenuCard icon="💼" title="案件" description="稼働/停止や売上など運用に必要な情報を管理。担当者別の把握も。" />
+            <MenuCard icon="💴" title="収支" description="メンバー×月の収支を集計。コスト/売上は手動編集にも対応。" />
+            <MenuCard icon="💾" title="ドライブ" description="案件/顧客に紐づくファイルを管理。チーム共有がスムーズに。" />
+            <MenuCard icon="📅" title="カレンダー" description="工数入力を日々の習慣に。見積もりと実績の差分が見えます。" />
+            <MenuCard icon="⚙️" title="設定" description="メンバー管理・権限・ワークスペース設定など運用面を整備。" />
           </div>
         </div>
       </section>

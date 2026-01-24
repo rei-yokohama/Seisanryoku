@@ -19,6 +19,7 @@ export type ActivityType =
   | "CUSTOMER_UPDATED"
   | "DEAL_CREATED"
   | "DEAL_UPDATED"
+  | "DEAL_STATUS_CHANGED"
   | "CALENDAR_EVENT_CREATED";
 
 export type Activity = {

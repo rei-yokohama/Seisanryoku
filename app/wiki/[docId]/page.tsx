@@ -136,17 +136,6 @@ export default function WikiDocPage() {
   const [customerId, setCustomerId] = useState<string>("");
   const [dealId, setDealId] = useState<string>("");
   const [docCompanyCode, setDocCompanyCode] = useState<string>("");
-  const [lastSaveDebug, setLastSaveDebug] = useState<{
-    at: string;
-    ok: boolean;
-    reason?: string;
-    userUid?: string;
-    profileCompanyCode?: string;
-    docCompanyCode?: string;
-    effectiveCompanyCode?: string;
-    activeNodeId?: string;
-    htmlLength?: number;
-  } | null>(null);
 
   const [deals, setDeals] = useState<Deal[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -157,15 +146,11 @@ export default function WikiDocPage() {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const draftHtmlRef = useRef<string>("");
   const lastAppliedHtmlRef = useRef<string>("");
+  const prevLoadingRef = useRef<boolean>(true);
 
   const doSaveNow = async (opts?: { force?: boolean }) => {
     if (!user) {
       setError("ログインが必要です");
-      setLastSaveDebug({
-        at: new Date().toISOString(),
-        ok: false,
-        reason: "NOT_SIGNED_IN",
-      });
       return;
     }
     setSaving(true);
@@ -175,15 +160,6 @@ export default function WikiDocPage() {
       const effectiveCompanyCode = (profile?.companyCode || docCompanyCode || "").trim();
       if (!effectiveCompanyCode) {
         setError("会社コードが未設定です（/settings/company で会社情報を設定してください）");
-        setLastSaveDebug({
-          at: new Date().toISOString(),
-          ok: false,
-          reason: "NO_COMPANY_CODE",
-          userUid: user.uid,
-          profileCompanyCode: profile?.companyCode || "",
-          docCompanyCode: docCompanyCode || "",
-          effectiveCompanyCode,
-        });
         setSaving(false);
         return;
       }
@@ -191,7 +167,6 @@ export default function WikiDocPage() {
       // いま見えているDOMを保存対象にする
       const el = editorRef.current;
       const currentHtml = el ? el.innerHTML : "";
-      const htmlLength = currentHtml.length;
 
       // Firestore は undefined を受け付けないので、すべての値を文字列に正規化
       const mergedContents: Record<string, string> = {};
@@ -233,33 +208,12 @@ export default function WikiDocPage() {
         lastAppliedHtmlRef.current = "";
         draftHtmlRef.current = "";
       }
-      setLastSaveDebug({
-        at: new Date().toISOString(),
-        ok: true,
-        userUid: user.uid,
-        profileCompanyCode: profile?.companyCode || "",
-        docCompanyCode: docCompanyCode || "",
-        effectiveCompanyCode,
-        activeNodeId: activeNodeId ?? undefined,
-        htmlLength,
-      });
       setError("");
     } catch (e: any) {
       const code = e?.code ? String(e.code) : "";
       const msg = e?.message ? String(e.message) : "";
       const errorMsg = code && msg ? `${code}: ${msg}` : msg || "保存に失敗しました";
       setError(errorMsg);
-      setLastSaveDebug({
-        at: new Date().toISOString(),
-        ok: false,
-        reason: code || "UNKNOWN",
-        userUid: user.uid,
-        profileCompanyCode: profile?.companyCode || "",
-        docCompanyCode: docCompanyCode || "",
-        effectiveCompanyCode: (profile?.companyCode || docCompanyCode || "").trim(),
-        activeNodeId: activeNodeId ?? undefined,
-        htmlLength: (editorRef.current?.innerHTML || "").length,
-      });
     } finally {
       setSaving(false);
     }
@@ -447,17 +401,25 @@ export default function WikiDocPage() {
   };
 
   useEffect(() => {
+    const wasLoading = prevLoadingRef.current;
+    prevLoadingRef.current = loading;
+
     const el = editorRef.current;
     if (!el) return;
+
     const nextHtml = activeNodeId ? (contents[activeNodeId] ?? "") : "";
+
+    // ロード完了直後は強制的に同期（タブが1つでも確実に表示される）
+    const justLoaded = wasLoading && !loading;
+
     // 入力中に毎回 innerHTML を書き戻すと重くなる＆カーソルが飛ぶので、
     // タブ切替 or Firestore からの読み込みで内容が変わったときだけ同期
-    if (lastAppliedHtmlRef.current !== nextHtml) {
+    if (justLoaded || lastAppliedHtmlRef.current !== nextHtml) {
       el.innerHTML = nextHtml;
       lastAppliedHtmlRef.current = nextHtml;
       draftHtmlRef.current = nextHtml;
     }
-  }, [activeNodeId, contents]);
+  }, [activeNodeId, contents, loading]);
 
   const exec = (cmd: string, value?: string) => {
     // eslint-disable-next-line deprecation/deprecation
@@ -557,22 +519,6 @@ export default function WikiDocPage() {
     >
       <div className="w-full">
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">⚠️ エラー: {error}</div> : null}
-        {typeof window !== "undefined" && window.location.hostname === "localhost" && lastSaveDebug ? (
-          <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 text-xs font-bold text-slate-700">
-            <div className="text-[11px] font-extrabold text-slate-900">Debug（保存）</div>
-            <div className="mt-1 grid grid-cols-1 gap-1">
-              <div>at: <span className="font-mono">{lastSaveDebug.at}</span></div>
-              <div>ok: <span className={lastSaveDebug.ok ? "text-green-700" : "text-red-700"}>{String(lastSaveDebug.ok)}</span></div>
-              {lastSaveDebug.reason ? <div>reason: <span className="font-mono">{lastSaveDebug.reason}</span></div> : null}
-              <div>userUid: <span className="font-mono">{lastSaveDebug.userUid || "-"}</span></div>
-              <div>profileCompanyCode: <span className="font-mono">{lastSaveDebug.profileCompanyCode || "-"}</span></div>
-              <div>docCompanyCode: <span className="font-mono">{lastSaveDebug.docCompanyCode || "-"}</span></div>
-              <div>effectiveCompanyCode: <span className="font-mono">{lastSaveDebug.effectiveCompanyCode || "-"}</span></div>
-              <div>activeNodeId: <span className="font-mono">{lastSaveDebug.activeNodeId || "-"}</span></div>
-              <div>htmlLength: <span className="font-mono">{String(lastSaveDebug.htmlLength ?? "-")}</span></div>
-            </div>
-          </div>
-        ) : null}
         {!error && savedAt ? (
           <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-3 text-sm font-bold text-green-700">
             ✅ 保存しました（{savedAt.toLocaleTimeString()}）

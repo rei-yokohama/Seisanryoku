@@ -21,10 +21,41 @@ type Company = {
   companyName?: string;
 };
 
+type Permissions = {
+  members: boolean;   // メンバー管理（招待・編集・削除）
+  projects: boolean;  // プロジェクト管理
+  issues: boolean;    // イシュー管理
+  customers: boolean; // 顧客管理
+  files: boolean;     // ファイル管理
+  billing: boolean;   // 請求・売上管理
+  settings: boolean;  // ワークスペース設定
+};
+
+const DEFAULT_PERMISSIONS: Permissions = {
+  members: false,
+  projects: true,
+  issues: true,
+  customers: false,
+  files: true,
+  billing: false,
+  settings: false,
+};
+
+const PERMISSION_LABELS: Record<keyof Permissions, string> = {
+  members: "メンバー管理",
+  projects: "プロジェクト管理",
+  issues: "イシュー管理",
+  customers: "顧客管理",
+  files: "ファイル管理",
+  billing: "請求・売上管理",
+  settings: "ワークスペース設定",
+};
+
 type WorkspaceMembership = {
   uid: string;
   companyCode: string;
-  role: "owner" | "admin" | "member";
+  role: "owner" | "admin" | "member"; // admin は後方互換のため残す
+  permissions?: Permissions;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -79,6 +110,7 @@ export default function MemberEditPage() {
   const [joinDate, setJoinDate] = useState(new Date().toISOString().slice(0, 10));
   const [color, setColor] = useState<string>(EMPLOYEE_COLORS[0].value);
   const [role, setRole] = useState<WorkspaceMembership["role"]>("member");
+  const [permissions, setPermissions] = useState<Permissions>(DEFAULT_PERMISSIONS);
 
   const isOwner = useMemo(() => {
     return !!user && !!company && company.ownerUid === user.uid;
@@ -138,15 +170,20 @@ export default function MemberEditPage() {
             const mSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${emp.authUid}`));
             const m = mSnap.exists() ? (mSnap.data() as WorkspaceMembership) : null;
             setMembership(m);
-            setRole(m?.role || (targetIsCompanyOwner ? "owner" : "member"));
+            // admin は member に変換（後方互換）
+            const savedRole = m?.role === "admin" ? "member" : m?.role;
+            setRole(savedRole || (targetIsCompanyOwner ? "owner" : "member"));
+            setPermissions(m?.permissions || DEFAULT_PERMISSIONS);
           } catch (e) {
             console.warn(e);
             setMembership(null);
             setRole(targetIsCompanyOwner ? "owner" : "member");
+            setPermissions(DEFAULT_PERMISSIONS);
           }
         } else {
           setMembership(null);
           setRole(targetIsCompanyOwner ? "owner" : "member");
+          setPermissions(DEFAULT_PERMISSIONS);
         }
       } finally {
         setLoading(false);
@@ -177,7 +214,7 @@ export default function MemberEditPage() {
         updatedAt: Timestamp.now(),
       } as any);
 
-      // 権限変更（workspaceMemberships.role）はオーナーのみ
+      // 権限変更（workspaceMemberships.role / permissions）はオーナーのみ
       if (isOwner && profile.companyCode && employee.authUid) {
         const membershipId = `${profile.companyCode}_${employee.authUid}`;
         const membershipRef = doc(db, "workspaceMemberships", membershipId);
@@ -192,8 +229,10 @@ export default function MemberEditPage() {
             uid: employee.authUid,
             companyCode: profile.companyCode,
             role: nextRole,
+            // オーナーは全権限持つので permissions は保存しない（member のみ）
+            ...(nextRole === "member" ? { permissions } : {}),
             updatedAt: Timestamp.now(),
-          } as WorkspaceMembership,
+          },
           { merge: true },
         );
       }
@@ -347,33 +386,75 @@ export default function MemberEditPage() {
             </div>
             <div className="text-xs font-bold text-slate-500">{company?.companyName ? company.companyName : profile.companyCode}</div>
           </div>
-          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-12">
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-500">現在のロール</div>
-              <div className="mt-1 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-bold text-slate-700">
-                <span className="text-slate-900">{membership?.role ? membership.role : targetIsCompanyOwner ? "owner" : "未設定"}</span>
-              </div>
-            </div>
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-500">変更（オーナーのみ）</div>
-              <select
-                value={targetIsCompanyOwner ? "owner" : role}
-                onChange={(e) => setRole(e.target.value as WorkspaceMembership["role"])}
+
+          <div className="mt-4">
+            <div className="text-xs font-extrabold text-slate-500">ロール</div>
+            <div className="mt-2 flex gap-3">
+              <button
+                type="button"
+                onClick={() => isOwner && !targetIsCompanyOwner && setRole("owner")}
                 disabled={!isOwner || targetIsCompanyOwner}
                 className={clsx(
-                  "mt-1 w-full rounded-md border px-3 py-2 text-sm font-bold outline-none focus:ring-1 focus:ring-orange-500",
-                  !isOwner || targetIsCompanyOwner ? "border-slate-200 bg-slate-100 text-slate-600" : "border-slate-200 bg-white text-slate-900",
+                  "flex-1 rounded-lg border p-3 text-center transition",
+                  (targetIsCompanyOwner ? true : role === "owner")
+                    ? "border-orange-500 bg-orange-50"
+                    : "border-slate-200 bg-white hover:bg-slate-50",
+                  (!isOwner || targetIsCompanyOwner) && "cursor-not-allowed opacity-60",
                 )}
               >
-                <option value="member">member（メンバー）</option>
-                <option value="admin">admin（管理者）</option>
-                <option value="owner">owner（オーナー）</option>
-              </select>
-              {targetIsCompanyOwner ? (
-                <div className="mt-1 text-[11px] font-bold text-slate-500">※ このユーザーは会社オーナーのため owner 固定です。</div>
-              ) : null}
+                <div className="text-sm font-extrabold text-slate-900">オーナー</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-500">全ての操作が可能</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => isOwner && !targetIsCompanyOwner && setRole("member")}
+                disabled={!isOwner || targetIsCompanyOwner}
+                className={clsx(
+                  "flex-1 rounded-lg border p-3 text-center transition",
+                  !targetIsCompanyOwner && role === "member"
+                    ? "border-orange-500 bg-orange-50"
+                    : "border-slate-200 bg-white hover:bg-slate-50",
+                  (!isOwner || targetIsCompanyOwner) && "cursor-not-allowed opacity-60",
+                )}
+              >
+                <div className="text-sm font-extrabold text-slate-900">メンバー</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-500">個別権限を設定</div>
+              </button>
             </div>
+            {targetIsCompanyOwner ? (
+              <div className="mt-2 text-[11px] font-bold text-slate-500">※ このユーザーは会社オーナーのため「オーナー」固定です。</div>
+            ) : null}
           </div>
+
+          {/* メンバーの場合のみ個別権限を表示 */}
+          {!targetIsCompanyOwner && role === "member" ? (
+            <div className="mt-4">
+              <div className="text-xs font-extrabold text-slate-500">個別権限</div>
+              <div className="mt-2 space-y-2">
+                {(Object.keys(PERMISSION_LABELS) as (keyof Permissions)[]).map((key) => (
+                  <label
+                    key={key}
+                    className={clsx(
+                      "flex items-center justify-between rounded-lg border p-3 transition",
+                      permissions[key] ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white",
+                      !isOwner && "cursor-not-allowed opacity-60",
+                    )}
+                  >
+                    <span className="text-sm font-bold text-slate-800">{PERMISSION_LABELS[key]}</span>
+                    <input
+                      type="checkbox"
+                      checked={permissions[key]}
+                      onChange={(e) =>
+                        isOwner && setPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
+                      }
+                      disabled={!isOwner}
+                      className="h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </AppShell>

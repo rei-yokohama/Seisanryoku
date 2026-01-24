@@ -136,12 +136,14 @@ service cloud.firestore {
     // ============================================
     match /projects/{projectId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
     
     match /issues/{issueId} {
       allow read: if isSignedIn() && (resource == null || isInMyCompany(resource.data.companyCode));
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
     
     match /issueComments/{commentId} {
@@ -152,12 +154,14 @@ service cloud.firestore {
     
     match /wikiPages/{wikiId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
 
     match /wikiDocs/{docId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
     
     match /projectFiles/{fileId} {
@@ -171,12 +175,14 @@ service cloud.firestore {
     // ============================================
     match /customers/{customerId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
 
     match /deals/{dealId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
 
     // ============================================
@@ -184,12 +190,14 @@ service cloud.firestore {
     // ============================================
     match /driveFiles/{fileId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
 
     match /driveItems/{itemId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
 
     // ============================================
@@ -197,7 +205,8 @@ service cloud.firestore {
     // ============================================
     match /teamSettings/{settingsId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
-      allow create, update, delete: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
     }
 
     match /teamInvites/{inviteId} {
