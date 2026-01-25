@@ -606,6 +606,10 @@ export default function TeamCalendarPage() {
 
   const createEntry = async () => {
     if (!user) return;
+    if (!newCustomerId || !newDealId) {
+      alert("顧客と案件は必ず選択してください");
+      return;
+    }
     const project = newProject.trim();
     // project(作業名) は任意。顧客/案件の文脈を付けられるようにする。
     const startIso = new Date(`${newDate}T${newStartTime}:00`).toISOString();
@@ -1832,6 +1836,8 @@ export default function TeamCalendarPage() {
   console.log("employees:", employees);
   console.log("showSidebar:", showSidebar);
 
+  const canCreateNewEntry = !!newCustomerId && !!newDealId;
+
   return (
     <AppShell title="カレンダー" subtitle={getDateRangeText()}>
       <div className="flex h-[calc(100vh-140px)] flex-col bg-white overflow-hidden rounded-xl border border-slate-200 shadow-sm transition-all">
@@ -1935,7 +1941,15 @@ export default function TeamCalendarPage() {
               </button>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-3">
+            {!canCreateNewEntry ? (
+              <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
+                顧客と案件を選択すると登録できます。
+              </div>
+            ) : (
+              <div className="mt-4" />
+            )}
+
+            <div className="grid grid-cols-1 gap-3">
               <div>
                 <div className="text-xs font-extrabold text-slate-500">日付</div>
                 <input
@@ -2044,7 +2058,9 @@ export default function TeamCalendarPage() {
               </div>
 
               <div>
-                <div className="text-xs font-extrabold text-slate-500">顧客</div>
+                <div className="text-xs font-extrabold text-slate-500">
+                  顧客 <span className="text-rose-600">*</span>
+                </div>
                 <select
                   value={newCustomerId}
                   onChange={(e) => {
@@ -2052,7 +2068,10 @@ export default function TeamCalendarPage() {
                     setNewCustomerId(v);
                     setNewDealId("");
                   }}
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  className={clsx(
+                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm font-bold text-slate-800",
+                    newCustomerId ? "border-slate-200" : "border-rose-200",
+                  )}
                 >
                   <option value="">（未選択）</option>
                   {customers.map((c) => (
@@ -2064,11 +2083,16 @@ export default function TeamCalendarPage() {
               </div>
 
               <div>
-                <div className="text-xs font-extrabold text-slate-500">案件</div>
+                <div className="text-xs font-extrabold text-slate-500">
+                  案件 <span className="text-rose-600">*</span>
+                </div>
                 <select
                   value={newDealId}
                   onChange={(e) => setNewDealId(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  className={clsx(
+                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm font-bold text-slate-800",
+                    newDealId ? "border-slate-200" : "border-rose-200",
+                  )}
                 >
                   <option value="">（未選択）</option>
                   {deals
@@ -2283,7 +2307,11 @@ export default function TeamCalendarPage() {
               </button>
               <button
                 onClick={() => void createEntry()}
-                className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
+                disabled={!canCreateNewEntry}
+                className={clsx(
+                  "rounded-md px-4 py-2 text-sm font-extrabold text-white",
+                  canCreateNewEntry ? "bg-orange-600 hover:bg-orange-700" : "bg-orange-300 cursor-not-allowed",
+                )}
                 type="button"
               >
                 登録

@@ -44,6 +44,14 @@ type Deal = {
   genre?: string;
 };
 
+const DEAL_STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "稼働中", color: "bg-green-100 text-green-700" },
+  { value: "CONFIRMED", label: "稼働確定", color: "bg-blue-100 text-blue-700" },
+  { value: "PLANNED", label: "稼働予定", color: "bg-sky-100 text-sky-700" },
+  { value: "STOPPING", label: "停止予定", color: "bg-amber-100 text-amber-700" },
+  { value: "INACTIVE", label: "停止中", color: "bg-slate-100 text-slate-700" },
+] as const;
+
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -443,14 +451,19 @@ export default function CustomerDetailPage() {
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="text-sm font-bold text-slate-900">{deal.title}</div>
-                      <span
-                        className={clsx(
-                          "inline-flex rounded-full px-2 py-0.5 text-xs font-extrabold",
-                          deal.status === "ACTIVE" ? "bg-orange-100 text-orange-800" : "bg-slate-100 text-slate-700"
-                        )}
-                      >
-                        {deal.status === "ACTIVE" ? "稼働中" : "停止"}
-                      </span>
+                      {(() => {
+                        const statusOpt = DEAL_STATUS_OPTIONS.find(o => o.value === deal.status);
+                        return (
+                          <span
+                            className={clsx(
+                              "inline-flex rounded-full px-2 py-0.5 text-xs font-extrabold",
+                              statusOpt?.color || "bg-slate-100 text-slate-700"
+                            )}
+                          >
+                            {statusOpt?.label || deal.status}
+                          </span>
+                        );
+                      })()}
                     </div>
                     {deal.genre && (
                       <div className="text-xs text-slate-600">{deal.genre}</div>

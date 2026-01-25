@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
 import Link from "next/link";
@@ -26,6 +26,7 @@ type Employee = {
   authUid?: string;
   color?: string;
   email?: string;
+  isActive?: boolean | null;
 };
 
 type Customer = {
@@ -36,7 +37,15 @@ type Customer = {
   assigneeUid?: string | null;
 };
 
-type DealStatus = "ACTIVE" | "INACTIVE";
+type DealStatus = "ACTIVE" | "CONFIRMED" | "PLANNED" | "STOPPING" | "INACTIVE";
+
+const DEAL_STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "稼働中", color: "bg-green-100 text-green-700" },
+  { value: "CONFIRMED", label: "稼働確定", color: "bg-blue-100 text-blue-700" },
+  { value: "PLANNED", label: "稼働予定", color: "bg-sky-100 text-sky-700" },
+  { value: "STOPPING", label: "停止予定", color: "bg-amber-100 text-amber-700" },
+  { value: "INACTIVE", label: "停止中", color: "bg-slate-100 text-slate-700" },
+] as const;
 
 type Deal = {
   id: string;
@@ -93,6 +102,11 @@ function DealsInner() {
   const [leaderFilter, setLeaderFilter] = useState("ALL");
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
   
+  // 担当者別ショートカット
+  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const assigneeDropdownRef = useRef<HTMLDivElement>(null);
+  
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Deal | null>(null);
   const [editTitle, setEditTitle] = useState("");
@@ -147,13 +161,32 @@ function DealsInner() {
 
   useEffect(() => {
     const initialStatus = (searchParams.get("status") || "").toUpperCase();
-    if (initialStatus === "ACTIVE" || initialStatus === "INACTIVE") {
+    const validStatuses = DEAL_STATUS_OPTIONS.map(o => o.value);
+    if (validStatuses.includes(initialStatus as DealStatus)) {
       setStatusFilter(initialStatus as DealStatus);
     }
     const initialCustomerId = searchParams.get("customerId") || "";
     if (initialCustomerId) setCustomerFilter(initialCustomerId);
+    const initialQ = searchParams.get("q") || "";
+    if (initialQ) {
+      setQText(initialQ);
+      setIsFilterExpanded(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 担当者別ドロップダウンの外側クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (assigneeDropdownRef.current && !assigneeDropdownRef.current.contains(e.target as Node)) {
+        setAssigneeDropdownOpen(false);
+      }
+    };
+    if (assigneeDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [assigneeDropdownOpen]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -192,27 +225,38 @@ function DealsInner() {
     return m;
   }, [employees]);
 
+  const activeLeaderUids = useMemo(() => {
+    const set = new Set<string>();
+    if (user) set.add(user.uid);
+    for (const e of employees) {
+      if (e.isActive !== false && e.authUid) set.add(e.authUid);
+    }
+    return set;
+  }, [user, employees]);
+
   const filtered = useMemo(() => {
     const q = qText.trim().toLowerCase();
     return deals.filter((d) => {
+      const cust = customersById[d.customerId];
+      const leaderId = (d.leaderUid as string) || cust?.assigneeUid || d.createdBy || "";
+      if (leaderId && !activeLeaderUids.has(leaderId)) return false;
       if (tab === "MINE" && user) {
-        const cust = customersById[d.customerId];
         if (!cust || (cust.assigneeUid || "") !== user.uid) return false;
       }
       if (statusFilter !== "ALL" && d.status !== statusFilter) return false;
       if (customerFilter !== "ALL" && d.customerId !== customerFilter) return false;
-      // リーダーフィルタ
       if (leaderFilter !== "ALL") {
-        const cust = customersById[d.customerId];
-        const leaderId = (d.leaderUid as string) || cust?.assigneeUid || d.createdBy || "";
         if (leaderId !== leaderFilter) return false;
       }
+      if (selectedAssignees.length > 0) {
+        if (!selectedAssignees.includes(leaderId)) return false;
+      }
       if (!q) return true;
-      const cust = customersById[d.customerId]?.name || "";
-      const hay = `${d.title || ""} ${d.genre || ""} ${d.description || ""} ${cust}`.toLowerCase();
+      const custName = cust?.name || "";
+      const hay = `${d.title || ""} ${d.genre || ""} ${d.description || ""} ${custName}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [deals, qText, tab, statusFilter, customerFilter, leaderFilter, customersById, user]);
+  }, [deals, qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, customersById, user, activeLeaderUids]);
 
   const totalRevenue = useMemo(() => {
     let sum = 0;
@@ -223,6 +267,28 @@ function DealsInner() {
     }
     return sum;
   }, [filtered]);
+
+  // 担当者選択の切り替え
+  const toggleAssignee = (uid: string) => {
+    setSelectedAssignees((prev) =>
+      prev.includes(uid) ? prev.filter((a) => a !== uid) : [...prev, uid]
+    );
+  };
+
+  // 担当者リスト（自分 + 稼働中社員）を取得
+  const assigneeList = useMemo(() => {
+    const list: { uid: string; name: string; color?: string }[] = [];
+    if (user) {
+      list.push({ uid: user.uid, name: "私", color: "#F97316" });
+    }
+    const activeEmps = employees.filter((e) => e.isActive !== false);
+    for (const emp of activeEmps) {
+      if (emp.authUid && emp.authUid !== user?.uid) {
+        list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
+      }
+    }
+    return list;
+  }, [user, employees]);
 
   const openEdit = (deal: Deal) => {
     setEditing(deal);
@@ -316,6 +382,71 @@ function DealsInner() {
               >
                 {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
               </button>
+              
+              {/* 担当者別ショートカット */}
+              <div className="relative" ref={assigneeDropdownRef}>
+                <button
+                  onClick={() => setAssigneeDropdownOpen((v) => !v)}
+                  className={clsx(
+                    "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
+                    selectedAssignees.length > 0
+                      ? "bg-sky-600 text-white"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                  )}
+                >
+                  担当者別
+                  {selectedAssignees.length > 0 && (
+                    <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{selectedAssignees.length}</span>
+                  )}
+                </button>
+                
+                {assigneeDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="p-2 border-b border-slate-100">
+                      <div className="text-[10px] font-bold text-slate-500">担当者を選択</div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-1">
+                      {assigneeList.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-slate-500">社員データを読み込み中...</div>
+                      ) : (
+                        assigneeList.map((a) => (
+                          <label
+                            key={a.uid}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedAssignees.includes(a.uid)}
+                              onChange={() => toggleAssignee(a.uid)}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                            />
+                            <div
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white flex-shrink-0"
+                              style={{ backgroundColor: a.color || "#CBD5E1" }}
+                            >
+                              {a.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-xs font-bold text-slate-700 truncate">{a.name}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {selectedAssignees.length > 0 && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setSelectedAssignees([]);
+                            setAssigneeDropdownOpen(false);
+                          }}
+                          className="w-full rounded-md bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-200"
+                        >
+                          クリア
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-3 text-sm font-bold text-slate-700">
               <span>全 {filtered.length} 件</span>
@@ -358,8 +489,11 @@ function DealsInner() {
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
                   >
                     <option value="ALL">すべて</option>
-                    <option value="ACTIVE">稼働中</option>
-                    <option value="INACTIVE">停止</option>
+                    {DEAL_STATUS_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div className="md:col-span-3">
@@ -387,7 +521,7 @@ function DealsInner() {
                     <option value="ALL">すべて</option>
                     <option value={user.uid}>私</option>
                     {employees
-                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                      .filter((e) => e.isActive !== false && !!e.authUid && e.authUid !== user.uid)
                       .map((e) => (
                         <option key={e.id} value={e.authUid}>
                           {e.name}
@@ -476,14 +610,19 @@ function DealsInner() {
                           )}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">
-                          <span
-                            className={clsx(
-                              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-extrabold",
-                              d.status === "ACTIVE" ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-700",
-                            )}
-                          >
-                            {d.status === "ACTIVE" ? "稼働中" : "停止"}
-                          </span>
+                          {(() => {
+                            const statusOpt = DEAL_STATUS_OPTIONS.find(o => o.value === d.status);
+                            return (
+                              <span
+                                className={clsx(
+                                  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-extrabold",
+                                  statusOpt?.color || "bg-slate-100 text-slate-700",
+                                )}
+                              >
+                                {statusOpt?.label || d.status}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{formatDateTime(updated)}</td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -562,8 +701,11 @@ function DealsInner() {
                   onChange={(e) => setEditStatus(e.target.value as DealStatus)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
                 >
-                  <option value="ACTIVE">稼働中</option>
-                  <option value="INACTIVE">停止</option>
+                  {DEAL_STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

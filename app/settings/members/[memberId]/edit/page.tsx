@@ -72,6 +72,7 @@ type Employee = {
   authUid?: string;
   companyCode?: string;
   createdBy: string;
+  isActive?: boolean | null; // 稼働中/停止中
 };
 
 const EMPLOYEE_COLORS = [
@@ -109,6 +110,7 @@ export default function MemberEditPage() {
   const [employmentType, setEmploymentType] = useState<EmploymentType>("正社員");
   const [joinDate, setJoinDate] = useState(new Date().toISOString().slice(0, 10));
   const [color, setColor] = useState<string>(EMPLOYEE_COLORS[0].value);
+  const [isActive, setIsActive] = useState<boolean>(true);
   const [role, setRole] = useState<WorkspaceMembership["role"]>("member");
   const [permissions, setPermissions] = useState<Permissions>(DEFAULT_PERMISSIONS);
 
@@ -164,6 +166,7 @@ export default function MemberEditPage() {
         setEmploymentType(emp.employmentType || "正社員");
         setJoinDate(emp.joinDate || new Date().toISOString().slice(0, 10));
         setColor(emp.color || EMPLOYEE_COLORS[0].value);
+        setIsActive(emp.isActive !== false); // デフォルトは稼働中
 
         if (prof.companyCode && emp.authUid) {
           try {
@@ -211,6 +214,7 @@ export default function MemberEditPage() {
         employmentType,
         joinDate,
         color,
+        isActive,
         updatedAt: Timestamp.now(),
       } as any);
 
@@ -351,6 +355,38 @@ export default function MemberEditPage() {
                 onChange={(e) => setJoinDate(e.target.value)}
                 className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
               />
+            </div>
+
+            <div className="md:col-span-12">
+              <div className="text-xs font-extrabold text-slate-500">状態</div>
+              <div className="mt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsActive(true)}
+                  className={clsx(
+                    "flex-1 rounded-lg border p-3 text-center transition",
+                    isActive
+                      ? "border-emerald-500 bg-emerald-50"
+                      : "border-slate-200 bg-white hover:bg-slate-50",
+                  )}
+                >
+                  <div className="text-sm font-extrabold text-slate-900">稼働中</div>
+                  <div className="mt-1 text-[11px] font-bold text-slate-500">通常業務中</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsActive(false)}
+                  className={clsx(
+                    "flex-1 rounded-lg border p-3 text-center transition",
+                    !isActive
+                      ? "border-slate-500 bg-slate-50"
+                      : "border-slate-200 bg-white hover:bg-slate-50",
+                  )}
+                >
+                  <div className="text-sm font-extrabold text-slate-900">停止中</div>
+                  <div className="mt-1 text-[11px] font-bold text-slate-500">休職・退職など</div>
+                </button>
+              </div>
             </div>
 
             <div className="md:col-span-12">

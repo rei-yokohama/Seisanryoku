@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
@@ -29,6 +29,7 @@ export type AppShellProps = {
 
 export function AppShell({ title, subtitle, children, projectId, headerRight, sidebarTop }: AppShellProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -117,6 +118,7 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
       { icon: "💼", label: "案件", href: "/projects" },
       { icon: "C", label: "顧客", href: "/customers" },
       { icon: "¥", label: "収支", href: "/balance" },
+      { icon: "⏱", label: "工数", href: "/effort" },
       { icon: "T", label: "タスク", href: "/my/tasks" },
       { icon: "Cal", label: "カレンダー", href: "/calendar" },
       { icon: "E", label: "社員", href: "/employees" },
@@ -273,9 +275,12 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
             onSubmit={(e) => {
               e.preventDefault();
               const formData = new FormData(e.currentTarget);
-              const query = formData.get("projectSearch") as string;
-              if (query?.trim() && projectId) {
-                window.location.href = `/projects/${projectId}/issues?q=${encodeURIComponent(query.trim())}`;
+              const query = (formData.get("projectSearch") as string)?.trim();
+              if (!query) return;
+              if (projectId) {
+                window.location.href = `/projects/${projectId}/issues?q=${encodeURIComponent(query)}`;
+              } else if (pathname === "/projects" || pathname === "/crm/deals") {
+                window.location.href = `/projects?q=${encodeURIComponent(query)}`;
               }
             }}
           >
@@ -283,7 +288,10 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
               <input
                 type="text"
                 name="projectSearch"
-                placeholder="ワークスペース内を検索"
+                defaultValue={
+                  (pathname === "/projects" || pathname === "/crm/deals") ? (searchParams.get("q") ?? "") : ""
+                }
+                placeholder={pathname === "/projects" || pathname === "/crm/deals" ? "案件名・顧客名で検索" : "ワークスペース内を検索"}
                 className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
               />
               <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-orange-600">
@@ -321,6 +329,7 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
           { icon: "👥", label: "顧客", href: "/customers" },
           { icon: "💼", label: "案件", href: "/projects" },
           { icon: "💴", label: "収支", href: "/balance" },
+          { icon: "⏱", label: "工数", href: "/effort" },
           { icon: "💾", label: "ドライブ", href: "/drive" },
           { icon: "📅", label: "カレンダー", href: "/calendar" },
           { icon: "⚙️", label: "設定", href: "/settings" }

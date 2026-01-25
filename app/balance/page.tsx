@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { AppShell } from "../AppShell";
@@ -10,7 +10,11 @@ import { useLocalStorageState } from "../../lib/useLocalStorageState";
 
 type MemberProfile = { uid: string; companyCode: string };
 
-type Employee = { id: string; name: string; authUid?: string };
+type Employee = { id: string; name: string; authUid?: string; color?: string; isActive?: boolean | null };
+
+function clsx(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
 type Deal = { id: string; title: string; status?: string; leaderUid?: string | null; createdBy?: string | null; revenue?: number | null };
 
 type BalanceState = {
@@ -57,6 +61,11 @@ export default function BalancePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
 
+  // 担当者別ショートカット
+  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const assigneeDropdownRef = useRef<HTMLDivElement>(null);
+
   const storageKey = useMemo(() => {
     const code = profile?.companyCode || "no-company";
     return `balance:v1:${code}:${month}`;
@@ -79,7 +88,8 @@ export default function BalancePage() {
       dealsByLeader[k].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
     }
 
-    const employeeItems = [...employees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    const activeEmployees = employees.filter((e) => e.isActive !== false);
+    const employeeItems = [...activeEmployees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     const out: Array<{
       leaderUid: string;
       assigneeName: string;
@@ -169,6 +179,47 @@ export default function BalancePage() {
     return out;
   }, [deals, employees, state.costs, state.sales]);
 
+  // 担当者でフィルタした表示用rows
+  const filteredRows = useMemo(() => {
+    if (selectedAssignees.length === 0) return rows;
+    return rows.filter((r) => selectedAssignees.includes(r.leaderUid));
+  }, [rows, selectedAssignees]);
+
+  // 担当者別ドロップダウンの外側クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (assigneeDropdownRef.current && !assigneeDropdownRef.current.contains(e.target as Node)) {
+        setAssigneeDropdownOpen(false);
+      }
+    };
+    if (assigneeDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [assigneeDropdownOpen]);
+
+  // 担当者選択の切り替え
+  const toggleAssignee = (uid: string) => {
+    setSelectedAssignees((prev) =>
+      prev.includes(uid) ? prev.filter((a) => a !== uid) : [...prev, uid]
+    );
+  };
+
+  // 担当者リスト（自分 + 稼働中社員）を取得
+  const assigneeList = useMemo(() => {
+    const list: { uid: string; name: string; color?: string }[] = [];
+    if (user) {
+      list.push({ uid: user.uid, name: "私", color: "#F97316" });
+    }
+    const activeEmps = employees.filter((e) => e.isActive !== false);
+    for (const emp of activeEmps) {
+      if (emp.authUid && emp.authUid !== user?.uid) {
+        list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
+      }
+    }
+    return list;
+  }, [user, employees]);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -255,25 +306,92 @@ export default function BalancePage() {
     >
       <div className="space-y-3">
         {/* Month header (image-like) */}
-        <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-          <div className="flex items-center justify-between bg-emerald-50 px-3 py-2">
-            <button
-              type="button"
-              onClick={() => setMonth((m) => addMonths(m, -1))}
-              className="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-emerald-700 hover:bg-emerald-50"
-              aria-label="前月"
-            >
-              ←
-            </button>
-            <div className="text-base font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</div>
-            <button
-              type="button"
-              onClick={() => setMonth((m) => addMonths(m, 1))}
-              className="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-emerald-700 hover:bg-emerald-50"
-              aria-label="翌月"
-            >
-              →
-            </button>
+        <div className="rounded-lg border border-slate-200 bg-white overflow-visible">
+          <div className="flex items-center justify-between bg-emerald-50 px-3 py-2 rounded-t-lg">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setMonth((m) => addMonths(m, -1))}
+                className="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-emerald-700 hover:bg-emerald-50"
+                aria-label="前月"
+              >
+                ←
+              </button>
+              <div className="text-base font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</div>
+              <button
+                type="button"
+                onClick={() => setMonth((m) => addMonths(m, 1))}
+                className="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-emerald-700 hover:bg-emerald-50"
+                aria-label="翌月"
+              >
+                →
+              </button>
+            </div>
+            
+            {/* 担当者別ショートカット */}
+            <div className="relative" ref={assigneeDropdownRef}>
+              <button
+                onClick={() => setAssigneeDropdownOpen((v) => !v)}
+                className={clsx(
+                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
+                  selectedAssignees.length > 0
+                    ? "bg-sky-600 text-white"
+                    : "bg-white border border-emerald-200 text-slate-700 hover:bg-emerald-50",
+                )}
+              >
+                担当者別
+                {selectedAssignees.length > 0 && (
+                  <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{selectedAssignees.length}</span>
+                )}
+              </button>
+              
+              {assigneeDropdownOpen && (
+                <div className="absolute right-0 top-full mt-1 z-[100] w-48 rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="p-2 border-b border-slate-100">
+                    <div className="text-[10px] font-bold text-slate-500">担当者を選択</div>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto p-1">
+                    {assigneeList.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-slate-500">社員データを読み込み中...</div>
+                    ) : (
+                      assigneeList.map((a) => (
+                        <label
+                          key={a.uid}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedAssignees.includes(a.uid)}
+                            onChange={() => toggleAssignee(a.uid)}
+                            className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                          />
+                          <div
+                            className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white flex-shrink-0"
+                            style={{ backgroundColor: a.color || "#CBD5E1" }}
+                          >
+                            {a.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-xs font-bold text-slate-700 truncate">{a.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  {selectedAssignees.length > 0 && (
+                    <div className="p-2 border-t border-slate-100">
+                      <button
+                        onClick={() => {
+                          setSelectedAssignees([]);
+                          setAssigneeDropdownOpen(false);
+                        }}
+                        className="w-full rounded-md bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-200"
+                      >
+                        クリア
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -298,7 +416,7 @@ export default function BalancePage() {
                   </td>
                 </tr>
               ) : (
-                rows.map((r, idx) => (
+                filteredRows.map((r, idx) => (
                   <tr
                     key={`${r.leaderUid}-${r.dealId || "none"}-${idx}`}
                     className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"}
@@ -361,7 +479,7 @@ export default function BalancePage() {
                 </tr>
                 ))
               )}
-              {!loading && rows.length === 0 ? (
+              {!loading && filteredRows.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                     データがありません

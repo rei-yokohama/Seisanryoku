@@ -52,6 +52,16 @@ type Issue = {
   projectId: string;
 };
 
+type DealStatus = "ACTIVE" | "CONFIRMED" | "PLANNED" | "STOPPING" | "INACTIVE";
+
+const DEAL_STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "稼働中", color: "bg-green-100 text-green-700" },
+  { value: "CONFIRMED", label: "稼働確定", color: "bg-blue-100 text-blue-700" },
+  { value: "PLANNED", label: "稼働予定", color: "bg-sky-100 text-sky-700" },
+  { value: "STOPPING", label: "停止予定", color: "bg-amber-100 text-amber-700" },
+  { value: "INACTIVE", label: "停止中", color: "bg-slate-100 text-slate-700" },
+] as const;
+
 type WikiDoc = {
   id: string;
   title: string;
@@ -279,14 +289,19 @@ export default function DealDetailPage() {
           {/* 案件名とステータス */}
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h1 className="text-lg font-extrabold text-slate-900 leading-tight mb-3">{deal.title}</h1>
-            <span
-              className={clsx(
-                "inline-flex rounded-full px-3 py-1 text-xs font-extrabold",
-                deal.status === "ACTIVE" ? "bg-orange-100 text-orange-800" : "bg-slate-100 text-slate-700"
-              )}
-            >
-              {deal.status === "ACTIVE" ? "稼働中" : "停止"}
-            </span>
+            {(() => {
+              const statusOpt = DEAL_STATUS_OPTIONS.find(o => o.value === deal.status);
+              return (
+                <span
+                  className={clsx(
+                    "inline-flex rounded-full px-3 py-1 text-xs font-extrabold",
+                    statusOpt?.color || "bg-slate-100 text-slate-700"
+                  )}
+                >
+                  {statusOpt?.label || deal.status}
+                </span>
+              );
+            })()}
           </div>
 
           {/* 案件の概要 */}
@@ -302,7 +317,7 @@ export default function DealDetailPage() {
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-slate-500">稼働停止</span>
-                    <span className="text-slate-900">{deal.status === "INACTIVE" ? fmtJp(lastStopTs) : "-"}</span>
+                    <span className="text-slate-900">{(deal.status === "INACTIVE" || deal.status === "PLANNED") ? fmtJp(lastStopTs) : "-"}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-slate-500">稼働累計</span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
@@ -23,6 +23,7 @@ type Employee = {
   id: string;
   name: string;
   authUid?: string;
+  color?: string;
 };
 
 type Customer = {
@@ -82,6 +83,11 @@ export default function IssueHomePage() {
   const pageSize = 20;
 
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  
+  // 担当者別ショートカット
+  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const assigneeDropdownRef = useRef<HTMLDivElement>(null);
 
   const router = useRouter();
 
@@ -113,6 +119,19 @@ export default function IssueHomePage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, keyword, showArchived, filterStorage.loaded]);
+
+  // 担当者別ドロップダウンの外側クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (assigneeDropdownRef.current && !assigneeDropdownRef.current.contains(e.target as Node)) {
+        setAssigneeDropdownOpen(false);
+      }
+    };
+    if (assigneeDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [assigneeDropdownOpen]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -227,6 +246,27 @@ export default function IssueHomePage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [issues]);
 
+  // 担当者選択の切り替え
+  const toggleAssignee = (uid: string) => {
+    setSelectedAssignees((prev) =>
+      prev.includes(uid) ? prev.filter((a) => a !== uid) : [...prev, uid]
+    );
+  };
+
+  // 担当者リスト（自分 + 社員）を取得
+  const assigneeList = useMemo(() => {
+    const list: { uid: string; name: string; color?: string }[] = [];
+    if (user) {
+      list.push({ uid: user.uid, name: "私", color: "#F97316" });
+    }
+    for (const emp of employees) {
+      if (emp.authUid && emp.authUid !== user?.uid) {
+        list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
+      }
+    }
+    return list;
+  }, [user, employees]);
+
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
     const out = issues.filter((i) => {
@@ -237,6 +277,8 @@ export default function IssueHomePage() {
       if (statusFilter === "NOT_DONE" && i.status === "DONE") return false;
       if (statusFilter !== "ALL" && statusFilter !== "NOT_DONE" && i.status !== statusFilter) return false;
       if (assigneeFilter && (i.assigneeUid || "") !== assigneeFilter) return false;
+      // 担当者別ショートカットフィルタ
+      if (selectedAssignees.length > 0 && !selectedAssignees.includes(i.assigneeUid || "")) return false;
       if (priorityFilter && i.priority !== priorityFilter) return false;
       if (categoryFilter && getCategoryFromIssue(i) !== categoryFilter) return false;
       if (k) {
@@ -257,7 +299,7 @@ export default function IssueHomePage() {
       return (a.issueKey || "").localeCompare(b.issueKey || "");
     });
     return out;
-  }, [issues, keyword, projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, projectsById, showArchived]);
+  }, [issues, keyword, projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, projectsById, showArchived, selectedAssignees]);
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -308,6 +350,71 @@ export default function IssueHomePage() {
               >
                 {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
               </button>
+              
+              {/* 担当者別ショートカット */}
+              <div className="relative" ref={assigneeDropdownRef}>
+                <button
+                  onClick={() => setAssigneeDropdownOpen((v) => !v)}
+                  className={clsx(
+                    "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
+                    selectedAssignees.length > 0
+                      ? "bg-sky-600 text-white"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                  )}
+                >
+                  担当者別
+                  {selectedAssignees.length > 0 && (
+                    <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{selectedAssignees.length}</span>
+                  )}
+                </button>
+                
+                {assigneeDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="p-2 border-b border-slate-100">
+                      <div className="text-[10px] font-bold text-slate-500">担当者を選択</div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-1">
+                      {assigneeList.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-slate-500">社員データを読み込み中...</div>
+                      ) : (
+                        assigneeList.map((a) => (
+                          <label
+                            key={a.uid}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedAssignees.includes(a.uid)}
+                              onChange={() => toggleAssignee(a.uid)}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                            />
+                            <div
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white flex-shrink-0"
+                              style={{ backgroundColor: a.color || "#CBD5E1" }}
+                            >
+                              {a.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-xs font-bold text-slate-700 truncate">{a.name}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {selectedAssignees.length > 0 && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setSelectedAssignees([]);
+                            setAssigneeDropdownOpen(false);
+                          }}
+                          className="w-full rounded-md bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-200"
+                        >
+                          クリア
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <button className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700">検索条件を保存</button>

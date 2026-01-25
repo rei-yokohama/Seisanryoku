@@ -60,6 +60,19 @@ function roleLabel(role?: WorkspaceMembership["role"] | null) {
   return "-";
 }
 
+// 雇用形態の順序を定義
+function employmentTypeOrder(type: EmploymentType): number {
+  const order: Record<EmploymentType, number> = {
+    "正社員": 1,
+    "契約社員": 2,
+    "パート": 3,
+    "アルバイト": 4,
+    "業務委託": 5,
+    "管理者": 6,
+  };
+  return order[type] || 999;
+}
+
 export default function MembersPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -71,6 +84,7 @@ export default function MembersPage() {
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<EmploymentType | "ALL">("ALL");
   const [authFilter, setAuthFilter] = useState<"ALL" | "VERIFIED" | "UNVERIFIED">("ALL");
+  const [sortByEmploymentType, setSortByEmploymentType] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
 
@@ -202,7 +216,7 @@ export default function MembersPage() {
       return true;
     });
 
-    return uniq.filter((e) => {
+    const filtered = uniq.filter((e) => {
       if (typeFilter !== "ALL" && e.employmentType !== typeFilter) return false;
       if (authFilter === "VERIFIED" && !e.authUid) return false;
       if (authFilter === "UNVERIFIED" && !!e.authUid) return false;
@@ -210,7 +224,21 @@ export default function MembersPage() {
       const hay = `${e.name || ""} ${e.email || ""}`.toLowerCase();
       return hay.includes(qq);
     });
-  }, [employees, q, typeFilter, authFilter, isSuperAdmin, user, profile]);
+
+    // 雇用形態で並び替え
+    if (sortByEmploymentType) {
+      return [...filtered].sort((a, b) => {
+        const orderA = employmentTypeOrder(a.employmentType);
+        const orderB = employmentTypeOrder(b.employmentType);
+        if (orderA !== orderB) return orderA - orderB;
+        // 同じ雇用形態の場合は名前順
+        return (a.name || "").localeCompare(b.name || "");
+      });
+    }
+
+    // 並び替えなしの場合は名前順
+    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [employees, q, typeFilter, authFilter, sortByEmploymentType, isSuperAdmin, user, profile]);
 
   const handleDelete = async (id: string) => {
     if (!isSuperAdmin) {
@@ -282,7 +310,7 @@ export default function MembersPage() {
             </div>
           ) : null}
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-12">
-            <div className="md:col-span-6">
+            <div className="md:col-span-5">
               <div className="text-xs font-extrabold text-slate-500">検索</div>
               <input
                 value={q}
@@ -306,7 +334,7 @@ export default function MembersPage() {
                 ))}
               </select>
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <div className="text-xs font-extrabold text-slate-500">認証</div>
               <select
                 value={authFilter}
@@ -317,6 +345,21 @@ export default function MembersPage() {
                 <option value="VERIFIED">認証済み</option>
                 <option value="UNVERIFIED">未認証</option>
               </select>
+            </div>
+            <div className="md:col-span-2">
+              <div className="text-xs font-extrabold text-slate-500">並び替え</div>
+              <button
+                onClick={() => setSortByEmploymentType((v) => !v)}
+                className={clsx(
+                  "mt-1 w-full rounded-md border px-3 py-2 text-sm font-extrabold transition",
+                  sortByEmploymentType
+                    ? "border-orange-500 bg-orange-600 text-white hover:bg-orange-700"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                )}
+                type="button"
+              >
+                {sortByEmploymentType ? "✓ 雇用形態順" : "雇用形態順"}
+              </button>
             </div>
           </div>
         </div>

@@ -31,7 +31,15 @@ type Employee = {
   color?: string;
 };
 
-type DealStatus = "ACTIVE" | "INACTIVE";
+type DealStatus = "ACTIVE" | "CONFIRMED" | "PLANNED" | "STOPPING" | "INACTIVE";
+
+const DEAL_STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "稼働中", color: "bg-green-100 text-green-700" },
+  { value: "CONFIRMED", label: "稼働確定", color: "bg-blue-100 text-blue-700" },
+  { value: "PLANNED", label: "稼働予定", color: "bg-sky-100 text-sky-700" },
+  { value: "STOPPING", label: "停止予定", color: "bg-amber-100 text-amber-700" },
+  { value: "INACTIVE", label: "停止中", color: "bg-slate-100 text-slate-700" },
+] as const;
 
 type ActivePeriod = { startedAt: any; endedAt: any };
 
@@ -247,13 +255,18 @@ export default function ProjectEditPage() {
       };
 
       const statusChanged = status !== prevStatus;
+      // 稼働中とみなすステータス（LTV計算用）
+      const isActiveStatus = (s: DealStatus) => ["ACTIVE", "CONFIRMED", "STOPPING"].includes(s);
+      const wasActive = isActiveStatus(prevStatus);
+      const isNowActive = isActiveStatus(status);
+      
       if (statusChanged) {
-        if (status === "ACTIVE") {
-          // 再稼働開始
+        if (!wasActive && isNowActive) {
+          // 非稼働 → 稼働：開始
           updatePayload.activeStartedAt = now;
           if (!before?.firstActivatedAt) updatePayload.firstActivatedAt = now;
-        } else {
-          // 停止：稼働期間を追加
+        } else if (wasActive && !isNowActive) {
+          // 稼働 → 非稼働：停止
           const prevActiveStartedAt = before?.activeStartedAt || null;
           const startedAt = prevActiveStartedAt || before?.firstActivatedAt || before?.createdAt || now;
           const prevPeriods: any[] = Array.isArray(before?.activePeriods) ? before.activePeriods : [];
@@ -281,13 +294,12 @@ export default function ProjectEditPage() {
 
       if (statusChanged) {
         const jp = (ts: any) => (ts?.toDate?.() ? (ts.toDate() as Date).toLocaleString("ja-JP") : "");
-        const label = (s: DealStatus) => (s === "ACTIVE" ? "稼働中" : "停止");
-        const afterStartedAt = status === "ACTIVE" ? now : (updatePayload.firstActivatedAt || before?.firstActivatedAt || before?.createdAt || now);
-        const afterStoppedAt =
-          status === "INACTIVE" ? now : (before?.lastInactivatedAt || "");
+        const label = (s: DealStatus) => DEAL_STATUS_OPTIONS.find(opt => opt.value === s)?.label || s;
+        const afterStartedAt = isNowActive ? now : (updatePayload.firstActivatedAt || before?.firstActivatedAt || before?.createdAt || now);
+        const afterStoppedAt = !isNowActive ? now : (before?.lastInactivatedAt || "");
 
         // 稼働累計（停止時は periods を合算、稼働中は periods + 現在稼働分）
-        const periods: any[] = status === "INACTIVE"
+        const periods: any[] = !isNowActive
           ? (updatePayload.activePeriods || [])
           : (Array.isArray(before?.activePeriods) ? before.activePeriods : []);
         let totalMs = 0;
@@ -297,7 +309,7 @@ export default function ProjectEditPage() {
           if (!st || !en) continue;
           totalMs += Math.max(0, en - st);
         }
-        if (status === "ACTIVE") {
+        if (isNowActive) {
           const curStart = now.toMillis();
           // 今回の切替直後なので 0ms だが、表示の整合のため加算は行わない
           void curStart;
@@ -313,7 +325,7 @@ export default function ProjectEditPage() {
           entityId: projectId,
           message:
             `稼働ステータスを「${label(prevStatus)}」→「${label(status)}」に変更しました`
-            + `（開始: ${jp(afterStartedAt)}${status === "INACTIVE" ? ` / 停止: ${jp(afterStoppedAt)}` : ""}`
+            + `（開始: ${jp(afterStartedAt)}${!isNowActive ? ` / 停止: ${jp(afterStoppedAt)}` : ""}`
             + ` / 稼働累計: ${totalDays.toFixed(1)}日 / 売上: ¥${(ltv || 0).toLocaleString("ja-JP")}）`,
           link: `/projects/${projectId}/detail`,
         });
@@ -472,8 +484,11 @@ export default function ProjectEditPage() {
                 onChange={(e) => setStatus(e.target.value as DealStatus)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
               >
-                <option value="ACTIVE">稼働中</option>
-                <option value="INACTIVE">停止</option>
+                {DEAL_STATUS_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 

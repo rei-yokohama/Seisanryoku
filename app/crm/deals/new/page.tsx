@@ -31,7 +31,15 @@ type Employee = {
   color?: string;
 };
 
-type DealStatus = "ACTIVE" | "INACTIVE";
+type DealStatus = "ACTIVE" | "CONFIRMED" | "PLANNED" | "STOPPING" | "INACTIVE";
+
+const DEAL_STATUS_OPTIONS = [
+  { value: "ACTIVE", label: "稼働中", color: "bg-green-100 text-green-700" },
+  { value: "CONFIRMED", label: "稼働確定", color: "bg-blue-100 text-blue-700" },
+  { value: "PLANNED", label: "稼働予定", color: "bg-sky-100 text-sky-700" },
+  { value: "STOPPING", label: "停止予定", color: "bg-amber-100 text-amber-700" },
+  { value: "INACTIVE", label: "停止中", color: "bg-slate-100 text-slate-700" },
+] as const;
 
 function normalizeOptions(xs: Array<string | null | undefined>) {
   const set = new Set<string>();
@@ -241,7 +249,8 @@ function DealNewInner() {
     const initialCustomer = searchParams.get("customerId") || "";
     if (initialCustomer) setCustomerId(initialCustomer);
     const initialStatus = (searchParams.get("status") || "").toUpperCase();
-    if (initialStatus === "ACTIVE" || initialStatus === "INACTIVE") setStatus(initialStatus as DealStatus);
+    const validStatuses = DEAL_STATUS_OPTIONS.map(o => o.value);
+    if (validStatuses.includes(initialStatus as DealStatus)) setStatus(initialStatus as DealStatus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -491,8 +500,11 @@ function DealNewInner() {
                   onChange={(e) => setStatus(e.target.value as DealStatus)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
                 >
-                  <option value="ACTIVE">稼働中</option>
-                  <option value="INACTIVE">停止</option>
+                  {DEAL_STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

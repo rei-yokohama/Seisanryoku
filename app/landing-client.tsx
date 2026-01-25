@@ -8,11 +8,11 @@ import { useRouter } from "next/navigation";
 
 function FeatureCard({ icon, title, description }: { icon: string; title: string; description: string }) {
   return (
-    <div className="group rounded-3xl border border-slate-200 bg-white p-8 shadow-sm transition hover:border-orange-300 hover:shadow-xl">
-      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-50 text-3xl group-hover:scale-110 transition">
+    <div className="group rounded-3xl border border-slate-200/80 bg-white p-7 shadow-sm transition hover:border-orange-300/70 hover:shadow-lg">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-2xl transition group-hover:scale-105">
         {icon}
       </div>
-      <h3 className="mb-2 text-xl font-extrabold text-slate-900">{title}</h3>
+      <h3 className="mb-2 text-lg font-extrabold tracking-tight text-slate-900">{title}</h3>
       <p className="text-sm leading-relaxed text-slate-600">{description}</p>
     </div>
   );
@@ -20,14 +20,14 @@ function FeatureCard({ icon, title, description }: { icon: string; title: string
 
 function MenuCard({ icon, title, description }: { icon: string; title: string; description: string }) {
   return (
-    <div className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-orange-300 hover:shadow-lg">
+    <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:border-orange-300/70 hover:shadow-md">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-lg group-hover:bg-orange-50 transition">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-50 text-lg transition group-hover:bg-orange-50">
           {icon}
         </div>
         <div className="min-w-0">
           <div className="text-sm font-extrabold text-slate-900">{title}</div>
-          <div className="mt-1 text-xs font-bold leading-relaxed text-slate-600">{description}</div>
+          <div className="mt-1 text-xs font-medium leading-relaxed text-slate-600">{description}</div>
         </div>
       </div>
     </div>
@@ -57,15 +57,15 @@ export default function LandingClient() {
   return (
     <div className="min-h-screen bg-slate-50 selection:bg-orange-100 selection:text-orange-900">
       {/* Navigation */}
-      <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+      <nav className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/80 backdrop-blur-md">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6">
           <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-600 text-white font-black text-xl shadow-orange-200 shadow-lg">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-600 text-white font-black text-xl shadow-sm">
               P
             </div>
             <div className="hidden sm:block">
               <p className="text-lg font-black tracking-tighter text-slate-900">生産力</p>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-none">Seisanryoku</p>
+              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest leading-none">Seisanryoku</p>
             </div>
           </Link>
           <div className="hidden items-center gap-6 text-sm font-extrabold text-slate-600 md:flex">
@@ -79,7 +79,7 @@ export default function LandingClient() {
             </Link>
             <Link
               href="/signup"
-              className="rounded-full bg-slate-900 px-6 py-2.5 text-sm font-extrabold text-white shadow-lg transition hover:bg-orange-600 hover:shadow-orange-200 active:scale-95"
+              className="rounded-full bg-slate-900 px-6 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:bg-orange-600 active:scale-95"
             >
               無料で始める
             </Link>
@@ -88,49 +88,129 @@ export default function LandingClient() {
       </nav>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden px-6 pt-20 pb-24 lg:pt-28">
-        <div className="absolute top-0 left-1/2 -z-10 h-[600px] w-[1000px] -translate-x-1/2 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-orange-100/40 via-transparent to-transparent blur-3xl" />
+      <section className="relative overflow-hidden px-4 pt-16 pb-20 sm:px-6 sm:pt-20 sm:pb-24 lg:pt-24">
+        <div className="pointer-events-none absolute -top-24 left-1/2 -z-10 h-[520px] w-[900px] -translate-x-1/2 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-orange-100/45 via-transparent to-transparent blur-3xl" />
 
-        <div className="mx-auto max-w-5xl text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-1.5 text-xs font-black text-orange-700 mb-8">
-            <span className="flex h-2 w-2 rounded-full bg-orange-500" />
-            Workspace-first Productivity Platform
-          </div>
+        <div className="mx-auto max-w-7xl">
+          <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-12">
+            <div className="text-center lg:col-span-6 lg:text-left">
+              <div className="inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-extrabold text-orange-700">
+                <span className="flex h-2 w-2 rounded-full bg-orange-500" />
+                ワークスペース統合（工数・課題・Wiki・ドライブ）
+              </div>
 
-          <h1 className="mb-8 text-5xl font-black tracking-tight text-slate-900 sm:text-7xl lg:text-8xl leading-[1.1]">
-            チームの工数を、<br />
-            <span className="bg-gradient-to-r from-orange-600 to-amber-500 bg-clip-text text-transparent">成果に変える。</span>
-          </h1>
+              <h1 className="mt-6 text-4xl font-black tracking-tight text-slate-900 sm:text-6xl lg:text-6xl leading-[1.15]">
+                チームの工数を、
+                <span className="block bg-gradient-to-r from-orange-600 to-amber-500 bg-clip-text text-transparent">
+                  成果に変える。
+                </span>
+              </h1>
 
-          <p className="mx-auto mb-10 max-w-2xl text-lg font-bold leading-relaxed text-slate-600 sm:text-xl">
-            工数カレンダー、課題、Wiki、ドライブ、顧客/案件をひとつに。<br className="hidden sm:block" />
-            ワークスペースごとにデータを完全分離し、安全で迷わない運用を実現します。
-          </p>
+              <p className="mt-4 max-w-xl text-base leading-relaxed text-slate-600 sm:text-lg">
+                工数カレンダー、課題、Wiki、ドライブ、顧客/案件をひとつに。
+                ワークスペースごとにデータを分離し、迷わない運用を実現します。
+              </p>
 
-          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link href="/signup" className="w-full sm:w-auto rounded-2xl bg-orange-600 px-10 py-5 text-lg font-black text-white shadow-2xl shadow-orange-200 transition hover:bg-orange-700 hover:-translate-y-1 active:scale-95">
-              今すぐ無料で始める
-            </Link>
-            <Link href="/help" className="w-full sm:w-auto rounded-2xl border-2 border-slate-200 bg-white px-10 py-5 text-lg font-black text-slate-700 transition hover:bg-slate-50 hover:border-slate-300 active:scale-95">
-              ヘルプを見る
-            </Link>
-          </div>
+              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row sm:justify-start">
+                <Link
+                  href="/signup"
+                  className="w-full sm:w-auto rounded-2xl bg-orange-600 px-8 py-4 text-base font-extrabold text-white shadow-sm transition hover:bg-orange-700 hover:-translate-y-0.5 active:scale-[0.99]"
+                >
+                  今すぐ無料で始める
+                </Link>
+                <Link
+                  href="#capabilities"
+                  className="w-full sm:w-auto rounded-2xl border border-slate-200 bg-white px-8 py-4 text-base font-extrabold text-slate-700 transition hover:bg-slate-50 active:scale-[0.99]"
+                >
+                  できることを見る
+                </Link>
+              </div>
 
-          <div className="mt-10 grid grid-cols-1 gap-3 text-left sm:grid-cols-3 sm:gap-4">
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="text-xs font-black text-slate-500">運用の軸</div>
-              <div className="mt-1 text-sm font-extrabold text-slate-900">顧客 × 案件 × 課題</div>
-              <div className="mt-1 text-xs font-bold text-slate-600">すべての情報が自然に紐づくので迷いません。</div>
+              <div className="mt-8 grid grid-cols-1 gap-3 text-left sm:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+                  <div className="text-[11px] font-extrabold text-slate-500">運用の軸</div>
+                  <div className="mt-1 text-sm font-extrabold text-slate-900">顧客 × 案件 × 課題</div>
+                  <div className="mt-1 text-xs leading-relaxed text-slate-600">情報が自然に紐づき、探す時間を減らします。</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+                  <div className="text-[11px] font-extrabold text-slate-500">工数の見える化</div>
+                  <div className="mt-1 text-sm font-extrabold text-slate-900">カレンダーで即入力</div>
+                  <div className="mt-1 text-xs leading-relaxed text-slate-600">入力が速いので、運用が続きます。</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+                  <div className="text-[11px] font-extrabold text-slate-500">セキュリティ</div>
+                  <div className="mt-1 text-sm font-extrabold text-slate-900">ワークスペース分離</div>
+                  <div className="mt-1 text-xs leading-relaxed text-slate-600">事業ごとのデータが混ざりません。</div>
+                </div>
+              </div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="text-xs font-black text-slate-500">工数の見える化</div>
-              <div className="mt-1 text-sm font-extrabold text-slate-900">カレンダーで即入力</div>
-              <div className="mt-1 text-xs font-bold text-slate-600">登録/編集が早いので記録が続きます。</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="text-xs font-black text-slate-500">セキュリティ</div>
-              <div className="mt-1 text-sm font-extrabold text-slate-900">ワークスペース分離</div>
-              <div className="mt-1 text-xs font-bold text-slate-600">事業ごとのデータを完全に分離します。</div>
+
+            {/* Preview (visual hierarchy + whitespace) */}
+            <div className="lg:col-span-6">
+              <div className="relative overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-sm">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_10%,_var(--tw-gradient-stops))] from-orange-100/60 via-transparent to-transparent" />
+                <div className="relative p-5 sm:p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-600 text-xs font-black text-white">
+                        P
+                      </div>
+                      <div className="text-sm font-extrabold text-slate-900">生産力</div>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
+                      <span className="rounded-full bg-slate-100 px-2 py-1">ダッシュボード</span>
+                      <span className="rounded-full bg-orange-50 px-2 py-1 text-orange-700">課題</span>
+                      <span className="hidden sm:inline rounded-full bg-slate-100 px-2 py-1">案件</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-12 gap-4">
+                    <div className="col-span-4 rounded-2xl bg-orange-600 p-4 text-white">
+                      <div className="text-[11px] font-semibold text-white/80">グローバルメニュー</div>
+                      <div className="mt-3 space-y-2 text-[12px] font-semibold">
+                        <div className="rounded-lg bg-white/15 px-2 py-2">🏠 ホーム</div>
+                        <div className="rounded-lg bg-white/25 px-2 py-2">📋 課題</div>
+                        <div className="rounded-lg bg-white/15 px-2 py-2">📚 Wiki</div>
+                        <div className="hidden sm:block rounded-lg bg-white/15 px-2 py-2">💼 案件</div>
+                      </div>
+                    </div>
+                    <div className="col-span-8 space-y-3">
+                      <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+                        <div className="text-[11px] font-semibold text-slate-500">今日のタスク</div>
+                        <div className="mt-2 space-y-2">
+                          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="text-xs font-semibold text-slate-800">顧客A：要件整理</div>
+                            <div className="text-[11px] font-semibold text-orange-700">IN PROGRESS</div>
+                          </div>
+                          <div className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+                            <div className="text-xs font-semibold text-slate-800">案件B：見積レビュー</div>
+                            <div className="text-[11px] font-semibold text-slate-500">TODO</div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/80 bg-white p-4">
+                        <div className="text-[11px] font-semibold text-slate-500">Wiki / ドライブ</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800">議事録</div>
+                          <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800">提案資料</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
+                    <div className="text-xs font-extrabold text-orange-800">
+                      迷う前に、左メニューから一直線
+                    </div>
+                    <div className="mt-1 text-[12px] leading-relaxed text-orange-900/70">
+                      情報の入口を固定して、探す時間を削減します。
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 text-center text-xs text-slate-500 lg:text-left">
+                ※ 実際の画面イメージです（UIは日々改善されます）
+              </div>
             </div>
           </div>
         </div>
@@ -145,14 +225,14 @@ export default function LandingClient() {
               <h2 className="mt-3 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
                 できることが、一目で分かる
               </h2>
-              <p className="mt-2 text-sm font-bold leading-relaxed text-slate-600">
+              <p className="mt-2 text-sm font-medium leading-relaxed text-slate-600">
                 左のグローバルメニューを軸に、情報が分散しない運用を作ります。
               </p>
             </div>
             <div className="flex items-center gap-3">
               <Link
                 href="/signup"
-                className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-extrabold text-white shadow-lg shadow-orange-200 transition hover:bg-orange-700 active:scale-95"
+                className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-extrabold text-white shadow-sm transition hover:bg-orange-700 active:scale-[0.99]"
               >
                 無料で始める
               </Link>
@@ -202,17 +282,17 @@ export default function LandingClient() {
               <div className="rounded-2xl bg-white p-5 border border-slate-200">
                 <div className="text-xs font-black text-slate-500">STEP 1</div>
                 <div className="mt-1 text-sm font-extrabold text-slate-900">ワークスペース作成</div>
-                <div className="mt-1 text-xs font-bold text-slate-600">社名・電話番号・氏名を入力して開始。</div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-600">社名・電話番号・氏名を入力して開始。</div>
               </div>
               <div className="rounded-2xl bg-white p-5 border border-slate-200">
                 <div className="text-xs font-black text-slate-500">STEP 2</div>
                 <div className="mt-1 text-sm font-extrabold text-slate-900">顧客/案件を登録</div>
-                <div className="mt-1 text-xs font-bold text-slate-600">運用の軸を作るだけで整理が進みます。</div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-600">運用の軸を作るだけで整理が進みます。</div>
               </div>
               <div className="rounded-2xl bg-white p-5 border border-slate-200">
                 <div className="text-xs font-black text-slate-500">STEP 3</div>
                 <div className="mt-1 text-sm font-extrabold text-slate-900">課題→工数を記録</div>
-                <div className="mt-1 text-xs font-bold text-slate-600">記録→見える化→改善が回り出します。</div>
+                <div className="mt-1 text-xs leading-relaxed text-slate-600">記録→見える化→改善が回り出します。</div>
               </div>
             </div>
           </div>
@@ -225,7 +305,7 @@ export default function LandingClient() {
           <div className="flex flex-col items-end justify-between gap-4 border-b border-slate-200 pb-8 sm:flex-row">
             <div>
               <h2 className="text-3xl font-black tracking-tight text-slate-900">最新のアップデート</h2>
-              <p className="mt-2 text-slate-600 font-bold">ユーザーの声を反映し、日々進化しています。</p>
+              <p className="mt-2 text-slate-600 font-medium">ユーザーの声を反映し、日々進化しています。</p>
             </div>
             <Link href="/releases" className="text-sm font-black text-orange-600 hover:underline">
               すべてのリリースノートを見る →
@@ -259,19 +339,19 @@ export default function LandingClient() {
 
       {/* CTA */}
       <section className="mx-auto max-w-7xl px-6 pb-20">
-        <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-900 px-8 py-16 text-center shadow-2xl">
+        <div className="relative overflow-hidden rounded-[2.5rem] bg-slate-900 px-8 py-16 text-center shadow-xl">
           <div className="absolute top-0 left-0 -z-10 h-full w-full opacity-20 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-orange-500 via-transparent to-transparent" />
 
           <h2 className="mb-4 text-4xl font-black tracking-tight text-white sm:text-6xl">今日から、もっと生産的なチームへ。</h2>
-          <p className="mx-auto mb-8 max-w-xl text-lg font-bold text-slate-400 leading-relaxed">
+          <p className="mx-auto mb-8 max-w-xl text-lg font-medium text-slate-300 leading-relaxed">
             まずはワークスペースを作成して、顧客/案件/課題をひとつに整理しましょう。
           </p>
 
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link href="/signup" className="w-full sm:w-auto rounded-2xl bg-orange-600 px-12 py-5 text-xl font-black text-white shadow-xl shadow-orange-900/20 transition hover:bg-orange-500 hover:-translate-y-1 active:scale-95">
+            <Link href="/signup" className="w-full sm:w-auto rounded-2xl bg-orange-600 px-12 py-5 text-xl font-black text-white shadow-sm transition hover:bg-orange-500 hover:-translate-y-0.5 active:scale-[0.99]">
               無料で始める
             </Link>
-            <Link href="/help" className="w-full sm:w-auto rounded-2xl bg-white/10 px-12 py-5 text-xl font-black text-white backdrop-blur-md transition hover:bg-white/20 active:scale-95">
+            <Link href="/help" className="w-full sm:w-auto rounded-2xl bg-white/10 px-12 py-5 text-xl font-black text-white backdrop-blur-md transition hover:bg-white/15 active:scale-[0.99]">
               使い方を見る
             </Link>
           </div>
