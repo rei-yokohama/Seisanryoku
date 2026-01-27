@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { ReactNode, useEffect, useMemo, useState } from "react";
+import { ReactNode, Suspense, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
@@ -12,6 +12,35 @@ type NavItem = {
   label: string;
   href: string;
   icon: string;
+  permissionKey?: string; // 権限キー（undefinedなら常に表示）
+};
+
+type MenuPermissions = {
+  dashboard: boolean;
+  members: boolean;
+  projects: boolean;
+  issues: boolean;
+  customers: boolean;
+  files: boolean;
+  billing: boolean;
+  settings: boolean;
+  wiki: boolean;
+  effort: boolean;
+  calendar: boolean;
+};
+
+const DEFAULT_MENU_PERMISSIONS: MenuPermissions = {
+  dashboard: true,
+  members: false,
+  projects: true,
+  issues: true,
+  customers: false,
+  files: true,
+  billing: false,
+  settings: false,
+  wiki: true,
+  effort: true,
+  calendar: true,
 };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -27,15 +56,98 @@ export type AppShellProps = {
   sidebarTop?: ReactNode;
 };
 
+function HeaderSearchForm({
+  pathname,
+  projectId,
+}: {
+  pathname: string;
+  projectId?: string | null;
+}) {
+  const searchParams = useSearchParams();
+  const isProjectsPage = pathname === "/projects" || pathname === "/crm/deals";
+  return (
+    <form
+      className="flex items-center gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const formData = new FormData(e.currentTarget);
+        const query = (formData.get("projectSearch") as string)?.trim();
+        if (!query) return;
+        if (projectId) {
+          window.location.href = `/projects/${projectId}/issues?q=${encodeURIComponent(query)}`;
+        } else if (isProjectsPage) {
+          window.location.href = `/projects?q=${encodeURIComponent(query)}`;
+        }
+      }}
+    >
+      <div className="relative">
+        <input
+          type="text"
+          name="projectSearch"
+          defaultValue={isProjectsPage ? (searchParams.get("q") ?? "") : ""}
+          placeholder={isProjectsPage ? "案件名・顧客名で検索" : "ワークスペース内を検索"}
+          className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+        />
+        <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-orange-600">
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function HeaderSearchFormFallback({
+  pathname,
+  projectId,
+}: {
+  pathname: string;
+  projectId?: string | null;
+}) {
+  const isProjectsPage = pathname === "/projects" || pathname === "/crm/deals";
+  return (
+    <form
+      className="flex items-center gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const formData = new FormData(e.currentTarget);
+        const query = (formData.get("projectSearch") as string)?.trim();
+        if (!query) return;
+        if (projectId) {
+          window.location.href = `/projects/${projectId}/issues?q=${encodeURIComponent(query)}`;
+        } else if (isProjectsPage) {
+          window.location.href = `/projects?q=${encodeURIComponent(query)}`;
+        }
+      }}
+    >
+      <div className="relative">
+        <input
+          type="text"
+          name="projectSearch"
+          placeholder={isProjectsPage ? "案件名・顧客名で検索" : "ワークスペース内を検索"}
+          className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+        />
+        <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-orange-600">
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export function AppShell({ title, subtitle, children, projectId, headerRight, sidebarTop }: AppShellProps) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [companyDisplayName, setCompanyDisplayName] = useState("会社未設定");
   const [userDisplayName, setUserDisplayName] = useState("ユーザー");
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [isOwner, setIsOwner] = useState(false);
+  const [menuPermissions, setMenuPermissions] = useState<MenuPermissions | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -43,6 +155,8 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
         setCompanyDisplayName("未ログイン");
         setUserDisplayName("未ログイン");
         setUnreadNotifications(0);
+        setIsOwner(false);
+        setMenuPermissions(null);
         return;
       }
       try {
@@ -54,6 +168,8 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
         const fallback = (prof?.companyName as string | undefined) || "会社未設定";
         if (!code) {
           setCompanyDisplayName(fallback);
+          setIsOwner(false);
+          setMenuPermissions(null);
           return;
         }
 
@@ -61,12 +177,49 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
         if (compSnap.exists()) {
           const c = compSnap.data() as any;
           setCompanyDisplayName((c.companyName as string | undefined) || fallback);
+          // オーナー判定
+          const ownerUid = c.ownerUid || "";
+          setIsOwner(ownerUid === u.uid);
+          // オーナーなら全権限
+          if (ownerUid === u.uid) {
+            setMenuPermissions({
+              dashboard: true, members: true, projects: true, issues: true, customers: true,
+              files: true, billing: true, settings: true, wiki: true, effort: true, calendar: true,
+            });
+          } else {
+            // メンバーの権限を取得
+            const membershipId = `${code}_${u.uid}`;
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", membershipId));
+            if (msSnap.exists()) {
+              const ms = msSnap.data() as any;
+              const p = ms.permissions || {};
+              setMenuPermissions({
+                dashboard: p.dashboard ?? DEFAULT_MENU_PERMISSIONS.dashboard,
+                members: p.members ?? DEFAULT_MENU_PERMISSIONS.members,
+                projects: p.projects ?? DEFAULT_MENU_PERMISSIONS.projects,
+                issues: p.issues ?? DEFAULT_MENU_PERMISSIONS.issues,
+                customers: p.customers ?? DEFAULT_MENU_PERMISSIONS.customers,
+                files: p.files ?? DEFAULT_MENU_PERMISSIONS.files,
+                billing: p.billing ?? DEFAULT_MENU_PERMISSIONS.billing,
+                settings: p.settings ?? DEFAULT_MENU_PERMISSIONS.settings,
+                wiki: p.wiki ?? DEFAULT_MENU_PERMISSIONS.wiki,
+                effort: p.effort ?? DEFAULT_MENU_PERMISSIONS.effort,
+                calendar: p.calendar ?? DEFAULT_MENU_PERMISSIONS.calendar,
+              });
+            } else {
+              setMenuPermissions(DEFAULT_MENU_PERMISSIONS);
+            }
+          }
         } else {
           setCompanyDisplayName(fallback);
+          setIsOwner(false);
+          setMenuPermissions(DEFAULT_MENU_PERMISSIONS);
         }
       } catch {
         setCompanyDisplayName("会社未設定");
         setUserDisplayName(u.email?.split("@")[0] || "ユーザー");
+        setIsOwner(false);
+        setMenuPermissions(null);
       }
     });
     return () => unsub();
@@ -270,37 +423,9 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
         </div>
         <div className="flex items-center gap-3">
           {headerRight}
-          <form 
-            className="flex items-center gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const formData = new FormData(e.currentTarget);
-              const query = (formData.get("projectSearch") as string)?.trim();
-              if (!query) return;
-              if (projectId) {
-                window.location.href = `/projects/${projectId}/issues?q=${encodeURIComponent(query)}`;
-              } else if (pathname === "/projects" || pathname === "/crm/deals") {
-                window.location.href = `/projects?q=${encodeURIComponent(query)}`;
-              }
-            }}
-          >
-            <div className="relative">
-              <input
-                type="text"
-                name="projectSearch"
-                defaultValue={
-                  (pathname === "/projects" || pathname === "/crm/deals") ? (searchParams.get("q") ?? "") : ""
-                }
-                placeholder={pathname === "/projects" || pathname === "/crm/deals" ? "案件名・顧客名で検索" : "ワークスペース内を検索"}
-                className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
-              />
-              <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-orange-600">
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </button>
-            </div>
-          </form>
+          <Suspense fallback={<HeaderSearchFormFallback pathname={pathname} projectId={projectId} />}>
+            <HeaderSearchForm pathname={pathname} projectId={projectId} />
+          </Suspense>
         </div>
       </div>
     </div>
@@ -322,18 +447,26 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
       </div>
       
       <div className="flex-1 overflow-y-auto py-2">
-        {[
-          { icon: "🏠", label: "ホーム", href: "/dashboard" },
-          { icon: "📋", label: "課題", href: "/issue" },
-          { icon: "📚", label: "Wiki", href: "/wiki" },
-          { icon: "👥", label: "顧客", href: "/customers" },
-          { icon: "💼", label: "案件", href: "/projects" },
-          { icon: "💴", label: "収支", href: "/balance" },
-          { icon: "⏱", label: "工数", href: "/effort" },
-          { icon: "💾", label: "ドライブ", href: "/drive" },
-          { icon: "📅", label: "カレンダー", href: "/calendar" },
-          { icon: "⚙️", label: "設定", href: "/settings" }
-        ].map((it, idx) => (
+        {([
+          { icon: "🏠", label: "ホーム", href: "/dashboard", permissionKey: "dashboard" },
+          { icon: "📋", label: "課題", href: "/issue", permissionKey: "issues" },
+          { icon: "📚", label: "Wiki", href: "/wiki", permissionKey: "wiki" },
+          { icon: "👥", label: "顧客", href: "/customers", permissionKey: "customers" },
+          { icon: "💼", label: "案件", href: "/projects", permissionKey: "projects" },
+          { icon: "💴", label: "収支", href: "/balance", permissionKey: "billing" },
+          { icon: "⏱", label: "工数", href: "/effort", permissionKey: "effort" },
+          { icon: "💾", label: "ドライブ", href: "/drive", permissionKey: "files" },
+          { icon: "📅", label: "カレンダー", href: "/calendar", permissionKey: "calendar" },
+          { icon: "🧑‍💼", label: "メンバー", href: "/members", permissionKey: "members" },
+          { icon: "⚙️", label: "設定", href: "/settings", permissionKey: "settings" }
+        ] as NavItem[]).filter((it) => {
+          // 権限キーがない項目は常に表示
+          if (!it.permissionKey) return true;
+          // 権限データがまだロードされていない場合は表示しない
+          if (!menuPermissions) return false;
+          // 権限があれば表示
+          return menuPermissions[it.permissionKey as keyof MenuPermissions];
+        }).map((it, idx) => (
           <Link
             key={`${it.label}-${idx}`}
             href={it.href}

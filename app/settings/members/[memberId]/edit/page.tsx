@@ -22,16 +22,21 @@ type Company = {
 };
 
 type Permissions = {
+  dashboard: boolean; // ホーム
   members: boolean;   // メンバー管理（招待・編集・削除）
-  projects: boolean;  // プロジェクト管理
-  issues: boolean;    // イシュー管理
+  projects: boolean;  // プロジェクト管理（案件）
+  issues: boolean;    // イシュー管理（課題）
   customers: boolean; // 顧客管理
-  files: boolean;     // ファイル管理
-  billing: boolean;   // 請求・売上管理
+  files: boolean;     // ファイル管理（ドライブ）
+  billing: boolean;   // 請求・売上管理（収支）
   settings: boolean;  // ワークスペース設定
+  wiki: boolean;      // Wiki
+  effort: boolean;    // 工数
+  calendar: boolean;  // カレンダー
 };
 
 const DEFAULT_PERMISSIONS: Permissions = {
+  dashboard: true,
   members: false,
   projects: true,
   issues: true,
@@ -39,16 +44,23 @@ const DEFAULT_PERMISSIONS: Permissions = {
   files: true,
   billing: false,
   settings: false,
+  wiki: true,
+  effort: true,
+  calendar: true,
 };
 
 const PERMISSION_LABELS: Record<keyof Permissions, string> = {
-  members: "メンバー管理",
-  projects: "プロジェクト管理",
-  issues: "イシュー管理",
-  customers: "顧客管理",
-  files: "ファイル管理",
-  billing: "請求・売上管理",
-  settings: "ワークスペース設定",
+  dashboard: "ホーム",
+  issues: "課題",
+  wiki: "Wiki",
+  customers: "顧客",
+  projects: "案件",
+  billing: "収支",
+  effort: "工数",
+  files: "ドライブ",
+  calendar: "カレンダー",
+  members: "メンバー",
+  settings: "設定",
 };
 
 type WorkspaceMembership = {
@@ -176,7 +188,21 @@ export default function MemberEditPage() {
             // admin は member に変換（後方互換）
             const savedRole = m?.role === "admin" ? "member" : m?.role;
             setRole(savedRole || (targetIsCompanyOwner ? "owner" : "member"));
-            setPermissions(m?.permissions || DEFAULT_PERMISSIONS);
+            // 既存データと新しい権限キーをマージ
+            const p = m?.permissions || {};
+            setPermissions({
+              dashboard: p.dashboard ?? DEFAULT_PERMISSIONS.dashboard,
+              members: p.members ?? DEFAULT_PERMISSIONS.members,
+              projects: p.projects ?? DEFAULT_PERMISSIONS.projects,
+              issues: p.issues ?? DEFAULT_PERMISSIONS.issues,
+              customers: p.customers ?? DEFAULT_PERMISSIONS.customers,
+              files: p.files ?? DEFAULT_PERMISSIONS.files,
+              billing: p.billing ?? DEFAULT_PERMISSIONS.billing,
+              settings: p.settings ?? DEFAULT_PERMISSIONS.settings,
+              wiki: p.wiki ?? DEFAULT_PERMISSIONS.wiki,
+              effort: p.effort ?? DEFAULT_PERMISSIONS.effort,
+              calendar: p.calendar ?? DEFAULT_PERMISSIONS.calendar,
+            });
           } catch (e) {
             console.warn(e);
             setMembership(null);
@@ -454,7 +480,7 @@ export default function MemberEditPage() {
                 )}
               >
                 <div className="text-sm font-extrabold text-slate-900">メンバー</div>
-                <div className="mt-1 text-[11px] font-bold text-slate-500">個別権限を設定</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-500">メニュー表示権限を設定</div>
               </button>
             </div>
             {targetIsCompanyOwner ? (
@@ -462,31 +488,43 @@ export default function MemberEditPage() {
             ) : null}
           </div>
 
-          {/* メンバーの場合のみ個別権限を表示 */}
+          {/* メンバーの場合のみメニュー表示権限を表示 */}
           {!targetIsCompanyOwner && role === "member" ? (
             <div className="mt-4">
-              <div className="text-xs font-extrabold text-slate-500">個別権限</div>
-              <div className="mt-2 space-y-2">
+              <div className="text-xs font-extrabold text-slate-500">メニュー表示権限</div>
+              <div className="mt-1 text-[11px] text-slate-400">チェックした項目がグローバルメニューに表示されます</div>
+              <div className="mt-3 space-y-2">
                 {(Object.keys(PERMISSION_LABELS) as (keyof Permissions)[]).map((key) => (
-                  <label
-                    key={key}
-                    className={clsx(
-                      "flex items-center justify-between rounded-lg border p-3 transition",
-                      permissions[key] ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white",
-                      !isOwner && "cursor-not-allowed opacity-60",
+                  <div key={key} className="space-y-1">
+                    <label
+                      className={clsx(
+                        "flex items-center justify-between rounded-lg border p-3 transition",
+                        permissions[key] ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white",
+                        !isOwner && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      <span className="text-sm font-bold text-slate-800">{PERMISSION_LABELS[key]}</span>
+                      <input
+                        type="checkbox"
+                        checked={permissions[key]}
+                        onChange={(e) =>
+                          isOwner && setPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
+                        }
+                        disabled={!isOwner}
+                        className="h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                      />
+                    </label>
+                    {/* 詳細権限リンク（対応するものがある場合のみ） */}
+                    {key === "calendar" && permissions[key] && isOwner && (
+                      <Link
+                        href={`/settings/members/${memberId}/permissions/calendar`}
+                        className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                      >
+                        <span>→</span>
+                        <span>カレンダー権限をさらに制御する</span>
+                      </Link>
                     )}
-                  >
-                    <span className="text-sm font-bold text-slate-800">{PERMISSION_LABELS[key]}</span>
-                    <input
-                      type="checkbox"
-                      checked={permissions[key]}
-                      onChange={(e) =>
-                        isOwner && setPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
-                      }
-                      disabled={!isOwner}
-                      className="h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                    />
-                  </label>
+                  </div>
                 ))}
               </div>
             </div>

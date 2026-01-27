@@ -1,9 +1,59 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { auth, db } from "../../lib/firebase";
+import { ensureProfile } from "../../lib/ensureProfile";
 import { AppShell } from "../AppShell";
 
 export default function SettingsPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        router.push("/login");
+        return;
+      }
+      try {
+        const prof = await ensureProfile(u);
+        if (prof?.companyCode) {
+          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
+          if (!isOwner) {
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+            if (msSnap.exists()) {
+              const perms = (msSnap.data() as any).permissions || {};
+              if (perms.settings === false) {
+                window.location.href = "/";
+                return;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("permission check failed:", e);
+      } finally {
+        setLoading(false);
+      }
+    });
+    return () => unsub();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <AppShell title="設定" subtitle="読み込み中...">
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <div className="text-2xl font-extrabold text-orange-900">読み込み中...</div>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell title="設定" subtitle="設定メニュー">
       <div className="mx-auto w-full max-w-5xl space-y-6">

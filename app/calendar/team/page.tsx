@@ -81,6 +81,8 @@ type Deal = {
   title: string;
   customerId?: string | null;
   companyCode?: string;
+  leaderUid?: string | null;
+  subLeaderUid?: string | null;
 };
 
 const formatTime = (dateString: string) => {
@@ -253,10 +255,25 @@ function expandRecurringEntries(entries: TimeEntry[], rangeStart: Date, rangeEnd
   return out;
 }
 
+type CalendarPermissions = {
+  viewOthersCalendar: boolean;
+  editOthersEvents: boolean;
+  createEvents: boolean;
+  deleteOthersEvents: boolean;
+};
+
+const DEFAULT_CALENDAR_PERMISSIONS: CalendarPermissions = {
+  viewOthersCalendar: false, // デフォルトは他メンバーのカレンダーを見れない（安全なデフォルト）
+  editOthersEvents: false,
+  createEvents: true,
+  deleteOthersEvents: false,
+};
+
 export default function TeamCalendarPage() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [companyOwnerUid, setCompanyOwnerUid] = useState<string | null>(null);
+  const [calendarPermissions, setCalendarPermissions] = useState<CalendarPermissions>(DEFAULT_CALENDAR_PERMISSIONS);
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -353,6 +370,49 @@ export default function TeamCalendarPage() {
     for (const d of deals) m[d.id] = d;
     return m;
   }, [deals]);
+
+  // 権限に基づいてフィルタされたエントリー
+  const filteredEntries = useMemo(() => {
+    // 他メンバーのカレンダーを見れない場合、自分の予定のみ表示
+    if (!calendarPermissions.viewOthersCalendar && user) {
+      return entries.filter((e) => e.uid === user.uid || (e.guestUids || []).includes(user.uid));
+    }
+    return entries;
+  }, [entries, calendarPermissions.viewOthersCalendar, user]);
+
+  // 権限に基づいてフィルタされた社員一覧（サイドバー用）
+  const filteredEmployees = useMemo(() => {
+    // 他メンバーのカレンダーを見れない場合、自分だけ表示
+    if (!calendarPermissions.viewOthersCalendar && user) {
+      return employees.filter((e) => e.authUid === user.uid);
+    }
+    return employees;
+  }, [employees, calendarPermissions.viewOthersCalendar, user]);
+
+  // 自分が担当の案件（リーダーまたはサブリーダー）
+  const myDeals = useMemo(() => {
+    // オーナーは全案件
+    if (user?.uid === companyOwnerUid) {
+      return deals;
+    }
+    return deals.filter((d) => d.leaderUid === user?.uid || d.subLeaderUid === user?.uid);
+  }, [deals, user?.uid, companyOwnerUid]);
+
+  // 自分が担当の案件に紐づいた顧客のみ
+  const myCustomers = useMemo(() => {
+    // オーナーは全顧客
+    if (user?.uid === companyOwnerUid) {
+      return customers;
+    }
+    // 自分が担当の案件に紐づいた顧客IDを収集
+    const myCustomerIds = new Set<string>();
+    for (const d of myDeals) {
+      if (d.customerId) {
+        myCustomerIds.add(d.customerId);
+      }
+    }
+    return customers.filter((c) => myCustomerIds.has(c.id));
+  }, [customers, myDeals, user?.uid, companyOwnerUid]);
 
   const entryTitle = useCallback(
     (e: TimeEntry) => {
@@ -528,6 +588,45 @@ export default function TeamCalendarPage() {
             console.log("チームカレンダー: ownerUid:", companyData.ownerUid, "現在のuid:", u.uid);
             setCompanyOwnerUid(companyData.ownerUid || null);
 
+            // 権限チェック
+            const isOwner = companyData.ownerUid === u.uid;
+            if (isOwner) {
+              // オーナーは全権限
+              setCalendarPermissions({
+                viewOthersCalendar: true,
+                editOthersEvents: true,
+                createEvents: true,
+                deleteOthersEvents: true,
+              });
+            } else {
+              try {
+                const msSnap = await getDoc(doc(db, "workspaceMemberships", `${data.companyCode}_${u.uid}`));
+                if (msSnap.exists()) {
+                  const msData = msSnap.data() as any;
+                  const perms = msData.permissions || {};
+                  if (perms.calendar === false) {
+                    window.location.href = "/";
+                    return;
+                  }
+                  // カレンダー詳細権限を取得
+                  const cp = msData.calendarPermissions || {};
+                  setCalendarPermissions({
+                    viewOthersCalendar: cp.viewOthersCalendar ?? DEFAULT_CALENDAR_PERMISSIONS.viewOthersCalendar,
+                    editOthersEvents: cp.editOthersEvents ?? DEFAULT_CALENDAR_PERMISSIONS.editOthersEvents,
+                    createEvents: cp.createEvents ?? DEFAULT_CALENDAR_PERMISSIONS.createEvents,
+                    deleteOthersEvents: cp.deleteOthersEvents ?? DEFAULT_CALENDAR_PERMISSIONS.deleteOthersEvents,
+                  });
+                } else {
+                  // membershipがない場合はデフォルト権限を使用
+                  setCalendarPermissions(DEFAULT_CALENDAR_PERMISSIONS);
+                }
+              } catch (e) {
+                console.warn("permission check failed:", e);
+                // エラー時もデフォルト権限を使用
+                setCalendarPermissions(DEFAULT_CALENDAR_PERMISSIONS);
+              }
+            }
+
             // 個人カレンダーを廃止したため、チームカレンダーは全ユーザーが閲覧できるようにする
             const loadedEmployees = await loadEmployees(data.companyCode, u.uid);
             await loadCustomersDeals(data.companyCode);
@@ -606,6 +705,10 @@ export default function TeamCalendarPage() {
 
   const createEntry = async () => {
     if (!user) return;
+    if (!calendarPermissions.createEvents) {
+      alert("予定を作成する権限がありません");
+      return;
+    }
     if (!newCustomerId || !newDealId) {
       alert("顧客と案件は必ず選択してください");
       return;
@@ -748,6 +851,12 @@ export default function TeamCalendarPage() {
 
   const saveEntryEdit = async () => {
     if (!activeEntry) return;
+    // 他人の予定の編集権限チェック
+    const isOthersEntry = activeEntry.uid !== user?.uid;
+    if (isOthersEntry && !calendarPermissions.editOthersEvents) {
+      alert("他のメンバーの予定を編集する権限がありません");
+      return;
+    }
     const project = editProject.trim();
     if (!project) {
       alert("案件/作業名を入力してください");
@@ -812,6 +921,12 @@ export default function TeamCalendarPage() {
 
   const deleteEntry = async () => {
     if (!activeEntry) return;
+    // 他人の予定の削除権限チェック
+    const isOthersEntry = activeEntry.uid !== user?.uid;
+    if (isOthersEntry && !calendarPermissions.deleteOthersEvents) {
+      alert("他のメンバーの予定を削除する権限がありません");
+      return;
+    }
     if (activeEntry.repeat) {
       setRecurringDeleteOpen(true);
       return;
@@ -914,6 +1029,12 @@ export default function TeamCalendarPage() {
   };
 
   const moveEntry = async (e: TimeEntry, nextStart: Date, nextEnd: Date) => {
+    // 他人の予定の編集権限チェック
+    const isOthersEntry = e.uid !== user?.uid;
+    if (isOthersEntry && !calendarPermissions.editOthersEvents) {
+      alert("他のメンバーの予定を編集する権限がありません");
+      return;
+    }
     const id = e.baseId || e.id;
     await updateDoc(doc(db, "timeEntries", id), {
       start: nextStart.toISOString(),
@@ -1212,15 +1333,15 @@ export default function TeamCalendarPage() {
 
           <div className="mb-8">
             <h3 className="mb-3 px-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
-              チームメンバー ({employees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase())).length})
+              チームメンバー ({filteredEmployees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase())).length})
             </h3>
             <div className="space-y-0.5">
-              {employees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase())).length === 0 && (
+              {filteredEmployees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase())).length === 0 && (
                 <div className="mx-2 rounded-lg bg-slate-50 p-3 text-center border border-dashed border-slate-200">
                   <p className="text-xs font-bold text-slate-400 italic">メンバーなし</p>
                 </div>
               )}
-              {employees
+              {filteredEmployees
                 .filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase()))
                 .map((emp) => (
                 <label
@@ -1270,7 +1391,7 @@ export default function TeamCalendarPage() {
 
   const renderTeamDayView = () => {
     const getEmployeeEntries = (uid: string) => {
-      return entries.filter((entry) => {
+      return filteredEntries.filter((entry) => {
         const isParticipant = entry.uid === uid || (entry.guestUids || []).includes(uid);
         if (!isParticipant) return false;
         const entryDate = new Date(entry.start);
@@ -1282,7 +1403,7 @@ export default function TeamCalendarPage() {
       });
     };
 
-    const displayEmployees = employees
+    const displayEmployees = filteredEmployees
       .map((emp) => ({
         id: emp.id,
         name: emp.name,
@@ -1506,7 +1627,7 @@ export default function TeamCalendarPage() {
     });
 
     const getDayEntries = (date: Date) => {
-      return entries.filter((entry) => {
+      return filteredEntries.filter((entry) => {
         const entryDate = new Date(entry.start);
         const isSelectedParticipant =
           selectedEmployeeIds.has(entry.uid) || (entry.guestUids || []).some((u) => selectedEmployeeIds.has(u));
@@ -1720,7 +1841,7 @@ export default function TeamCalendarPage() {
     for (let i = 1; i <= numDays; i++) days.push(new Date(year, month, i));
 
     const getDayEntries = (date: Date) => {
-      return entries.filter((entry) => {
+      return filteredEntries.filter((entry) => {
         const entryDate = new Date(entry.start);
         const isSelectedParticipant =
           selectedEmployeeIds.has(entry.uid) || (entry.guestUids || []).some((u) => selectedEmployeeIds.has(u));
@@ -1836,7 +1957,7 @@ export default function TeamCalendarPage() {
   console.log("employees:", employees);
   console.log("showSidebar:", showSidebar);
 
-  const canCreateNewEntry = !!newCustomerId && !!newDealId;
+  const canCreateNewEntry = !!newCustomerId && !!newDealId && calendarPermissions.createEvents;
 
   return (
     <AppShell title="カレンダー" subtitle={getDateRangeText()}>
@@ -1927,10 +2048,11 @@ export default function TeamCalendarPage() {
         </div>
 
       {createOpen && (
-        <div className="fixed inset-0 z-[60]">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40" onClick={() => setCreateOpen(false)} />
-          <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-5 shadow-xl">
-            <div className="flex items-center justify-between">
+          <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl bg-white shadow-xl">
+            {/* ヘッダー（固定） */}
+            <div className="flex items-center justify-between p-5 pb-0 flex-shrink-0">
               <div className="text-sm font-extrabold text-slate-900">工数を登録</div>
               <button
                 onClick={() => setCreateOpen(false)}
@@ -1941,15 +2063,17 @@ export default function TeamCalendarPage() {
               </button>
             </div>
 
-            {!canCreateNewEntry ? (
-              <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
-                顧客と案件を選択すると登録できます。
-              </div>
-            ) : (
-              <div className="mt-4" />
-            )}
+            {/* スクロール可能なコンテンツ */}
+            <div className="flex-1 overflow-y-auto px-5">
+              {!canCreateNewEntry ? (
+                <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
+                  顧客と案件を選択すると登録できます。
+                </div>
+              ) : (
+                <div className="mt-4" />
+              )}
 
-            <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-3">
               <div>
                 <div className="text-xs font-extrabold text-slate-500">日付</div>
                 <input
@@ -2074,12 +2198,17 @@ export default function TeamCalendarPage() {
                   )}
                 >
                   <option value="">（未選択）</option>
-                  {customers.map((c) => (
+                  {myCustomers.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>
                   ))}
                 </select>
+                {user?.uid !== companyOwnerUid && (
+                  <div className="mt-1 text-[10px] font-bold text-slate-500">
+                    ※ 自分が担当の案件に関連する顧客のみ表示されます
+                  </div>
+                )}
               </div>
 
               <div>
@@ -2095,17 +2224,25 @@ export default function TeamCalendarPage() {
                   )}
                 >
                   <option value="">（未選択）</option>
-                  {deals
-                    .filter((d) => !newCustomerId || !d.customerId || d.customerId === newCustomerId)
+                  {myDeals
+                    .filter((d) => {
+                      // 顧客フィルタ（顧客が選択されている場合はその顧客の案件のみ）
+                      if (newCustomerId && d.customerId && d.customerId !== newCustomerId) {
+                        return false;
+                      }
+                      return true;
+                    })
                     .map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.title}
                       </option>
                     ))}
                 </select>
-                <div className="mt-1 text-[10px] font-bold text-slate-500">
-                  ※ 顧客を選ぶと、関連する案件を優先表示します
-                </div>
+                {user?.uid !== companyOwnerUid && (
+                  <div className="mt-1 text-[10px] font-bold text-slate-500">
+                    ※ 自分が担当の案件のみ表示されます
+                  </div>
+                )}
               </div>
 
               <div>
@@ -2249,55 +2386,60 @@ export default function TeamCalendarPage() {
                 )}
               </div>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
-                  <div className="text-[11px] font-bold text-slate-500">{newGuestUids.length} 人</div>
-                </div>
-                <div className="mt-2 grid grid-cols-1 gap-1">
-                  {employees
-                    .filter((e) => !!e.authUid && e.authUid !== user?.uid)
-                    .map((emp) => {
-                      const uid = emp.authUid as string;
-                      const checked = newGuestUids.includes(uid);
-                      return (
-                        <label key={uid} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-white cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(ev) => {
-                              setNewGuestUids((prev) => {
-                                const s = new Set(prev);
-                                if (ev.target.checked) s.add(uid);
-                                else s.delete(uid);
-                                return Array.from(s.values());
-                              });
-                            }}
-                            className="h-4 w-4"
-                          />
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div
-                              className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
-                              style={{ backgroundColor: emp.color || "#3B82F6" }}
-                            >
-                              {emp.name.charAt(0)}
+              {calendarPermissions.viewOthersCalendar && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
+                    <div className="text-[11px] font-bold text-slate-500">{newGuestUids.length} 人</div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 gap-1">
+                    {filteredEmployees
+                      .filter((e) => !!e.authUid && e.authUid !== user?.uid)
+                      .map((emp) => {
+                        const uid = emp.authUid as string;
+                        const checked = newGuestUids.includes(uid);
+                        return (
+                          <label key={uid} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-white cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(ev) => {
+                                setNewGuestUids((prev) => {
+                                  const s = new Set(prev);
+                                  if (ev.target.checked) s.add(uid);
+                                  else s.delete(uid);
+                                  return Array.from(s.values());
+                                });
+                              }}
+                              className="h-4 w-4"
+                            />
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
+                                style={{ backgroundColor: emp.color || "#3B82F6" }}
+                              >
+                                {emp.name.charAt(0)}
+                              </div>
+                              <div className="truncate text-xs font-bold text-slate-700">{emp.name}</div>
                             </div>
-                            <div className="truncate text-xs font-bold text-slate-700">{emp.name}</div>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  {employees.filter((e) => !!e.authUid && e.authUid !== user?.uid).length === 0 ? (
-                    <div className="text-xs font-bold text-slate-500">招待できるメンバーがいません</div>
-                  ) : null}
+                          </label>
+                        );
+                      })}
+                    {filteredEmployees.filter((e) => !!e.authUid && e.authUid !== user?.uid).length === 0 ? (
+                      <div className="text-xs font-bold text-slate-500">招待できるメンバーがいません</div>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 text-[10px] font-bold text-slate-500">
+                    ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
+                  </div>
                 </div>
-                <div className="mt-2 text-[10px] font-bold text-slate-500">
-                  ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
-                </div>
-              </div>
+              )}
             </div>
 
-            <div className="mt-5 flex items-center justify-end gap-2">
+            </div>
+
+            {/* フッター（固定） */}
+            <div className="p-5 pt-3 flex items-center justify-end gap-2 flex-shrink-0 border-t border-slate-100">
               <button
                 onClick={() => setCreateOpen(false)}
                 className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
@@ -2663,54 +2805,56 @@ export default function TeamCalendarPage() {
                       )}
                     </div>
 
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
-                        <div className="text-[11px] font-bold text-slate-500">
-                          {editGuestUids.length} 人
+                    {calendarPermissions.viewOthersCalendar && (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
+                          <div className="text-[11px] font-bold text-slate-500">
+                            {editGuestUids.length} 人
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-1 gap-1">
+                          {filteredEmployees
+                            .filter((e) => !!e.authUid && e.authUid !== activeEntry.uid)
+                            .map((emp) => {
+                              const uid = emp.authUid as string;
+                              const checked = editGuestUids.includes(uid);
+                              return (
+                                <label key={uid} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-white cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(ev) => {
+                                      setEditGuestUids((prev) => {
+                                        const s = new Set(prev);
+                                        if (ev.target.checked) s.add(uid);
+                                        else s.delete(uid);
+                                        return Array.from(s.values());
+                                      });
+                                    }}
+                                    className="h-4 w-4"
+                                  />
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div
+                                      className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
+                                      style={{ backgroundColor: emp.color || "#3B82F6" }}
+                                    >
+                                      {emp.name.charAt(0)}
+                                    </div>
+                                    <div className="truncate text-xs font-bold text-slate-700">{emp.name}</div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          {filteredEmployees.filter((e) => !!e.authUid && e.authUid !== activeEntry.uid).length === 0 ? (
+                            <div className="text-xs font-bold text-slate-500">招待できるメンバーがいません</div>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 text-[10px] font-bold text-slate-500">
+                          ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
                         </div>
                       </div>
-                      <div className="mt-2 grid grid-cols-1 gap-1">
-                        {employees
-                          .filter((e) => !!e.authUid && e.authUid !== activeEntry.uid)
-                          .map((emp) => {
-                            const uid = emp.authUid as string;
-                            const checked = editGuestUids.includes(uid);
-                            return (
-                              <label key={uid} className="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-white cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={(ev) => {
-                                    setEditGuestUids((prev) => {
-                                      const s = new Set(prev);
-                                      if (ev.target.checked) s.add(uid);
-                                      else s.delete(uid);
-                                      return Array.from(s.values());
-                                    });
-                                  }}
-                                  className="h-4 w-4"
-                                />
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <div
-                                    className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
-                                    style={{ backgroundColor: emp.color || "#3B82F6" }}
-                                  >
-                                    {emp.name.charAt(0)}
-                                  </div>
-                                  <div className="truncate text-xs font-bold text-slate-700">{emp.name}</div>
-                                </div>
-                              </label>
-                            );
-                          })}
-                        {employees.filter((e) => !!e.authUid && e.authUid !== activeEntry.uid).length === 0 ? (
-                          <div className="text-xs font-bold text-slate-500">招待できるメンバーがいません</div>
-                        ) : null}
-                      </div>
-                      <div className="mt-2 text-[10px] font-bold text-slate-500">
-                        ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
-                      </div>
-                    </div>
+                    )}
                   </div>
 
                   <div className="mt-4 flex items-center justify-end gap-2">

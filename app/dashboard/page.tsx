@@ -11,6 +11,20 @@ import { AppShell } from "../AppShell";
 import type { Issue } from "../../lib/backlog";
 import { type Activity } from "../../lib/activity";
 
+const DEFAULT_PERMISSIONS = {
+  dashboard: true,
+  members: false,
+  projects: true,
+  issues: true,
+  customers: false,
+  files: true,
+  billing: false,
+  settings: false,
+  wiki: true,
+  effort: true,
+  calendar: true,
+};
+
 type MemberProfile = {
   uid: string;
   displayName?: string | null;
@@ -112,12 +126,14 @@ function DashboardInner() {
         setProfile(p);
 
         // 会社情報を取得して管理者かどうかを判定
+        let isOwner = false;
         try {
           const compSnap = await getDoc(doc(db, "companies", companyCode));
           if (compSnap.exists()) {
             const companyData = compSnap.data() as Company;
             setCompany(companyData);
-            setIsManager(companyData.ownerUid === u.uid);
+            isOwner = companyData.ownerUid === u.uid;
+            setIsManager(isOwner);
             // companyName 表示用（companies側が companyName を持つ）
             setProfile((prev) =>
               prev
@@ -137,6 +153,25 @@ function DashboardInner() {
           console.warn("companies read failed:", e);
           setCompany(null);
           setIsManager(false);
+        }
+
+        // 権限チェック（オーナーでない場合）
+        if (!isOwner) {
+          try {
+            const membershipId = `${companyCode}_${u.uid}`;
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", membershipId));
+            if (msSnap.exists()) {
+              const ms = msSnap.data() as any;
+              const perms = ms.permissions || {};
+              const hasDashboard = perms.dashboard ?? DEFAULT_PERMISSIONS.dashboard;
+              if (!hasDashboard) {
+                window.location.href = "/";
+                return;
+              }
+            }
+          } catch (e) {
+            console.warn("permission check failed:", e);
+          }
         }
 
         // 以降は permission-denied が出ても画面を壊さない（新規ワークスペースでは空配列でOK）

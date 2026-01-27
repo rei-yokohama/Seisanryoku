@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { useRouter } from "next/navigation";
 import { AppShell } from "../AppShell";
 import { auth, db } from "../../lib/firebase";
 import { ensureProfile } from "../../lib/ensureProfile";
@@ -50,6 +51,7 @@ function yen(n: number) {
 }
 
 export default function BalancePage() {
+  const router = useRouter();
   const [month, setMonth] = useState(() => ymKey(new Date()));
   const [editMode, setEditMode] = useState(false);
 
@@ -238,6 +240,24 @@ export default function BalancePage() {
           return;
         }
         setProfile(prof);
+
+        // 権限チェック
+        try {
+          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
+          if (!isOwner) {
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+            if (msSnap.exists()) {
+              const perms = (msSnap.data() as any).permissions || {};
+              if (perms.billing === false) {
+                window.location.href = "/";
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("permission check failed:", e);
+        }
 
         // members/employees
         const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));

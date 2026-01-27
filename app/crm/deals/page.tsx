@@ -204,6 +204,27 @@ function DealsInner() {
           return;
         }
         setProfile(prof);
+
+        // 権限チェック
+        if (prof.companyCode) {
+          try {
+            const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+            const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
+            if (!isOwner) {
+              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+              if (msSnap.exists()) {
+                const perms = (msSnap.data() as any).permissions || {};
+                if (perms.projects === false) {
+                  window.location.href = "/";
+                  return;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("permission check failed:", e);
+          }
+        }
+
         await loadAll(u, prof);
       } finally {
         setLoading(false);

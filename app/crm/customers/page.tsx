@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, Timestamp, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, Timestamp, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
@@ -150,6 +150,27 @@ export default function CustomersPage() {
           return;
         }
         setProfile(prof);
+
+        // 権限チェック
+        if (prof.companyCode) {
+          try {
+            const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+            const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
+            if (!isOwner) {
+              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+              if (msSnap.exists()) {
+                const perms = (msSnap.data() as any).permissions || {};
+                if (perms.customers === false) {
+                  window.location.href = "/";
+                  return;
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("permission check failed:", e);
+          }
+        }
+
         await loadAll(u, prof);
       } finally {
         setLoading(false);
