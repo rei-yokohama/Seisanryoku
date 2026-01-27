@@ -189,7 +189,7 @@ export default function MemberEditPage() {
             const savedRole = m?.role === "admin" ? "member" : m?.role;
             setRole(savedRole || (targetIsCompanyOwner ? "owner" : "member"));
             // 既存データと新しい権限キーをマージ
-            const p = m?.permissions || {};
+            const p = (m?.permissions || {}) as Partial<Permissions>;
             setPermissions({
               dashboard: p.dashboard ?? DEFAULT_PERMISSIONS.dashboard,
               members: p.members ?? DEFAULT_PERMISSIONS.members,
