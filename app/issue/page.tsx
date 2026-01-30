@@ -253,7 +253,7 @@ export default function IssueHomePage() {
 
   const assigneeName = (uid?: string | null) => {
     if (!uid) return "";
-    if (uid === user?.uid) return profile?.displayName || user?.email?.split("@")[0] || "私";
+    if (uid === user?.uid) return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
     return employees.find((e) => e.authUid === uid)?.name || "";
   };
 
@@ -277,7 +277,8 @@ export default function IssueHomePage() {
   const assigneeList = useMemo(() => {
     const list: { uid: string; name: string; color?: string }[] = [];
     if (user) {
-      list.push({ uid: user.uid, name: "私", color: "#F97316" });
+      const myName = profile?.displayName || user.email?.split("@")[0] || "ユーザー";
+      list.push({ uid: user.uid, name: myName, color: "#F97316" });
     }
     for (const emp of employees) {
       if (emp.authUid && emp.authUid !== user?.uid) {
@@ -285,7 +286,7 @@ export default function IssueHomePage() {
       }
     }
     return list;
-  }, [user, employees]);
+  }, [user, employees, profile?.displayName]);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();

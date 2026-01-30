@@ -75,7 +75,7 @@ export default function GlobalIssueDetailPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "activity" | "comments">("overview");
 
   const myDisplayName = useMemo(() => {
-    return profile?.displayName || user?.email?.split("@")[0] || "私";
+    return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
   }, [profile?.displayName, user?.email]);
 
   const assigneeName = (uid?: string | null) => {

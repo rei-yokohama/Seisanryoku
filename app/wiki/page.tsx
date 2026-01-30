@@ -284,7 +284,7 @@ export default function WikiHomePage() {
 
   function creatorName(d: WikiDoc) {
     if (!user) return d.createdBy || "";
-    if (d.createdBy === user.uid) return "私";
+    if (d.createdBy === user.uid) return profile?.displayName || user.email?.split("@")[0] || "ユーザー";
     return employeeNameByAuthUid[d.createdBy] || (d.createdBy ? d.createdBy.slice(0, 8) : "");
   }
 

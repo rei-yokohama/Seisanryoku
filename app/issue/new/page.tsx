@@ -137,7 +137,7 @@ function NewIssueInner() {
   }, [labelsText]);
 
   const myDisplayName = useMemo(() => {
-    return profile?.displayName || user?.email?.split("@")[0] || "私";
+    return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
   }, [profile?.displayName, user?.email]);
 
   useEffect(() => {

@@ -211,7 +211,8 @@ export default function BalancePage() {
   const assigneeList = useMemo(() => {
     const list: { uid: string; name: string; color?: string }[] = [];
     if (user) {
-      list.push({ uid: user.uid, name: "私", color: "#F97316" });
+      const myName = profile?.displayName || user.email?.split("@")[0] || "ユーザー";
+      list.push({ uid: user.uid, name: myName, color: "#F97316" });
     }
     const activeEmps = employees.filter((e) => e.isActive !== false);
     for (const emp of activeEmps) {
@@ -220,7 +221,7 @@ export default function BalancePage() {
       }
     }
     return list;
-  }, [user, employees]);
+  }, [user, employees, profile?.displayName]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {

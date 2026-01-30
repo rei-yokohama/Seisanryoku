@@ -447,7 +447,7 @@ export default function TeamCalendarPage() {
 
     // 自分自身が employees に居ない場合でも、登録した工数が見えるようにする
     if (!items.some((e) => e.authUid === uid)) {
-      items.push({ id: "__me__", name: profile?.displayName || "私", authUid: uid, color: "#10B981" });
+      items.push({ id: "__me__", name: profile?.displayName || user?.email?.split("@")[0] || "ユーザー", authUid: uid, color: "#10B981" });
     }
 
     console.log("チームカレンダー: 読み込んだ社員数:", items.length);
@@ -653,7 +653,7 @@ export default function TeamCalendarPage() {
 
         if (!code) {
           console.warn("チームカレンダー: workspaceMemberships から companyCode を取得できませんでした");
-          setEmployees([{ id: "__me__", name: u.email?.split("@")[0] || "私", authUid: u.uid, color: "#10B981" }]);
+          setEmployees([{ id: "__me__", name: u.email?.split("@")[0] || "ユーザー", authUid: u.uid, color: "#10B981" }]);
           setEntries([]);
           setLoading(false);
           return;
@@ -1000,7 +1000,7 @@ export default function TeamCalendarPage() {
   };
 
   const actorNameFor = (uid: string) => {
-    return employees.find((e) => e.authUid === uid)?.name || (uid === user?.uid ? (profile?.displayName || "私") : "ユーザー");
+    return employees.find((e) => e.authUid === uid)?.name || (uid === user?.uid ? (profile?.displayName || user?.email?.split("@")[0] || "ユーザー") : "ユーザー");
   };
 
   const avatarLetterFor = (uid: string) => {

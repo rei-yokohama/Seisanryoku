@@ -281,7 +281,7 @@ export default function EffortPage() {
         empItems.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         // 自分が employees に居ない救済（カレンダーと同じ挙動）
         if (!empItems.some((e) => e.authUid === u.uid)) {
-          empItems.push({ id: "__me__", name: (prof.displayName as string) || "私", authUid: u.uid });
+          empItems.push({ id: "__me__", name: (prof.displayName as string) || u.email?.split("@")[0] || "ユーザー", authUid: u.uid });
         }
         setEmployees(empItems);
 
@@ -391,7 +391,8 @@ export default function EffortPage() {
   const assigneeList = useMemo(() => {
     const list: { uid: string; name: string; color?: string }[] = [];
     if (user) {
-      list.push({ uid: user.uid, name: "私", color: "#F97316" });
+      const myName = profile?.displayName || user.email?.split("@")[0] || "ユーザー";
+      list.push({ uid: user.uid, name: myName, color: "#F97316" });
     }
     const activeEmps = employees.filter((e) => e.isActive !== false);
     for (const emp of activeEmps) {
@@ -400,7 +401,7 @@ export default function EffortPage() {
       }
     }
     return list;
-  }, [user, employees]);
+  }, [user, employees, profile?.displayName]);
 
   if (loading) {
     return (

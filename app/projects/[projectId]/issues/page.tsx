@@ -150,7 +150,7 @@ export default function ProjectIssuesPage() {
 
   const assigneeName = (uid?: string | null) => {
     if (!uid) return "";
-    if (uid === user?.uid) return profile?.displayName || user?.email?.split("@")[0] || "私";
+    if (uid === user?.uid) return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
     return employees.find(e => e.authUid === uid)?.name || "";
   };
 
