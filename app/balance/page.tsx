@@ -9,7 +9,7 @@ import { auth, db } from "../../lib/firebase";
 import { ensureProfile } from "../../lib/ensureProfile";
 import { useLocalStorageState } from "../../lib/useLocalStorageState";
 
-type MemberProfile = { uid: string; companyCode: string };
+type MemberProfile = { uid: string; companyCode: string; displayName?: string };
 
 type Employee = { id: string; name: string; authUid?: string; color?: string; isActive?: boolean | null };
 
