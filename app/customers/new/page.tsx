@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { addDoc, collection, doc, getDoc, getDocs, query, Timestamp, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, Timestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
 import { logActivity } from "../../../lib/activity";
@@ -13,12 +13,6 @@ type MemberProfile = {
   companyCode: string;
   displayName?: string | null;
   email?: string | null;
-};
-
-type Employee = {
-  id: string;
-  name: string;
-  authUid?: string;
 };
 
 const CUSTOMER_TYPES = [
@@ -44,13 +38,9 @@ export default function CustomerNewPage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [employees, setEmployees] = useState<Employee[]>([]);
-
   // form
   const [name, setName] = useState("");
   const [type, setType] = useState("CORPORATION");
-  const [assigneeUid, setAssigneeUid] = useState("");
-  const [subAssigneeUid, setSubAssigneeUid] = useState(""); // サブリーダー
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -75,10 +65,6 @@ export default function CustomerNewPage() {
     return Array.from(new Set(raw)).slice(0, 10);
   }, [tagsText]);
 
-  const myDisplayName = useMemo(() => {
-    return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
-  }, [profile?.displayName, user?.email]);
-
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -96,22 +82,6 @@ export default function CustomerNewPage() {
       }
       const prof = profSnap.data() as MemberProfile;
       setProfile(prof);
-
-      // employees (for assignee)
-      const mergedEmployees: Employee[] = [];
-      if (prof.companyCode) {
-        const snapEmpByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
-        mergedEmployees.push(...snapEmpByCompany.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
-      }
-      // companyCode が無い過去データ救済（通常は companyCode でのみ取得する）
-      if (!prof.companyCode) {
-        const snapEmpByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
-        mergedEmployees.push(...snapEmpByCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
-      }
-      const empById = new Map<string, Employee>();
-      for (const e of mergedEmployees) empById.set(e.id, e);
-      const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-      setEmployees(empItems);
 
       setLoading(false);
     });
@@ -151,13 +121,12 @@ export default function CustomerNewPage() {
 
     setSaving(true);
     try {
+      const now = Timestamp.now();
       const docRef = await addDoc(collection(db, "customers"), {
         companyCode: profile.companyCode,
         createdBy: user.uid,
         name: n,
         type,
-        assigneeUid: assigneeUid || null,
-        subAssigneeUid: subAssigneeUid || null,
         contactName: contactName.trim() || "",
         contactEmail: contactEmail.trim() || "",
         phone: phone.trim() || "",
@@ -167,15 +136,28 @@ export default function CustomerNewPage() {
         dealStartDate: dealStartDate || null,
         contractAmount: contractAmount ? Number(contractAmount) : null,
         notes: notes.trim() || "",
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // 顧客用のドライブフォルダを自動作成
+      await addDoc(collection(db, "driveItems"), {
+        companyCode: profile.companyCode,
+        createdBy: user.uid,
+        kind: "folder",
+        name: n, // 顧客名をフォルダ名に
+        parentId: null, // ルート直下に作成
+        customerId: docRef.id, // 顧客に紐づけ
+        dealId: null, // 案件は未設定
+        createdAt: now,
+        updatedAt: now,
       });
 
       await logActivity({
         companyCode: profile.companyCode,
         actorUid: user.uid,
         type: "CUSTOMER_CREATED",
-        message: `顧客を作成しました: ${n}`,
+        message: `顧客を作成しました: ${n}（ドライブフォルダも作成）`,
         link: "/customers",
       });
 
@@ -313,53 +295,6 @@ export default function CustomerNewPage() {
 
             <div className="md:col-span-12 border-t border-slate-100 pt-4">
               <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-                <div className="md:col-span-6">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-extrabold text-slate-600">担当(リーダー)</div>
-                    <button
-                      type="button"
-                      onClick={() => setAssigneeUid(user.uid)}
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
-                    >
-                      👤 私が担当
-                    </button>
-                  </div>
-                  <select
-                    value={assigneeUid}
-                    onChange={(e) => setAssigneeUid(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  >
-                    <option value="">未割当</option>
-                    <option value={user.uid}>{myDisplayName}</option>
-                    {employees
-                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
-                      .map((e) => (
-                        <option key={e.id} value={e.authUid}>
-                          {e.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">サブリーダー</div>
-                  <select
-                    value={subAssigneeUid}
-                    onChange={(e) => setSubAssigneeUid(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  >
-                    <option value="">未設定</option>
-                    <option value={user.uid}>{myDisplayName}</option>
-                    {employees
-                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
-                      .map((e) => (
-                        <option key={e.id} value={e.authUid}>
-                          {e.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
                 <div className="md:col-span-6">
                   <div className="text-xs font-extrabold text-slate-600">業種</div>
                   <select

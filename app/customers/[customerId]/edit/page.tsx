@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
+import { doc, getDoc, Timestamp, updateDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
@@ -17,12 +17,6 @@ type MemberProfile = {
   email?: string | null;
 };
 
-type Employee = {
-  id: string;
-  name: string;
-  authUid?: string;
-};
-
 type CustomerDoc = {
   companyCode: string;
   createdBy: string;
@@ -30,8 +24,6 @@ type CustomerDoc = {
   type?: string;
   isActive?: boolean | null; // 稼働中/停止中
   inactivatedAt?: Timestamp | null; // 停止したタイミング
-  assigneeUid?: string | null;
-  subAssigneeUid?: string | null; // サブリーダー
   contactName?: string;
   contactEmail?: string;
   phone?: string;
@@ -66,14 +58,11 @@ export default function CustomerEditPage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [employees, setEmployees] = useState<Employee[]>([]);
-
   // form
   const [name, setName] = useState("");
   const [type, setType] = useState("CORPORATION");
   const [isActive, setIsActive] = useState(true);
-  const [assigneeUid, setAssigneeUid] = useState("");
-  const [subAssigneeUid, setSubAssigneeUid] = useState(""); // サブリーダー
+  const [statusChangeDate, setStatusChangeDate] = useState(() => new Date().toISOString().split("T")[0]); // YYYY-MM-DD
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -135,19 +124,6 @@ export default function CustomerEditPage() {
         }
         setProfile(prof);
 
-        // employees (for assignee)
-        const mergedEmployees: Employee[] = [];
-        if (prof.companyCode) {
-          const snapEmpByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
-          mergedEmployees.push(...snapEmpByCompany.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
-        }
-        const snapEmpByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
-        mergedEmployees.push(...snapEmpByCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
-        const empById = new Map<string, Employee>();
-        for (const e of mergedEmployees) empById.set(e.id, e);
-        const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setEmployees(empItems);
-
         // customer
         const custSnap = await getDoc(doc(db, "customers", customerId));
         if (!custSnap.exists()) {
@@ -162,8 +138,11 @@ export default function CustomerEditPage() {
           const active = c.isActive !== false;
           setIsActive(active);
           initialIsActiveRef.current = active;
-          setAssigneeUid((c.assigneeUid as string) || "");
-          setSubAssigneeUid((c.subAssigneeUid as string) || "");
+          // 既存の停止日があればセット
+          if (c.inactivatedAt && typeof (c.inactivatedAt as any).toDate === "function") {
+            const d = (c.inactivatedAt as Timestamp).toDate();
+            setStatusChangeDate(d.toISOString().split("T")[0]);
+          }
           setContactName(c.contactName || "");
           setContactEmail(c.contactEmail || "");
           setPhone(c.phone || "");
@@ -200,14 +179,16 @@ export default function CustomerEditPage() {
       const nextIsActive = !!isActive;
       const wasActive = initialIsActiveRef.current;
       const willInactivate = wasActive && !nextIsActive;
-      const inactivatedAt = willInactivate ? Timestamp.now() : null;
+      const willReactivate = !wasActive && nextIsActive;
+      // ユーザーが入力した日付を使用（停止時）
+      const inactivatedAt = willInactivate
+        ? Timestamp.fromDate(new Date(statusChangeDate + "T00:00:00"))
+        : null;
 
       const updates: Record<string, any> = {
         name: n,
         type,
         isActive: nextIsActive,
-        assigneeUid: assigneeUid || null,
-        subAssigneeUid: subAssigneeUid || null,
         contactName: contactName.trim() || "",
         contactEmail: contactEmail.trim() || "",
         phone: phone.trim() || "",
@@ -224,29 +205,39 @@ export default function CustomerEditPage() {
       // 停止にした瞬間だけ「停止した時刻」を更新
       if (willInactivate) updates.inactivatedAt = inactivatedAt;
       // 再稼働にした場合は停止時刻をクリア
-      if (nextIsActive) updates.inactivatedAt = null;
+      if (willReactivate) updates.inactivatedAt = null;
 
       await updateDoc(doc(db, "customers", customerId), updates);
 
+      // ステータス変更のアクティビティログ
       if (willInactivate) {
         await logActivity({
           companyCode: profile.companyCode,
           actorUid: user.uid,
           type: "CUSTOMER_UPDATED",
           entityId: customerId,
-          message: `顧客を停止にしました: ${n}`,
+          message: `顧客を稼働中→停止中にしました（${statusChangeDate}）: ${n}`,
+          link: `/customers/${customerId}`,
+        });
+      } else if (willReactivate) {
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "CUSTOMER_UPDATED",
+          entityId: customerId,
+          message: `顧客を停止中→稼働中にしました（${statusChangeDate}）: ${n}`,
+          link: `/customers/${customerId}`,
+        });
+      } else {
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "CUSTOMER_UPDATED",
+          entityId: customerId,
+          message: `顧客を更新しました: ${n}`,
           link: `/customers/${customerId}`,
         });
       }
-
-      await logActivity({
-        companyCode: profile.companyCode,
-        actorUid: user.uid,
-        type: "CUSTOMER_UPDATED",
-        entityId: customerId,
-        message: `顧客を更新しました: ${n}`,
-        link: `/customers/${customerId}`,
-      });
 
       // 次回以降の差分判定のため更新
       initialIsActiveRef.current = nextIsActive;
@@ -320,13 +311,37 @@ export default function CustomerEditPage() {
               <div className="text-xs font-extrabold text-slate-600">稼働ステータス</div>
               <select
                 value={isActive ? "ACTIVE" : "INACTIVE"}
-                onChange={(e) => setIsActive(e.target.value === "ACTIVE")}
+                onChange={(e) => {
+                  setIsActive(e.target.value === "ACTIVE");
+                  // ステータス変更時にデフォルト日付を今日にリセット
+                  setStatusChangeDate(new Date().toISOString().split("T")[0]);
+                }}
                 className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
               >
                 <option value="ACTIVE">稼働中</option>
                 <option value="INACTIVE">停止中</option>
               </select>
             </div>
+
+            {/* ステータスが変わった場合のみ日付入力を表示 */}
+            {isActive !== initialIsActiveRef.current && (
+              <div className="md:col-span-6">
+                <div className="text-xs font-extrabold text-slate-600">
+                  {isActive ? "再稼働日" : "停止日"}
+                </div>
+                <input
+                  type="date"
+                  value={statusChangeDate}
+                  onChange={(e) => setStatusChangeDate(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                />
+                <div className="mt-1 text-[11px] text-slate-500">
+                  {isActive
+                    ? "この日付から稼働中として扱われます"
+                    : "この日付の月度まで請求対象になります"}
+                </div>
+              </div>
+            )}
 
             <div className="md:col-span-12">
               <div className="text-xs font-extrabold text-slate-600">顧客名 *</div>
@@ -336,40 +351,6 @@ export default function CustomerEditPage() {
                 className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                 placeholder="例：株式会社サンプル"
               />
-            </div>
-
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-600">担当(リーダー)</div>
-              <select
-                value={assigneeUid}
-                onChange={(e) => setAssigneeUid(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-              >
-                <option value="">未設定</option>
-                <option value={user.uid}>私</option>
-                {employees.filter((e) => !!e.authUid && e.authUid !== user.uid).map((e) => (
-                  <option key={e.id} value={e.authUid}>
-                    {e.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-600">サブリーダー</div>
-              <select
-                value={subAssigneeUid}
-                onChange={(e) => setSubAssigneeUid(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-              >
-                <option value="">未設定</option>
-                <option value={user.uid}>私</option>
-                {employees.filter((e) => !!e.authUid && e.authUid !== user.uid).map((e) => (
-                  <option key={e.id} value={e.authUid}>
-                    {e.name}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div className="md:col-span-6">

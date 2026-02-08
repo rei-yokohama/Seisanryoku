@@ -115,7 +115,6 @@ function NewIssueInner() {
   const [status, setStatus] = useState<Issue["status"]>("TODO");
   const [priority, setPriority] = useState<Issue["priority"]>("MEDIUM");
   const [assigneeUid, setAssigneeUid] = useState("");
-  const [subAssigneeUid, setSubAssigneeUid] = useState(""); // サブリーダー
   const [startDate, setStartDate] = useState(defaultDates.startDate);
   const [dueDate, setDueDate] = useState(defaultDates.dueDate);
   const [estimateHours, setEstimateHours] = useState("");
@@ -370,7 +369,6 @@ function NewIssueInner() {
           status,
           priority,
           assigneeUid: assigneeUid || null,
-          subAssigneeUid: subAssigneeUid || null,
           reporterUid: user.uid,
           labels: labelList,
           startDate: startDate || null,
@@ -623,25 +621,6 @@ function NewIssueInner() {
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                   >
                     <option value="">未割当</option>
-                    <option value={user.uid}>{myDisplayName}</option>
-                    {employees
-                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
-                      .map((e) => (
-                        <option key={e.id} value={e.authUid}>
-                          {e.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">サブリーダー</div>
-                  <select
-                    value={subAssigneeUid}
-                    onChange={(e) => setSubAssigneeUid(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  >
-                    <option value="">未設定</option>
                     <option value={user.uid}>{myDisplayName}</option>
                     {employees
                       .filter((e) => !!e.authUid && e.authUid !== user.uid)

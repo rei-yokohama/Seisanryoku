@@ -210,8 +210,7 @@ function DealNewInner() {
   const [savingGenres, setSavingGenres] = useState(false);
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<DealStatus>("ACTIVE");
-  const [leaderUid, setLeaderUid] = useState("");
-  const [subLeaderUid, setSubLeaderUid] = useState("");
+  const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
   const [revenue, setRevenue] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -347,8 +346,7 @@ function DealNewInner() {
         genre: genre.trim() || "",
         description: description.trim() || "",
         status,
-        leaderUid: leaderUid || null,
-        subLeaderUid: subLeaderUid || null,
+        assigneeUids: assigneeUids.length > 0 ? assigneeUids : null,
         revenue: revenueValue,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
@@ -509,35 +507,45 @@ function DealNewInner() {
               </div>
 
               <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">リーダー</div>
+                <div className="mb-1 text-sm font-bold text-slate-700">担当者（複数選択可）</div>
+                <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3 min-h-[48px]">
+                  {assigneeUids.length === 0 && (
+                    <span className="text-sm text-slate-400">未設定</span>
+                  )}
+                  {assigneeUids.map((uid) => {
+                    const emp = employees.find((e) => e.authUid === uid);
+                    const name = uid === user.uid ? "私" : (emp?.name || "不明");
+                    return (
+                      <span
+                        key={uid}
+                        className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-800"
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() => setAssigneeUids((prev) => prev.filter((u) => u !== uid))}
+                          className="ml-1 text-orange-500 hover:text-orange-700"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
                 <select
-                  value={leaderUid}
-                  onChange={(e) => setLeaderUid(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v && !assigneeUids.includes(v)) {
+                      setAssigneeUids((prev) => [...prev, v]);
+                    }
+                  }}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
                 >
-                  <option value="">未設定</option>
-                  <option value={user.uid}>私</option>
+                  <option value="">＋ 担当者を追加...</option>
+                  {!assigneeUids.includes(user.uid) && <option value={user.uid}>私</option>}
                   {employees
-                    .filter((e) => !!e.authUid && e.authUid !== user.uid)
-                    .map((e) => (
-                      <option key={e.id} value={e.authUid}>
-                        {e.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <div className="mb-1 text-sm font-bold text-slate-700">サブリーダー</div>
-                <select
-                  value={subLeaderUid}
-                  onChange={(e) => setSubLeaderUid(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
-                >
-                  <option value="">未設定</option>
-                  <option value={user.uid}>私</option>
-                  {employees
-                    .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                    .filter((e) => !!e.authUid && e.authUid !== user.uid && !assigneeUids.includes(e.authUid!))
                     .map((e) => (
                       <option key={e.id} value={e.authUid}>
                         {e.name}

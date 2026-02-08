@@ -454,6 +454,7 @@ export function AppShell({ title, subtitle, children, projectId, headerRight, si
           { icon: "👥", label: "顧客", href: "/customers", permissionKey: "customers" },
           { icon: "💼", label: "案件", href: "/projects", permissionKey: "projects" },
           { icon: "💴", label: "収支", href: "/balance", permissionKey: "billing" },
+          { icon: "🧾", label: "請求", href: "/billing", permissionKey: "billing" },
           { icon: "⏱", label: "工数", href: "/effort", permissionKey: "effort" },
           { icon: "💾", label: "ドライブ", href: "/drive", permissionKey: "files" },
           { icon: "📅", label: "カレンダー", href: "/calendar", permissionKey: "calendar" },

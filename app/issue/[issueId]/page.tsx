@@ -351,7 +351,6 @@ export default function GlobalIssueDetailPage() {
   const statusInfo = ISSUE_STATUSES.find(s => s.value === issue.status);
   const priorityInfo = ISSUE_PRIORITIES.find(p => p.value === issue.priority);
   const assignee = assigneeName(issue.assigneeUid);
-  const subAssignee = assigneeName(issue.subAssigneeUid);
 
   return (
     <AppShell 
@@ -627,7 +626,7 @@ export default function GlobalIssueDetailPage() {
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-5">
-            <div className="text-xs font-extrabold text-slate-500 mb-3">担当(リーダー)</div>
+            <div className="text-xs font-extrabold text-slate-500 mb-3">担当者</div>
             {assignee ? (
               <div className="flex items-center gap-2">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-sm font-extrabold text-orange-700">
@@ -637,18 +636,6 @@ export default function GlobalIssueDetailPage() {
               </div>
             ) : (
               <div className="text-sm text-slate-600">未割当</div>
-            )}
-
-            {subAssignee && (
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <div className="text-xs font-extrabold text-slate-500 mb-3">サブリーダー</div>
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-sm font-extrabold text-slate-600">
-                    {subAssignee.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="text-sm font-bold text-slate-900">{subAssignee}</div>
-                </div>
-              </div>
             )}
           </div>
 

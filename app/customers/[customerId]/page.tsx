@@ -21,14 +21,14 @@ type Customer = {
   createdBy: string;
   name: string;
   type?: string;
+  isActive?: boolean | null;
+  inactivatedAt?: any | null; // Timestamp
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
   contactAddress?: string;
   industry?: string;
   notes?: string;
-  assigneeUid?: string;
-  subAssigneeUid?: string; // サブリーダー
   transactionStartDate?: string;
   contractAmount?: string;
   tags?: string[];
@@ -76,12 +76,6 @@ function relativeFromNow(date: Date) {
   return `約 ${day} 日前`;
 }
 
-type Employee = {
-  id: string;
-  name: string;
-  authUid?: string;
-};
-
 export default function CustomerDetailPage() {
   const router = useRouter();
   const params = useParams<{ customerId: string }>();
@@ -91,7 +85,6 @@ export default function CustomerDetailPage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [customer, setCustomer] = useState<Customer | null>(null);
-  const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [wikis, setWikis] = useState<WikiDoc[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -126,20 +119,8 @@ export default function CustomerDetailPage() {
         const cust = { id: custSnap.id, ...custSnap.data() } as Customer;
         setCustomer(cust);
 
-        // 社員リスト取得
-        const mergedEmp: Employee[] = [];
-        if (prof.companyCode) {
-          const snapByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
-          mergedEmp.push(...snapByCompany.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
-        }
-        const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", u.uid)));
-        mergedEmp.push(...snapByCreator.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
-        const empMap = new Map<string, Employee>();
-        for (const e of mergedEmp) empMap.set(e.id, e);
-        setEmployees(Array.from(empMap.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
-
         // この顧客に紐づく案件を取得
-        const dealsSnap = await getDocs(query(collection(db, "deals"), where("customerId", "==", customerId)));
+        const dealsSnap = await getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode), where("customerId", "==", customerId)));
         const dealItems = dealsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Deal));
         setDeals(dealItems);
 
@@ -200,11 +181,6 @@ export default function CustomerDetailPage() {
     );
   }
 
-  const getEmployeeName = (uid?: string) => {
-    if (!uid) return "-";
-    return employees.find(e => e.authUid === uid)?.name || "不明";
-  };
-
   return (
     <AppShell
       title={customer.name}
@@ -226,9 +202,32 @@ export default function CustomerDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* 左側：基本情報 */}
         <div className="lg:col-span-3 space-y-4">
-          {/* 顧客名 */}
+          {/* 顧客名 + ステータス */}
           <div className="rounded-lg border border-slate-200 bg-white p-5">
             <h1 className="text-lg font-extrabold text-slate-900 leading-tight mb-3">{customer.name}</h1>
+            <div className="flex items-center gap-2">
+              {customer.isActive === false ? (
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-extrabold text-slate-600">
+                  停止中
+                </span>
+              ) : (
+                <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-1 text-xs font-extrabold text-green-700">
+                  稼働中
+                </span>
+              )}
+            </div>
+            {customer.isActive === false && customer.inactivatedAt && (
+              <div className="mt-2 text-xs font-bold text-slate-500">
+                停止日: {(() => {
+                  try {
+                    const d = typeof customer.inactivatedAt.toDate === "function"
+                      ? customer.inactivatedAt.toDate()
+                      : new Date(customer.inactivatedAt);
+                    return d.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" });
+                  } catch { return "-"; }
+                })()}
+              </div>
+            )}
           </div>
 
           {/* 顧客の概要 */}
@@ -335,22 +334,10 @@ export default function CustomerDetailPage() {
                   )}
 
           {/* 取引情報 */}
-          {(customer.transactionStartDate || customer.contractAmount || customer.assigneeUid || customer.subAssigneeUid) && (
+          {(customer.transactionStartDate || customer.contractAmount) && (
             <div>
               <div className="text-xs font-extrabold text-slate-500 mb-3">取引情報</div>
               <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                {customer.assigneeUid && (
-                  <div className="flex gap-2">
-                    <span className="text-xs font-bold text-slate-500 w-24">担当(リーダー):</span>
-                    <span className="text-sm text-slate-900 font-bold">{getEmployeeName(customer.assigneeUid)}</span>
-                  </div>
-                )}
-                {customer.subAssigneeUid && (
-                  <div className="flex gap-2">
-                    <span className="text-xs font-bold text-slate-500 w-24">サブリーダー:</span>
-                    <span className="text-sm text-slate-900">{getEmployeeName(customer.subAssigneeUid)}</span>
-                  </div>
-                )}
                 {customer.transactionStartDate && (
                   <div className="flex gap-2">
                     <span className="text-xs font-bold text-slate-500 w-24">取引開始日:</span>

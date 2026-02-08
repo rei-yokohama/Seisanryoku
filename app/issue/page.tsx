@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where, addDoc, Timestamp } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
@@ -38,6 +38,16 @@ function clsx(...xs: Array<string | false | null | undefined>) {
 function getCategoryFromIssue(i: Issue) {
   // MVP: labelsの先頭をカテゴリ扱い
   return i.labels && i.labels[0] ? String(i.labels[0]) : "";
+}
+
+// 納期超過チェック（今日を過ぎていて完了でない場合）
+function isOverdue(issue: Issue): boolean {
+  if (!issue.dueDate || issue.status === "DONE") return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(issue.dueDate);
+  due.setHours(0, 0, 0, 0);
+  return due < today;
 }
 
 export default function IssueHomePage() {
@@ -232,6 +242,30 @@ export default function IssueHomePage() {
         for (const i of mergedIssues) issById.set(i.id, i);
         const issItems = Array.from(issById.values()).sort((a, b) => (b.updatedAt as any)?.toMillis?.() - (a.updatedAt as any)?.toMillis?.());
         setIssues(issItems);
+
+        // 納期超過の課題がある場合、担当者にのみ警告通知を送る
+        const overdueIssues = issItems.filter(
+          (issue) => issue.assigneeUid === u.uid && isOverdue(issue)
+        );
+        if (overdueIssues.length > 0 && prof.companyCode) {
+          // 既に今日通知を送っていないかチェック（localStorageで管理）
+          const todayKey = new Date().toISOString().split("T")[0];
+          const notifiedKey = `overdueNotified_${u.uid}_${todayKey}`;
+          if (!localStorage.getItem(notifiedKey)) {
+            // 通知を送る
+            await addDoc(collection(db, "notifications"), {
+              companyCode: prof.companyCode,
+              recipientUid: u.uid,
+              type: "SYSTEM",
+              title: `⚠️ 納期超過の課題が${overdueIssues.length}件あります`,
+              body: overdueIssues.slice(0, 3).map((iss) => iss.title).join("、") + (overdueIssues.length > 3 ? " 他" : ""),
+              link: "/issue",
+              read: false,
+              createdAt: Timestamp.now(),
+            });
+            localStorage.setItem(notifiedKey, "1");
+          }
+        }
       } finally {
         setLoading(false);
       }
@@ -574,7 +608,6 @@ export default function IssueHomePage() {
                   <th className="px-4 py-3 text-left whitespace-nowrap">案件</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">顧客</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">担当</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">サブ担当</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">状態</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">カテゴリ</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">優先度</th>
@@ -605,12 +638,13 @@ export default function IssueHomePage() {
                     };
 
                     const assignee = assigneeName(i.assigneeUid);
-                    const subAssignee = assigneeName(i.subAssigneeUid);
+                    const overdue = isOverdue(i);
 
                     return (
-                      <tr key={i.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-slate-900 whitespace-nowrap">
-                          <Link href={href} className="hover:underline block max-w-[200px] truncate" title={i.title}>
+                      <tr key={i.id} className={clsx("hover:bg-slate-50", overdue && "bg-red-50")}>
+                        <td className="px-4 py-3 font-bold whitespace-nowrap">
+                          <Link href={href} className={clsx("hover:underline block max-w-[200px] truncate", overdue ? "text-red-700" : "text-slate-900")} title={i.title}>
+                            {overdue && <span className="mr-1">⚠️</span>}
                             {i.title}
                           </Link>
                         </td>
@@ -644,18 +678,6 @@ export default function IssueHomePage() {
                             "-"
                           )}
                         </td>
-                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
-                          {subAssignee ? (
-                            <div className="flex items-center gap-2">
-                              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-extrabold text-slate-600">
-                                {subAssignee.charAt(0).toUpperCase()}
-                              </div>
-                              <span className="max-w-[80px] truncate" title={subAssignee}>{subAssignee}</span>
-                            </div>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span
                             className={clsx(
@@ -672,7 +694,14 @@ export default function IssueHomePage() {
                         </td>
                         <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{cat || "-"}</td>
                         <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{pr}</td>
-                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{i.dueDate || "-"}</td>
+                        <td className={clsx("px-4 py-3 whitespace-nowrap font-bold", overdue ? "text-red-600" : "text-slate-700")}>
+                          {i.dueDate ? (
+                            <span className={overdue ? "flex items-center gap-1" : ""}>
+                              {overdue && <span className="text-red-500">●</span>}
+                              {i.dueDate}
+                            </span>
+                          ) : "-"}
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <button
                             onClick={copyShareUrl}

@@ -81,8 +81,9 @@ type Deal = {
   title: string;
   customerId?: string | null;
   companyCode?: string;
-  leaderUid?: string | null;
-  subLeaderUid?: string | null;
+  assigneeUids?: string[] | null; // 担当者（複数）
+  leaderUid?: string | null; // 旧: 互換用
+  subLeaderUid?: string | null; // 旧: 互換用
 };
 
 const formatTime = (dateString: string) => {
@@ -389,13 +390,28 @@ export default function TeamCalendarPage() {
     return employees;
   }, [employees, calendarPermissions.viewOthersCalendar, user]);
 
-  // 自分が担当の案件（リーダーまたはサブリーダー）
+  // 案件の担当者リストを取得（新旧フィールド互換）
+  const getDealAssignees = (d: Deal): string[] => {
+    if (Array.isArray(d.assigneeUids) && d.assigneeUids.length > 0) {
+      return d.assigneeUids.filter(Boolean) as string[];
+    }
+    // 旧フィールドから復元
+    const legacy: string[] = [];
+    if (d.leaderUid) legacy.push(d.leaderUid);
+    if (d.subLeaderUid && d.subLeaderUid !== d.leaderUid) legacy.push(d.subLeaderUid);
+    return legacy;
+  };
+
+  // 自分が担当の案件
   const myDeals = useMemo(() => {
     // オーナーは全案件
     if (user?.uid === companyOwnerUid) {
       return deals;
     }
-    return deals.filter((d) => d.leaderUid === user?.uid || d.subLeaderUid === user?.uid);
+    return deals.filter((d) => {
+      const assignees = getDealAssignees(d);
+      return assignees.includes(user?.uid || "");
+    });
   }, [deals, user?.uid, companyOwnerUid]);
 
   // 自分が担当の案件に紐づいた顧客のみ

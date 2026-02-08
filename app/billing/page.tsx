@@ -1,16 +1,39 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { onAuthStateChanged, type User } from "firebase/auth";
+import { collection, doc, getDoc, getDocs, query, where, setDoc, Timestamp } from "firebase/firestore";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "../AppShell";
-import { useLocalStorageState } from "@/lib/useLocalStorageState";
+import { auth, db } from "../../lib/firebase";
+import { ensureProfile } from "../../lib/ensureProfile";
 
-type BillingStatus = "none" | "done" | "no_invoice";
-type BillingCell = { create: BillingStatus; confirm: BillingStatus; send: BillingStatus };
-type BillingRow = { id: string; companyName: string; ownerName?: string; months: Record<string, BillingCell> };
-type BillingState = { viewMode?: "YEAR" | "RANGE"; startMonth: string; monthsToShow: number; rows: BillingRow[] };
+type MemberProfile = { uid: string; companyCode: string; displayName?: string };
 
-function classNames(...xs: Array<string | false | null | undefined>) {
+type Customer = {
+  id: string;
+  name: string;
+  isActive?: boolean | null;
+  inactivatedAt?: Timestamp | null; // 停止した日時
+};
+
+type BillingStatus = "none" | "created" | "confirmed" | "sent" | "no_invoice";
+
+type BillingRecord = {
+  id: string; // companyCode_customerId_month
+  companyCode: string;
+  customerId: string;
+  month: string; // YYYY-MM
+  status: BillingStatus;
+  amount?: number | null;
+  notes?: string | null;
+  createdAt?: Timestamp;
+  updatedAt?: Timestamp;
+  updatedBy?: string;
+};
+
+function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
@@ -20,199 +43,487 @@ function ymKey(d: Date) {
   return `${y}-${m}`;
 }
 
-function addMonths(date: Date, delta: number) {
-  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
+function parseYM(key: string) {
+  const [y, m] = key.split("-").map((v) => Number(v));
+  return { y: y || new Date().getFullYear(), m: m || new Date().getMonth() + 1 };
 }
 
-function labelMonth(key: string) {
-  const [y, m] = key.split("-");
-  return `${y}年${Number(m)}月`;
+function addMonths(key: string, delta: number) {
+  const { y, m } = parseYM(key);
+  const d = new Date(y, (m - 1) + delta, 1);
+  return ymKey(d);
 }
 
-function statusBadge(status: BillingStatus) {
-  if (status === "done") return { text: "○", cls: "bg-orange-500 text-white" };
-  if (status === "no_invoice") return { text: "請求なし", cls: "bg-slate-200 text-slate-700" };
-  return { text: "", cls: "bg-white text-slate-400" };
+function labelYM(key: string) {
+  const { y, m } = parseYM(key);
+  return `${y}/${m}`;
 }
 
-function defaultCell(): BillingCell {
-  return { create: "none", confirm: "none", send: "none" };
+function yen(n: number) {
+  const nf = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
+  return nf.format(isFinite(n) ? n : 0);
 }
 
-function defaultState(): BillingState {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), 0, 1);
-  return {
-    startMonth: ymKey(start),
-    monthsToShow: 12,
-    viewMode: "YEAR",
-    rows: [
-      { id: "r1", companyName: "株式会社カラック（60日）", ownerName: "担当A", months: {} },
-      { id: "r2", companyName: "インセクト・コミュニケーションズ株式会社", ownerName: "担当B", months: {} },
-      { id: "r3", companyName: "TRUESTATE株式会社", ownerName: "担当C", months: {} },
-    ],
-  };
+function statusLabel(s: BillingStatus): string {
+  switch (s) {
+    case "created": return "作成済";
+    case "confirmed": return "確認済";
+    case "sent": return "送付済";
+    case "no_invoice": return "請求なし";
+    default: return "未着手";
+  }
 }
+
+function statusColor(s: BillingStatus): string {
+  switch (s) {
+    case "created": return "bg-amber-100 text-amber-800";
+    case "confirmed": return "bg-blue-100 text-blue-800";
+    case "sent": return "bg-emerald-100 text-emerald-800";
+    case "no_invoice": return "bg-slate-100 text-slate-600";
+    default: return "bg-slate-50 text-slate-400";
+  }
+}
+
+const STATUS_OPTIONS: BillingStatus[] = ["none", "created", "confirmed", "sent", "no_invoice"];
 
 export default function BillingPage() {
-  const initial = useMemo(() => defaultState(), []);
-  const { state, setState, loaded } = useLocalStorageState<BillingState>("billing:v1", initial);
+  const router = useRouter();
+  const [month, setMonth] = useState(() => ymKey(new Date()));
+  const [editMode, setEditMode] = useState(false);
 
-  // 旧state互換（viewModeが無い場合は年表示に寄せる）
-  const viewMode = state.viewMode || "YEAR";
-  const year = useMemo(() => Number(state.startMonth.split("-")[0]) || new Date().getFullYear(), [state.startMonth]);
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<MemberProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [billings, setBillings] = useState<Map<string, BillingRecord>>(new Map());
+
+  // フィルター
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+  const [statusFilter, setStatusFilter] = useState<BillingStatus | "ALL">("ALL");
+
+  // ドロップダウン外クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
+        setCustomerDropdownOpen(false);
+      }
+    };
+    if (customerDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [customerDropdownOpen]);
+
+  const toggleCustomer = (id: string) => {
+    setSelectedCustomers((prev) =>
+      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
+    );
+  };
 
   useEffect(() => {
-    if (!loaded) return;
-    if (!state.viewMode) {
-      setState((p) => ({ ...p, viewMode: "YEAR", startMonth: `${year}-01`, monthsToShow: 12 }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loaded]);
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (!u) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setError("");
+        const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
+        if (!prof?.companyCode) {
+          setProfile(null);
+          setCustomers([]);
+          setError("会社コードが未設定です（設定 > 会社 で設定してください）");
+          return;
+        }
+        setProfile(prof);
 
-  const months = useMemo(() => {
-    const [y, m] = (viewMode === "YEAR" ? `${year}-01` : state.startMonth).split("-").map(Number);
-    const start = new Date(y, (m || 1) - 1, 1);
-    const count = viewMode === "YEAR" ? 12 : Math.max(1, state.monthsToShow);
-    return Array.from({ length: count }, (_, i) => ymKey(addMonths(start, i)));
-  }, [state.startMonth, state.monthsToShow, viewMode, year]);
+        // 権限チェック
+        try {
+          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
+          if (!isOwner) {
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+            if (msSnap.exists()) {
+              const perms = (msSnap.data() as any).permissions || {};
+              if (perms.billing === false) {
+                window.location.href = "/";
+                return;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("permission check failed:", e);
+        }
+
+        // 顧客一覧取得
+        const custSnap = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
+        const custItems = custSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() } as Customer))
+          .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        setCustomers(custItems);
+
+        // 請求データ取得
+        const billingSnap = await getDocs(query(collection(db, "billings"), where("companyCode", "==", prof.companyCode)));
+        const billingMap = new Map<string, BillingRecord>();
+        for (const d of billingSnap.docs) {
+          const data = d.data() as BillingRecord;
+          billingMap.set(d.id, { ...data, id: d.id });
+        }
+        setBillings(billingMap);
+      } catch (e: any) {
+        const code = String(e?.code || "");
+        const msg = String(e?.message || "");
+        setError(code && msg ? `${code}: ${msg}` : msg || "読み込みに失敗しました");
+      } finally {
+        setLoading(false);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 現在月のデータを取得・更新
+  const getBillingKey = (customerId: string, m: string) => `${profile?.companyCode}_${customerId}_${m}`;
+
+  const getBilling = (customerId: string, m: string): BillingRecord | undefined => {
+    const key = getBillingKey(customerId, m);
+    return billings.get(key);
+  };
+
+  const setStatus = async (customerId: string, status: BillingStatus) => {
+    if (!profile?.companyCode || !user) return;
+    const key = getBillingKey(customerId, month);
+    const existing = billings.get(key);
+
+    const record: BillingRecord = {
+      id: key,
+      companyCode: profile.companyCode,
+      customerId,
+      month,
+      status,
+      amount: existing?.amount ?? null,
+      notes: existing?.notes ?? null,
+      createdAt: existing?.createdAt ?? Timestamp.now(),
+      updatedAt: Timestamp.now(),
+      updatedBy: user.uid,
+    };
+
+    setSaving(true);
+    try {
+      await setDoc(doc(db, "billings", key), record);
+      setBillings((prev) => {
+        const next = new Map(prev);
+        next.set(key, record);
+        return next;
+      });
+    } catch (e: any) {
+      console.error("保存失敗:", e);
+      setError("保存に失敗しました: " + (e?.message || ""));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setAmount = async (customerId: string, amount: number | null) => {
+    if (!profile?.companyCode || !user) return;
+    const key = getBillingKey(customerId, month);
+    const existing = billings.get(key);
+
+    const record: BillingRecord = {
+      id: key,
+      companyCode: profile.companyCode,
+      customerId,
+      month,
+      status: existing?.status ?? "none",
+      amount,
+      notes: existing?.notes ?? null,
+      createdAt: existing?.createdAt ?? Timestamp.now(),
+      updatedAt: Timestamp.now(),
+      updatedBy: user.uid,
+    };
+
+    setSaving(true);
+    try {
+      await setDoc(doc(db, "billings", key), record);
+      setBillings((prev) => {
+        const next = new Map(prev);
+        next.set(key, record);
+        return next;
+      });
+    } catch (e: any) {
+      console.error("保存失敗:", e);
+      setError("保存に失敗しました: " + (e?.message || ""));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Timestamp → YYYY-MM 変換
+  const tsToYM = (ts: Timestamp | null | undefined): string | null => {
+    if (!ts || typeof ts.toDate !== "function") return null;
+    return ymKey(ts.toDate());
+  };
+
+  // 表示する顧客（稼働中 or 停止月まで表示 + フィルター適用）
+  const rows = useMemo(() => {
+    return customers.filter((c) => {
+      // 稼働中判定: isActive が false 以外（true/undefined/null）なら稼働中扱い
+      if (c.isActive !== false) {
+        // 稼働中 → 表示
+      } else {
+        // 停止中の顧客
+        const inactMonth = tsToYM(c.inactivatedAt);
+        if (!inactMonth) {
+          // inactivatedAt が無い停止顧客 → 表示しない
+          return false;
+        }
+        // 停止月までは表示（例: 1/10停止 → 1月度は表示、2月度以降は非表示）
+        if (month > inactMonth) return false;
+      }
+
+      // 顧客フィルター
+      if (selectedCustomers.length > 0 && !selectedCustomers.includes(c.id)) {
+        return false;
+      }
+      // ステータスフィルター
+      if (statusFilter !== "ALL") {
+        const b = getBilling(c.id, month);
+        const s = b?.status ?? "none";
+        if (s !== statusFilter) return false;
+      }
+      return true;
+    });
+  }, [customers, month, selectedCustomers, statusFilter, billings, profile]);
+
+  // 合計金額
+  const totalAmount = useMemo(() => {
+    return rows.reduce((sum, c) => {
+      const b = getBilling(c.id, month);
+      if (b?.status === "no_invoice") return sum;
+      const amount = b?.amount ?? 0;
+      return sum + amount;
+    }, 0);
+  }, [rows, month, billings, profile]);
 
   return (
     <AppShell
       title="請求管理"
-      subtitle="請求作成・確認・送付の月次ステータス"
+      subtitle="顧客ごとの月次 請求"
       headerRight={
-        <Link
-          href="/billing/edit"
-          className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
-        >
-          編集
-        </Link>
+        <div className="flex items-center gap-2">
+          {saving && <span className="text-xs font-bold text-slate-500">保存中...</span>}
+          <button
+            type="button"
+            onClick={() => setEditMode((v) => !v)}
+            disabled={loading}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {editMode ? "完了" : "編集"}
+          </button>
+        </div>
       }
     >
-      <div className="space-y-4">
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="text-sm font-extrabold text-slate-900">{viewMode === "YEAR" ? "年次ステータス" : "月次ステータス"}</div>
-              <div className="text-xs font-bold text-slate-600">
-                {viewMode === "YEAR" ? (
-                  <>
-                    対象年: <span className="text-slate-900">{year}年</span>
-                  </>
-                ) : (
-                  <>
-                    開始月: <span className="text-slate-900">{labelMonth(state.startMonth)}</span>
-                  </>
+      <div className="space-y-3">
+        {/* Month header */}
+        <div className="rounded-lg border border-slate-200 bg-white overflow-visible">
+          <div className="flex items-center justify-between bg-sky-50 px-3 py-2 rounded-t-lg">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setMonth((m) => addMonths(m, -1))}
+                className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
+                aria-label="前月"
+              >
+                ←
+              </button>
+              <div className="text-base font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</div>
+              <button
+                type="button"
+                onClick={() => setMonth((m) => addMonths(m, 1))}
+                className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
+                aria-label="翌月"
+              >
+                →
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* ステータスフィルター */}
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as BillingStatus | "ALL")}
+                className="rounded-md border border-sky-200 bg-white px-2 py-1.5 text-xs font-extrabold text-slate-700"
+              >
+                <option value="ALL">すべて</option>
+                <option value="none">未着手</option>
+                <option value="created">作成済</option>
+                <option value="confirmed">確認済</option>
+                <option value="sent">送付済</option>
+                <option value="no_invoice">請求なし</option>
+              </select>
+
+              {/* 顧客別ショートカット */}
+              <div className="relative" ref={customerDropdownRef}>
+                <button
+                  onClick={() => setCustomerDropdownOpen((v) => !v)}
+                  className={clsx(
+                    "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
+                    selectedCustomers.length > 0
+                      ? "bg-sky-600 text-white"
+                      : "bg-white border border-sky-200 text-slate-700 hover:bg-sky-50",
+                  )}
+                >
+                  顧客別
+                  {selectedCustomers.length > 0 && (
+                    <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{selectedCustomers.length}</span>
+                  )}
+                </button>
+
+                {customerDropdownOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-[100] w-56 rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="p-2 border-b border-slate-100">
+                      <div className="text-[10px] font-bold text-slate-500">顧客を選択</div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-1">
+                      {customers.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-slate-500">顧客データを読み込み中...</div>
+                      ) : (
+                        customers.map((c) => (
+                          <label
+                            key={c.id}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedCustomers.includes(c.id)}
+                              onChange={() => toggleCustomer(c.id)}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                            />
+                            <span className="text-xs font-bold text-slate-700 truncate">{c.name}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {selectedCustomers.length > 0 && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          onClick={() => {
+                            setSelectedCustomers([]);
+                            setCustomerDropdownOpen(false);
+                          }}
+                          className="w-full rounded-md bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-200"
+                        >
+                          クリア
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
-              {viewMode !== "YEAR" ? (
-                <div className="text-xs font-bold text-slate-600">
-                  表示月数: <span className="text-slate-900">{state.monthsToShow}ヶ月</span>
-                </div>
-              ) : null}
-              {!loaded ? <div className="text-xs font-bold text-slate-400">保存データ読込中...</div> : null}
             </div>
-            {viewMode === "YEAR" ? (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setState((p) => ({ ...p, viewMode: "YEAR", startMonth: `${year - 1}-01`, monthsToShow: 12 }))}
-                  className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
-                  type="button"
-                >
-                  ← {year - 1}年
-                </button>
-                <button
-                  onClick={() => setState((p) => ({ ...p, viewMode: "YEAR", startMonth: `${year + 1}-01`, monthsToShow: 12 }))}
-                  className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
-                  type="button"
-                >
-                  {year + 1}年 →
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <div className="mt-3 text-[11px] font-bold text-slate-500">
-            ○ = 完了、「請求なし」= 請求対象外
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-          <table className="w-full border-separate border-spacing-0 text-left text-[11px] font-bold">
-            <thead className="bg-[#f8f9f8] text-slate-500">
+        {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
+
+        {/* 合計 */}
+        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <div className="text-sm font-extrabold text-slate-700">
+            請求対象: <span className="text-slate-900">{rows.filter((c) => getBilling(c.id, month)?.status !== "no_invoice").length}件</span>
+          </div>
+          <div className="text-sm font-extrabold text-slate-700">
+            合計金額: <span className="text-lg text-sky-700">{yen(totalAmount)}</span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="min-w-[700px] w-full text-[12px] font-bold border-separate border-spacing-0">
+            <thead className="bg-sky-50 text-[11px] font-extrabold text-slate-900 sticky top-0 z-10">
               <tr className="border-b border-slate-200">
-                <th rowSpan={2} className="sticky left-0 z-10 w-[320px] border-r border-slate-200 bg-[#f8f9f8] px-4 py-2">
-                  会社名
-                </th>
-                {months.map((m) => (
-                  <th key={m} colSpan={3} className="border-r border-slate-200 px-4 py-2 text-center">
-                    {labelMonth(m)}
-                  </th>
-                ))}
-              </tr>
-              <tr className="border-b border-slate-200">
-                {months.flatMap((m) => [
-                  <th key={`${m}-c`} className="border-r border-slate-200 px-3 py-2 text-center">
-                    請求作成
-                  </th>,
-                  <th key={`${m}-k`} className="border-r border-slate-200 px-3 py-2 text-center">
-                    請求確認
-                  </th>,
-                  <th key={`${m}-s`} className="border-r border-slate-200 px-3 py-2 text-center">
-                    請求送付
-                  </th>,
-                ])}
+                <th className="sticky left-0 z-20 w-[280px] px-3 py-2 text-left whitespace-nowrap border-b border-r border-slate-200 bg-sky-50">顧客</th>
+                <th className="w-[160px] px-3 py-2 text-center whitespace-nowrap border-b border-r border-slate-200 bg-sky-50">ステータス</th>
+                <th className="w-[200px] px-3 py-2 text-center whitespace-nowrap border-b border-slate-200 bg-sky-50">請求金額</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {state.rows.length === 0 ? (
+              {loading ? (
                 <tr>
-                  <td colSpan={1 + months.length * 3} className="px-4 py-10 text-center text-slate-400 bg-white italic font-medium">
-                    データがありません。編集ボタンから登録してください。
+                  <td colSpan={3} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    読み込み中...
+                  </td>
+                </tr>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    該当する顧客がありません
                   </td>
                 </tr>
               ) : (
-                state.rows.map((r) => (
-                  <tr key={r.id} className="hover:bg-[#fcfdfc]">
-                    <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3 font-bold text-slate-800">
-                      <div className="min-w-0">
-                        <div className="truncate">{r.companyName}</div>
-                        {r.ownerName ? <div className="mt-1 text-[10px] font-extrabold text-slate-500">担当: {r.ownerName}</div> : null}
-                      </div>
-                    </td>
-                    {months.flatMap((m) => {
-                      const cell = r.months[m] ?? defaultCell();
-                      const badges = [statusBadge(cell.create), statusBadge(cell.confirm), statusBadge(cell.send)];
-                      return badges.map((badge, idx) => (
-                        <td
-                          key={`${m}-${idx}`}
-                          className={classNames(
-                            "h-10 px-2 py-2 text-center border-r border-slate-200",
-                            // 月の3列目の後は少し強めの区切り
-                            idx === 2 ? "border-r-2 border-slate-200" : "",
-                          )}
-                        >
-                          <div className="flex items-center justify-center gap-1">
-                            <span className={classNames("inline-flex items-center justify-center rounded px-2 py-1", badge.cls)}>
-                              {badge.text || "—"}
-                            </span>
-                            {badge.text && r.ownerName ? (
-                              <span
-                                className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px] font-extrabold text-slate-700"
-                                title={`担当: ${r.ownerName}`}
-                              >
-                                {r.ownerName.trim().charAt(0)}
-                              </span>
-                            ) : null}
-                          </div>
-                        </td>
-                      ));
-                    })}
-                  </tr>
-                ))
+                rows.map((c, idx) => {
+                  const b = getBilling(c.id, month);
+                  const status = b?.status ?? "none";
+                  const amount = b?.amount ?? 0;
+                  return (
+                    <tr key={c.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"}>
+                      <td className="sticky left-0 z-10 px-3 py-3 text-left font-extrabold text-slate-900 whitespace-nowrap border-r border-slate-200 bg-inherit">
+                        <div className="truncate max-w-[260px]" title={c.name || "-"}>
+                          <Link href={`/customers/${c.id}`} className="hover:underline">
+                            {c.name}
+                          </Link>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-center border-r border-slate-200">
+                        {editMode ? (
+                          <select
+                            value={status}
+                            onChange={(e) => setStatus(c.id, e.target.value as BillingStatus)}
+                            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-extrabold text-slate-700 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                          >
+                            {STATUS_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{statusLabel(opt)}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className={clsx("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold", statusColor(status))}>
+                            {statusLabel(status)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {editMode && status !== "no_invoice" ? (
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={0}
+                            value={String(amount)}
+                            onChange={(e) => {
+                              const v = e.target.value.trim();
+                              const n = v === "" ? 0 : Number(v);
+                              if (Number.isFinite(n)) setAmount(c.id, Math.max(0, n));
+                            }}
+                            className="w-36 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-right text-[12px] font-extrabold text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                          />
+                        ) : status === "no_invoice" ? (
+                          <span className="text-slate-400">—</span>
+                        ) : (
+                          <span className="text-slate-900">{yen(amount)}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="text-[11px] font-bold text-slate-500">
+          ※ ステータスと金額を「編集」で入力すると、Firestoreに保存されます。
         </div>
       </div>
     </AppShell>

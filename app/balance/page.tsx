@@ -16,10 +16,18 @@ type Employee = { id: string; name: string; authUid?: string; color?: string; is
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
-type Deal = { id: string; title: string; status?: string; leaderUid?: string | null; createdBy?: string | null; revenue?: number | null };
+type Deal = {
+  id: string;
+  title: string;
+  status?: string;
+  assigneeUids?: string[] | null; // 担当者（複数）
+  leaderUid?: string | null; // 旧: 互換用
+  createdBy?: string | null;
+  revenue?: number | null;
+};
 
 type BalanceState = {
-  costs: Record<string, number>; // leaderUid -> cost
+  costs: Record<string, number>; // 担当者uid -> cost
   sales: Record<string, number>; // dealId -> sales
 };
 
@@ -74,26 +82,39 @@ export default function BalancePage() {
   }, [profile?.companyCode, month]);
   const { state, setState, loaded: storageLoaded } = useLocalStorageState<BalanceState>(storageKey, { costs: {}, sales: {} });
 
+  // 案件の担当者リストを取得（新旧フィールド互換）
+  const getDealAssignees = (d: Deal): string[] => {
+    if (Array.isArray(d.assigneeUids) && d.assigneeUids.length > 0) {
+      return d.assigneeUids.filter(Boolean) as string[];
+    }
+    // 旧フィールドから復元
+    if (d.leaderUid) return [d.leaderUid];
+    return [];
+  };
+
   const rows = useMemo(() => {
     const activeDeals = deals.filter((d) => (d.status || "ACTIVE") === "ACTIVE");
-    const dealsByLeader: Record<string, Deal[]> = {};
+    const dealsByAssignee: Record<string, Deal[]> = {};
     const unassigned: Deal[] = [];
     for (const d of activeDeals) {
-      const leader = String(d.leaderUid || d.createdBy || "");
-      if (!leader) {
+      const assignees = getDealAssignees(d);
+      // 担当者がいない場合は未アサイン
+      if (assignees.length === 0) {
         unassigned.push(d);
         continue;
       }
-      (dealsByLeader[leader] ||= []).push(d);
+      // 先頭の担当者でグルーピング（複数担当の場合は先頭の人の下に表示）
+      const primaryAssignee = assignees[0];
+      (dealsByAssignee[primaryAssignee] ||= []).push(d);
     }
-    for (const k of Object.keys(dealsByLeader)) {
-      dealsByLeader[k].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    for (const k of Object.keys(dealsByAssignee)) {
+      dealsByAssignee[k].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
     }
 
     const activeEmployees = employees.filter((e) => e.isActive !== false);
     const employeeItems = [...activeEmployees].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     const out: Array<{
-      leaderUid: string;
+      assigneeUid: string;
       assigneeName: string;
       dealId: string | null;
       dealName: string;
@@ -105,9 +126,9 @@ export default function BalancePage() {
     }> = [];
 
     for (const emp of employeeItems) {
-      const leaderUid = String(emp.authUid || "");
-      const list = leaderUid ? (dealsByLeader[leaderUid] || []) : [];
-      const cost = Number(state.costs[leaderUid] || 0);
+      const assigneeUid = String(emp.authUid || "");
+      const list = assigneeUid ? (dealsByAssignee[assigneeUid] || []) : [];
+      const cost = Number(state.costs[assigneeUid] || 0);
       const totalSales = list.reduce((s, d) => {
         const base = Number((d as any).revenue) || 0;
         const override = (state.sales as any)[d.id];
@@ -118,7 +139,7 @@ export default function BalancePage() {
 
       if (list.length === 0) {
         out.push({
-          leaderUid,
+          assigneeUid,
           assigneeName: emp.name || "(無名)",
           dealId: null,
           dealName: "-",
@@ -136,7 +157,7 @@ export default function BalancePage() {
         const override = (state.sales as any)[d.id];
         const sales = override === undefined ? baseSales : Number(override) || 0;
         out.push({
-          leaderUid,
+          assigneeUid,
           assigneeName: emp.name || "(無名)",
           dealId: d.id,
           dealName: d.title || "（無題）",
@@ -149,7 +170,7 @@ export default function BalancePage() {
       });
     }
 
-    // leader未設定の稼働中案件があれば末尾に表示
+    // 担当者未設定の稼働中案件があれば末尾に表示
     if (unassigned.length > 0) {
       const cost = Number(state.costs["__unassigned__"] || 0);
       const totalSales = unassigned.reduce((s, d) => {
@@ -165,8 +186,8 @@ export default function BalancePage() {
         const override = (state.sales as any)[d.id];
         const sales = override === undefined ? baseSales : Number(override) || 0;
         out.push({
-          leaderUid: "__unassigned__",
-          assigneeName: "（リーダー未設定）",
+          assigneeUid: "__unassigned__",
+          assigneeName: "（担当者未設定）",
           dealId: d.id,
           dealName: d.title || "（無題）",
           sales,
@@ -184,7 +205,7 @@ export default function BalancePage() {
   // 担当者でフィルタした表示用rows
   const filteredRows = useMemo(() => {
     if (selectedAssignees.length === 0) return rows;
-    return rows.filter((r) => selectedAssignees.includes(r.leaderUid));
+    return rows.filter((r) => selectedAssignees.includes(r.assigneeUid));
   }, [rows, selectedAssignees]);
 
   // 担当者別ドロップダウンの外側クリックで閉じる
@@ -207,9 +228,10 @@ export default function BalancePage() {
     );
   };
 
-  // 担当者リスト（自分 + 稼働中社員）を取得
+  // 担当者リスト（担当者未設定 + 自分 + 稼働中社員）を取得
   const assigneeList = useMemo(() => {
     const list: { uid: string; name: string; color?: string }[] = [];
+    list.push({ uid: "__unassigned__", name: "担当者未設定", color: "#94A3B8" });
     if (user) {
       const myName = profile?.displayName || user.email?.split("@")[0] || "ユーザー";
       list.push({ uid: user.uid, name: myName, color: "#F97316" });
@@ -281,11 +303,11 @@ export default function BalancePage() {
     return () => unsub();
   }, []);
 
-  const setCost = (leaderUid: string, raw: string) => {
+  const setCost = (assigneeUid: string, raw: string) => {
     const n = raw.trim() === "" ? 0 : Number(raw);
     setState((prev) => ({
       ...prev,
-      costs: { ...prev.costs, [leaderUid]: Number.isFinite(n) ? Math.max(0, n) : prev.costs[leaderUid] || 0 },
+      costs: { ...prev.costs, [assigneeUid]: Number.isFinite(n) ? Math.max(0, n) : prev.costs[assigneeUid] || 0 },
     }));
   };
 
@@ -377,7 +399,7 @@ export default function BalancePage() {
                     ) : (
                       assigneeList.map((a) => (
                         <label
-                          key={a.uid}
+                          key={a.uid || "__unassigned__"}
                           className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
                         >
                           <input
@@ -390,7 +412,7 @@ export default function BalancePage() {
                             className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white flex-shrink-0"
                             style={{ backgroundColor: a.color || "#CBD5E1" }}
                           >
-                            {a.name.charAt(0).toUpperCase()}
+                            {a.uid === "__unassigned__" ? "—" : a.name.charAt(0).toUpperCase()}
                           </div>
                           <span className="text-xs font-bold text-slate-700 truncate">{a.name}</span>
                         </label>
@@ -439,7 +461,7 @@ export default function BalancePage() {
               ) : (
                 filteredRows.map((r, idx) => (
                   <tr
-                    key={`${r.leaderUid}-${r.dealId || "none"}-${idx}`}
+                    key={`${r.assigneeUid}-${r.dealId || "none"}-${idx}`}
                     className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"}
                   >
                   {r.rowSpan ? (
@@ -462,8 +484,8 @@ export default function BalancePage() {
                             type="number"
                             inputMode="numeric"
                             min={0}
-                            value={String(Number(state.costs[r.leaderUid] || 0))}
-                            onChange={(e) => setCost(r.leaderUid, e.target.value)}
+                            value={String(Number(state.costs[r.assigneeUid] || 0))}
+                            onChange={(e) => setCost(r.assigneeUid, e.target.value)}
                             className="w-36 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-right text-[12px] font-extrabold text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                           />
                         </div>

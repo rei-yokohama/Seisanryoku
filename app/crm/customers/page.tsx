@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, doc, getDoc, Timestamp, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
@@ -18,22 +18,11 @@ type MemberProfile = {
   displayName?: string | null;
 };
 
-type Employee = {
-  id: string;
-  name: string;
-  authUid?: string;
-  color?: string;
-  email?: string;
-  isActive?: boolean | null;
-};
-
 type Customer = {
   id: string;
   companyCode: string;
   createdBy: string;
   name: string;
-  assigneeUid?: string | null;
-  subAssigneeUid?: string | null; // NOTE: 一覧では表示しない（編集画面等では使う可能性あり）
   isActive?: boolean | null; // 稼働中/停止中
   contactName?: string;
   contactEmail?: string;
@@ -44,9 +33,25 @@ type Customer = {
   updatedAt?: Timestamp;
 };
 
+type Deal = {
+  id: string;
+  customerId: string;
+  title: string;
+  status?: string;
+};
+
 function isCustomerActive(c: Customer) {
   // 過去データ互換: フィールドが無い場合は稼働中扱い
   return c.isActive !== false;
+}
+
+function formatDate(ts?: Timestamp) {
+  if (!ts) return "-";
+  const date = ts.toDate();
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  return `${y}/${m}/${d}`;
 }
 
 export default function CustomersPage() {
@@ -57,16 +62,10 @@ export default function CustomersPage() {
   const [error, setError] = useState("");
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [deals, setDeals] = useState<Deal[]>([]);
   const [qText, setQText] = useState("");
-  const [tab, setTab] = useState<"ALL" | "MINE">("ALL"); // MINE = 自分の顧客（担当）
   const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE"); // デフォルト: 稼働中のみ
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
-  
-  // 担当者別ショートカット
-  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
-  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
-  const assigneeDropdownRef = useRef<HTMLDivElement>(null);
 
   const loadAll = async (u: User, prof: MemberProfile) => {
     setError("");
@@ -80,7 +79,6 @@ export default function CustomersPage() {
         const code = String(e?.code || "");
         const msg = String(e?.message || "");
         setCustomers([]);
-        setEmployees([]);
         setError(code && msg ? `${code}: ${msg}` : msg || "顧客一覧の読み込みに失敗しました");
         return;
       }
@@ -93,7 +91,6 @@ export default function CustomersPage() {
         const code = String(e?.code || "");
         const msg = String(e?.message || "");
         setCustomers([]);
-        setEmployees([]);
         setError(code && msg ? `${code}: ${msg}` : msg || "顧客一覧の読み込みに失敗しました");
         return;
       }
@@ -108,31 +105,18 @@ export default function CustomersPage() {
     });
     setCustomers(items);
 
-    // employees
-    try {
-      const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
-      setEmployees(empSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
-    } catch (e: any) {
-      const code = String(e?.code || "");
-      const msg = String(e?.message || "");
-      setEmployees([]);
-      setError(code && msg ? `${code}: ${msg}` : msg || "社員一覧の読み込みに失敗しました");
-      return;
+    // 案件を取得
+    if (prof.companyCode) {
+      try {
+        const dealSnap = await getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode)));
+        const dealItems = dealSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Deal));
+        setDeals(dealItems);
+      } catch (e) {
+        console.warn("deals load failed:", e);
+        setDeals([]);
+      }
     }
   };
-
-  // 担当者別ドロップダウンの外側クリックで閉じる
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (assigneeDropdownRef.current && !assigneeDropdownRef.current.contains(e.target as Node)) {
-        setAssigneeDropdownOpen(false);
-      }
-    };
-    if (assigneeDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [assigneeDropdownOpen]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -180,54 +164,28 @@ export default function CustomersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 担当者選択の切り替え
-  const toggleAssignee = (uid: string) => {
-    setSelectedAssignees((prev) =>
-      prev.includes(uid) ? prev.filter((a) => a !== uid) : [...prev, uid]
-    );
-  };
-
-  // 担当者リスト（自分 + 稼働中社員）を取得
-  const assigneeList = useMemo(() => {
-    const list: { uid: string; name: string; color?: string }[] = [];
-    if (user) {
-      const myName = profile?.displayName || user.email?.split("@")[0] || "ユーザー";
-      list.push({ uid: user.uid, name: myName, color: "#F97316" });
-    }
-    const activeEmps = employees.filter((e) => e.isActive !== false);
-    for (const emp of activeEmps) {
-      if (emp.authUid && emp.authUid !== user?.uid) {
-        list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
+  // 顧客ごとの案件数を計算
+  const dealCountByCustomer = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const deal of deals) {
+      if (deal.customerId) {
+        counts[deal.customerId] = (counts[deal.customerId] || 0) + 1;
       }
     }
-    return list;
-  }, [user, employees, profile?.displayName]);
+    return counts;
+  }, [deals]);
 
   const filtered = useMemo(() => {
     let list = customers;
-    if (tab === "MINE" && user) {
-      // 「自分の顧客」= 担当者が自分
-      list = list.filter((c) => (c.assigneeUid || "") === user.uid);
-    }
     if (statusFilter === "ACTIVE") list = list.filter((c) => isCustomerActive(c));
     if (statusFilter === "INACTIVE") list = list.filter((c) => !isCustomerActive(c));
-    // 担当者別ショートカットフィルタ
-    if (selectedAssignees.length > 0) {
-      list = list.filter((c) => selectedAssignees.includes(c.assigneeUid || ""));
-    }
     const q = qText.trim().toLowerCase();
     if (!q) return list;
     return list.filter((c) => {
       const hay = `${c.name || ""} ${c.contactName || ""} ${c.contactEmail || ""} ${c.notes || ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [customers, qText, tab, user, statusFilter, selectedAssignees]);
-
-  const employeesByUid = useMemo(() => {
-    const m: Record<string, Employee> = {};
-    for (const e of employees) if (e.authUid) m[e.authUid] = e;
-    return m;
-  }, [employees]);
+  }, [customers, qText, statusFilter]);
 
   if (loading) {
     return (
@@ -273,71 +231,6 @@ export default function CustomersPage() {
               >
                 {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
               </button>
-              
-              {/* 担当者別ショートカット */}
-              <div className="relative" ref={assigneeDropdownRef}>
-                <button
-                  onClick={() => setAssigneeDropdownOpen((v) => !v)}
-                  className={clsx(
-                    "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
-                    selectedAssignees.length > 0
-                      ? "bg-sky-600 text-white"
-                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                  )}
-                >
-                  担当者別
-                  {selectedAssignees.length > 0 && (
-                    <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{selectedAssignees.length}</span>
-                  )}
-                </button>
-                
-                {assigneeDropdownOpen && (
-                  <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
-                    <div className="p-2 border-b border-slate-100">
-                      <div className="text-[10px] font-bold text-slate-500">担当者を選択</div>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto p-1">
-                      {assigneeList.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-slate-500">社員データを読み込み中...</div>
-                      ) : (
-                        assigneeList.map((a) => (
-                          <label
-                            key={a.uid}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedAssignees.includes(a.uid)}
-                              onChange={() => toggleAssignee(a.uid)}
-                              className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                            />
-                            <div
-                              className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white flex-shrink-0"
-                              style={{ backgroundColor: a.color || "#CBD5E1" }}
-                            >
-                              {a.name.charAt(0).toUpperCase()}
-                            </div>
-                            <span className="text-xs font-bold text-slate-700 truncate">{a.name}</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                    {selectedAssignees.length > 0 && (
-                      <div className="p-2 border-t border-slate-100">
-                        <button
-                          onClick={() => {
-                            setSelectedAssignees([]);
-                            setAssigneeDropdownOpen(false);
-                          }}
-                          className="w-full rounded-md bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-200"
-                        >
-                          クリア
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
             </div>
             <div className="text-sm font-bold text-slate-700">全 {filtered.length} 件</div>
           </div>
@@ -345,21 +238,6 @@ export default function CustomersPage() {
           {isFilterExpanded && (
             <div className="mt-4 border-t border-slate-100 pt-4 animate-in fade-in slide-in-from-top-2 duration-200">
               <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold text-slate-700">
-                <button
-                  onClick={() => setTab("ALL")}
-                  className={clsx("rounded-full px-3 py-1.5", tab === "ALL" ? "bg-orange-600 text-white" : "bg-slate-100")}
-                >
-                  すべて
-                </button>
-                <button
-                  onClick={() => setTab("MINE")}
-                  className={clsx("rounded-full px-3 py-1.5", tab === "MINE" ? "bg-orange-600 text-white" : "bg-slate-100")}
-                >
-                  自分の顧客
-                </button>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-extrabold text-slate-700">
                 <button
                   onClick={() => setStatusFilter("ACTIVE")}
                   className={clsx(
@@ -406,26 +284,28 @@ export default function CustomersPage() {
 
         <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="overflow-x-auto">
-            <table className="min-w-[760px] w-full text-sm">
+            <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
                   <th className="px-4 py-3 text-left">顧客</th>
                   <th className="px-4 py-3 text-left">稼働</th>
-                  <th className="px-4 py-3 text-left">担当(リーダー)</th>
+                  <th className="px-4 py-3 text-center">案件数</th>
+                  <th className="px-4 py-3 text-left">追加日</th>
+                  <th className="px-4 py-3 text-left">更新日</th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={6} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       該当する顧客がありません
                     </td>
                   </tr>
                 ) : (
                   filtered.map((c) => {
-                    const owner = (c.assigneeUid && employeesByUid[c.assigneeUid]) || employeesByUid[c.createdBy];
                     const active = isCustomerActive(c);
+                    const dealCount = dealCountByCustomer[c.id] || 0;
                     return (
                       <tr key={c.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-bold text-slate-900">
@@ -443,20 +323,23 @@ export default function CustomersPage() {
                             {active ? "稼働中" : "停止中"}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
-                          {owner?.name ? (
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="flex h-6 w-6 items-center justify-center rounded-full text-xs font-extrabold text-white"
-                                style={{ backgroundColor: owner.color || "#ea580c" }}
-                              >
-                                {owner.name.charAt(0).toUpperCase()}
-                              </div>
-                              <span className="font-bold">{owner.name}</span>
-                            </div>
+                        <td className="px-4 py-3 text-center">
+                          {dealCount > 0 ? (
+                            <Link
+                              href={`/projects?customerId=${encodeURIComponent(c.id)}`}
+                              className="inline-flex items-center justify-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-extrabold text-sky-700 hover:bg-sky-200"
+                            >
+                              {dealCount}件
+                            </Link>
                           ) : (
-                            "-"
+                            <span className="text-slate-400 text-xs">-</span>
                           )}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                          {formatDate(c.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                          {formatDate(c.updatedAt)}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <Link

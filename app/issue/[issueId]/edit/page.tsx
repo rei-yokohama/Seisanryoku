@@ -59,7 +59,6 @@ export default function GlobalIssueEditPage() {
   const [editStatus, setEditStatus] = useState<Issue["status"]>("TODO");
   const [editPriority, setEditPriority] = useState<Issue["priority"]>("MEDIUM");
   const [editAssigneeUid, setEditAssigneeUid] = useState("");
-  const [editSubAssigneeUid, setEditSubAssigneeUid] = useState(""); // サブリーダー
   const [editStartDate, setEditStartDate] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
   const [editLabelsText, setEditLabelsText] = useState("");
@@ -110,7 +109,6 @@ export default function GlobalIssueEditPage() {
         setEditStatus(i.status || "TODO");
         setEditPriority(i.priority || "MEDIUM");
         setEditAssigneeUid((i.assigneeUid as any) || "");
-        setEditSubAssigneeUid((i.subAssigneeUid as any) || "");
         setEditStartDate((i.startDate as any) || "");
         setEditDueDate((i.dueDate as any) || "");
         setEditLabelsText((i.labels || []).join(", "));
@@ -217,7 +215,6 @@ export default function GlobalIssueEditPage() {
         status: editStatus,
         priority: editPriority,
         assigneeUid: nextAssignee,
-        subAssigneeUid: editSubAssigneeUid || null,
         startDate: editStartDate || null,
         dueDate: editDueDate || null,
         labels: labelList,
@@ -416,23 +413,6 @@ export default function GlobalIssueEditPage() {
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                 >
                   <option value="">未割当</option>
-                  <option value={user.uid}>{myDisplayName}</option>
-                  {employees
-                    .filter((e) => !!e.authUid && e.authUid !== user.uid)
-                    .map((e) => (
-                      <option key={e.id} value={e.authUid}>{e.name}</option>
-                    ))}
-                </select>
-              </div>
-
-              <div className="md:col-span-6">
-                <div className="text-xs font-extrabold text-slate-600">サブリーダー</div>
-                <select
-                  value={editSubAssigneeUid}
-                  onChange={(e) => setEditSubAssigneeUid(e.target.value)}
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                >
-                  <option value="">未設定</option>
                   <option value={user.uid}>{myDisplayName}</option>
                   {employees
                     .filter((e) => !!e.authUid && e.authUid !== user.uid)

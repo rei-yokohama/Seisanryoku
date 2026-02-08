@@ -274,7 +274,7 @@ function DashboardInner() {
 
   // ワークスペース用ダッシュボード（社員・管理者共通）
   return (
-    <AppShell title="ワークスペース" subtitle="最近の更新">
+    <AppShell title="ホーム" subtitle="最近の更新">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* 左側：アクティビティフィード */}
         <div className="lg:col-span-8 space-y-4">

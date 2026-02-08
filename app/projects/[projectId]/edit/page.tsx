@@ -51,8 +51,9 @@ type DealDoc = {
   genre?: string;
   description?: string;
   status: DealStatus;
-  leaderUid?: string | null;
-  subLeaderUid?: string | null;
+  assigneeUids?: string[] | null; // 担当者（複数）
+  leaderUid?: string | null; // 旧: 互換用
+  subLeaderUid?: string | null; // 旧: 互換用
   revenue?: number | null;
   // status tracking (for LTV)
   firstActivatedAt?: any | null;
@@ -88,8 +89,7 @@ export default function ProjectEditPage() {
   const [genre, setGenre] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<DealStatus>("ACTIVE");
-  const [leaderUid, setLeaderUid] = useState("");
-  const [subLeaderUid, setSubLeaderUid] = useState("");
+  const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
   const [revenue, setRevenue] = useState("");
   const [genreOptions, setGenreOptions] = useState<string[]>([]);
   const [genreEditorOpen, setGenreEditorOpen] = useState(false);
@@ -98,6 +98,8 @@ export default function ProjectEditPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [loadedOnce, setLoadedOnce] = useState(false);
+  const [originalAssigneeUids, setOriginalAssigneeUids] = useState<string[]>([]);
+  const [originalRevenue, setOriginalRevenue] = useState<number | null>(null);
 
   const loadCustomers = async (u: User, prof: MemberProfile) => {
     const merged: Customer[] = [];
@@ -161,9 +163,21 @@ export default function ProjectEditPage() {
           setGenre(d.genre || "");
           setDescription(d.description || "");
           setStatus((d.status as DealStatus) || "ACTIVE");
-          setLeaderUid((d.leaderUid as string) || "");
-          setSubLeaderUid((d.subLeaderUid as string) || "");
-          setRevenue(d.revenue === null || d.revenue === undefined ? "" : String(d.revenue));
+          // 新フィールド優先、なければ旧フィールドから復元
+          let initialAssignees: string[] = [];
+          if (Array.isArray(d.assigneeUids) && d.assigneeUids.length > 0) {
+            initialAssignees = d.assigneeUids.filter(Boolean) as string[];
+          } else {
+            const legacy: string[] = [];
+            if (d.leaderUid) legacy.push(d.leaderUid);
+            if (d.subLeaderUid && d.subLeaderUid !== d.leaderUid) legacy.push(d.subLeaderUid);
+            initialAssignees = legacy;
+          }
+          setAssigneeUids(initialAssignees);
+          setOriginalAssigneeUids(initialAssignees);
+          const initialRevenue = d.revenue === null || d.revenue === undefined ? null : Number(d.revenue);
+          setRevenue(initialRevenue === null ? "" : String(initialRevenue));
+          setOriginalRevenue(initialRevenue);
           setLoadedOnce(true);
         }
       } catch (e: any) {
@@ -248,8 +262,10 @@ export default function ProjectEditPage() {
         genre: genre.trim() || "",
         description: description.trim() || "",
         status,
-        leaderUid: leaderUid || null,
-        subLeaderUid: subLeaderUid || null,
+        assigneeUids: assigneeUids.length > 0 ? assigneeUids : null,
+        // 旧フィールドはクリア（互換性のため null に）
+        leaderUid: null,
+        subLeaderUid: null,
         revenue: revenueValue,
         updatedAt: now,
       };
@@ -327,6 +343,56 @@ export default function ProjectEditPage() {
             `稼働ステータスを「${label(prevStatus)}」→「${label(status)}」に変更しました`
             + `（開始: ${jp(afterStartedAt)}${!isNowActive ? ` / 停止: ${jp(afterStoppedAt)}` : ""}`
             + ` / 稼働累計: ${totalDays.toFixed(1)}日 / 売上: ¥${(ltv || 0).toLocaleString("ja-JP")}）`,
+          link: `/projects/${projectId}/detail`,
+        });
+      }
+
+      // 担当者変更のアクティビティログ
+      const sortedOrig = [...originalAssigneeUids].sort();
+      const sortedNew = [...assigneeUids].sort();
+      const assigneesChanged =
+        sortedOrig.length !== sortedNew.length ||
+        sortedOrig.some((uid, i) => uid !== sortedNew[i]);
+
+      if (assigneesChanged) {
+        const getAssigneeName = (uid: string) => {
+          if (uid === user.uid) return "私";
+          const emp = employees.find((e) => e.authUid === uid);
+          return emp?.name || "不明なユーザー";
+        };
+
+        const oldNames = originalAssigneeUids.length > 0
+          ? originalAssigneeUids.map(getAssigneeName).join("、")
+          : "未設定";
+        const newNames = assigneeUids.length > 0
+          ? assigneeUids.map(getAssigneeName).join("、")
+          : "未設定";
+
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "ASSIGNEE_CHANGED",
+          projectId,
+          entityId: projectId,
+          message: `担当者を変更しました: ${oldNames} → ${newNames}`,
+          link: `/projects/${projectId}/detail`,
+        });
+      }
+
+      // 売上変更のアクティビティログ
+      const revenueChanged = originalRevenue !== revenueValue;
+      if (revenueChanged) {
+        const formatYen = (n: number | null) => {
+          if (n === null) return "未設定";
+          return `¥${n.toLocaleString("ja-JP")}`;
+        };
+        await logActivity({
+          companyCode: profile.companyCode,
+          actorUid: user.uid,
+          type: "DEAL_UPDATED",
+          projectId,
+          entityId: projectId,
+          message: `売上を変更しました: ${formatYen(originalRevenue)} → ${formatYen(revenueValue)}`,
           link: `/projects/${projectId}/detail`,
         });
       }
@@ -493,35 +559,45 @@ export default function ProjectEditPage() {
             </div>
 
             <div>
-              <div className="mb-1 text-sm font-bold text-slate-700">リーダー</div>
+              <div className="mb-1 text-sm font-bold text-slate-700">担当者（複数選択可）</div>
+              <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3 min-h-[48px]">
+                {assigneeUids.length === 0 && (
+                  <span className="text-sm text-slate-400">未設定</span>
+                )}
+                {assigneeUids.map((uid) => {
+                  const emp = employees.find((e) => e.authUid === uid);
+                  const name = uid === user.uid ? "私" : (emp?.name || "不明");
+                  return (
+                    <span
+                      key={uid}
+                      className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-800"
+                    >
+                      {name}
+                      <button
+                        type="button"
+                        onClick={() => setAssigneeUids((prev) => prev.filter((u) => u !== uid))}
+                        className="ml-1 text-orange-500 hover:text-orange-700"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
               <select
-                value={leaderUid}
-                onChange={(e) => setLeaderUid(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
+                value=""
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v && !assigneeUids.includes(v)) {
+                    setAssigneeUids((prev) => [...prev, v]);
+                  }
+                }}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
               >
-                <option value="">未設定</option>
-                <option value={user.uid}>私</option>
+                <option value="">＋ 担当者を追加...</option>
+                {!assigneeUids.includes(user.uid) && <option value={user.uid}>私</option>}
                 {employees
-                  .filter((e) => !!e.authUid && e.authUid !== user.uid)
-                  .map((e) => (
-                    <option key={e.id} value={e.authUid}>
-                      {e.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            <div>
-              <div className="mb-1 text-sm font-bold text-slate-700">サブリーダー</div>
-              <select
-                value={subLeaderUid}
-                onChange={(e) => setSubLeaderUid(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
-              >
-                <option value="">未設定</option>
-                <option value={user.uid}>私</option>
-                {employees
-                  .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                  .filter((e) => !!e.authUid && e.authUid !== user.uid && !assigneeUids.includes(e.authUid!))
                   .map((e) => (
                     <option key={e.id} value={e.authUid}>
                       {e.name}

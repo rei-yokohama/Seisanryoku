@@ -186,6 +186,15 @@ service cloud.firestore {
     }
 
     // ============================================
+    // 請求管理
+    // ============================================
+    match /billings/{billingId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+    }
+
+    // ============================================
     // ドライブ（ファイル管理）
     // ============================================
     match /driveFiles/{fileId} {
