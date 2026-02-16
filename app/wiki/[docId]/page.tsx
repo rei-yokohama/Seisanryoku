@@ -32,7 +32,8 @@ type WikiDoc = {
   title: string;
   // 新: Google Docs風（タブツリー + HTMLコンテンツ）
   nodes?: WikiNode[];
-  contents?: Record<string, string>;
+  contents?: Record<string, string>; // 旧: Firestoreネストマップ（後方互換用）
+  contentsJson?: string;             // 新: JSON文字列で保存（nested entity回避）
   // 新: 顧客/案件の両方に紐づける
   customerId?: string | null;
   dealId?: string | null;
@@ -183,11 +184,23 @@ export default function WikiDocPage() {
       // nodes も正規化
       const sanitizedNodes = sanitizeWikiNodes(nodes);
 
+      // contents を JSON 文字列として保存（Firestore のネストMap制限を回避）
+      const contentsJson = JSON.stringify(mergedContents);
+
+      // サイズチェック（Firestore の 1MiB 制限）
+      const approxSize = new Blob([contentsJson]).size;
+      if (approxSize > 900_000) {
+        setError(`コンテンツが大きすぎます（${(approxSize / 1024 / 1024).toFixed(1)}MB）。内容を分割してタブに分けるか、不要な書式を削除してください。`);
+        setSaving(false);
+        return;
+      }
+
       const payload: Record<string, any> = {
         companyCode: effectiveCompanyCode,
         title: title.trim() || "無題",
         nodes: sanitizedNodes,
-        contents: mergedContents,
+        contentsJson,
+        contents: {},  // 旧フィールドを空にして容量を節約
         updatedAt: Timestamp.now(),
       };
       // 紐づけは null も含めて保存
@@ -248,7 +261,17 @@ export default function WikiDocPage() {
 
     // nodes/contents (migration from old `content`)
     const rawNodes = sanitizeWikiNodes(d.nodes);
-    const rawContents = sanitizeContentsMap(d.contents);
+    // contentsJson（新）を優先、なければ旧 contents マップにフォールバック
+    let rawContents: Record<string, string>;
+    if (d.contentsJson && typeof d.contentsJson === "string") {
+      try {
+        rawContents = sanitizeContentsMap(JSON.parse(d.contentsJson));
+      } catch {
+        rawContents = sanitizeContentsMap(d.contents);
+      }
+    } else {
+      rawContents = sanitizeContentsMap(d.contents);
+    }
 
     // 方針:
     // - 「本文(root)」タブは廃止（常に非表示）
