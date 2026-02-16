@@ -162,6 +162,19 @@ service cloud.firestore {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
       allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
       allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+
+      // タブコンテンツ（サブコレクション）: 親ドキュメントの権限に準ずる
+      match /tabContents/{tabId} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+        allow delete: if isSignedIn();
+      }
+
+      match /tabParts/{partId} {
+        allow read: if isSignedIn();
+        allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+        allow delete: if isSignedIn();
+      }
     }
     
     match /projectFiles/{fileId} {

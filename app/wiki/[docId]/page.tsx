@@ -33,7 +33,8 @@ type WikiDoc = {
   // 新: Google Docs風（タブツリー + HTMLコンテンツ）
   nodes?: WikiNode[];
   contents?: Record<string, string>; // 旧: Firestoreネストマップ（後方互換用）
-  contentsJson?: string;             // 新: JSON文字列で保存（nested entity回避）
+  contentsJson?: string;             // 旧: JSON文字列で保存
+  contentStorage?: string;           // "subcollection" の場合サブコレクションから読む
   // 新: 顧客/案件の両方に紐づける
   customerId?: string | null;
   dealId?: string | null;
@@ -120,6 +121,33 @@ function sanitizeContentsMap(input: unknown): Record<string, string> {
   return out;
 }
 
+const MAX_TAB_PART_BYTES = 900_000;
+
+function splitByMaxBytes(input: string, maxBytes: number): string[] {
+  if (!input) return [""];
+  const out: string[] = [];
+  let start = 0;
+  while (start < input.length) {
+    let low = start + 1;
+    let high = input.length;
+    let best = start + 1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const part = input.slice(start, mid);
+      const size = new Blob([part]).size;
+      if (size <= maxBytes) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    out.push(input.slice(start, best));
+    start = best;
+  }
+  return out;
+}
+
 export default function WikiDocPage() {
   const router = useRouter();
   const params = useParams<{ docId: string }>();
@@ -184,32 +212,69 @@ export default function WikiDocPage() {
       // nodes も正規化
       const sanitizedNodes = sanitizeWikiNodes(nodes);
 
-      // contents を JSON 文字列として保存（Firestore のネストMap制限を回避）
-      const contentsJson = JSON.stringify(mergedContents);
+      // Step 1: サブコレクションにタブコンテンツを先に保存（失敗してもメインは無傷）
+      const tabContentsRef = collection(db, "wikiDocs", docId, "tabContents");
+      const tabPartsRef = collection(db, "wikiDocs", docId, "tabParts");
+      const now = Timestamp.now();
+      const nextTabIds = new Set<string>();
+      const nextPartIds = new Set<string>();
+      const savePromises: Promise<unknown>[] = [];
 
-      // サイズチェック（Firestore の 1MiB 制限）
-      const approxSize = new Blob([contentsJson]).size;
-      if (approxSize > 900_000) {
-        setError(`コンテンツが大きすぎます（${(approxSize / 1024 / 1024).toFixed(1)}MB）。内容を分割してタブに分けるか、不要な書式を削除してください。`);
-        setSaving(false);
-        return;
+      for (const [tabId, html] of Object.entries(mergedContents)) {
+        const parts = splitByMaxBytes(html || "", MAX_TAB_PART_BYTES);
+        nextTabIds.add(tabId);
+        savePromises.push(
+          setDoc(doc(tabContentsRef, tabId), {
+            companyCode: effectiveCompanyCode,
+            partCount: parts.length,
+            updatedAt: now,
+          })
+        );
+        parts.forEach((chunk, index) => {
+          const partId = `${tabId}__${index}`;
+          nextPartIds.add(partId);
+          savePromises.push(
+            setDoc(doc(tabPartsRef, partId), {
+              companyCode: effectiveCompanyCode,
+              tabId,
+              index,
+              chunk,
+              updatedAt: now,
+            })
+          );
+        });
       }
+      await Promise.all(savePromises);
 
+      // 使われなくなったタブ/パーツを掃除
+      const [existingTabsSnap, existingPartsSnap] = await Promise.all([
+        getDocs(tabContentsRef),
+        getDocs(tabPartsRef),
+      ]);
+      const cleanupPromises: Promise<unknown>[] = [];
+      for (const x of existingTabsSnap.docs) {
+        if (!nextTabIds.has(x.id)) cleanupPromises.push(deleteDoc(x.ref));
+      }
+      for (const x of existingPartsSnap.docs) {
+        if (!nextPartIds.has(x.id)) cleanupPromises.push(deleteDoc(x.ref));
+      }
+      await Promise.all(cleanupPromises);
+
+      // Step 2: サブコレクション保存が成功してからメインドキュメントを更新
       const payload: Record<string, any> = {
         companyCode: effectiveCompanyCode,
         title: title.trim() || "無題",
         nodes: sanitizedNodes,
-        contentsJson,
-        contents: {},  // 旧フィールドを空にして容量を節約
+        contents: {},        // 旧フィールドをクリア
+        contentsJson: "",    // 旧フィールドをクリア
+        contentStorage: "subcollection",
         updatedAt: Timestamp.now(),
       };
-      // 紐づけは null も含めて保存
       payload.customerId = customerId || null;
       payload.dealId = dealId || null;
       payload.scopeType = dealId ? "DEAL" : "GLOBAL";
       payload.scopeId = dealId || null;
 
-      // updateDoc は doc が無いと失敗するので、setDoc(merge) で安全に保存
       await setDoc(doc(db, "wikiDocs", docId), payload, { merge: true });
 
       setSavedAt(new Date());
@@ -261,9 +326,55 @@ export default function WikiDocPage() {
 
     // nodes/contents (migration from old `content`)
     const rawNodes = sanitizeWikiNodes(d.nodes);
-    // contentsJson（新）を優先、なければ旧 contents マップにフォールバック
-    let rawContents: Record<string, string>;
-    if (d.contentsJson && typeof d.contentsJson === "string") {
+    // コンテンツ読み込み: subcollection → contentsJson → contents の優先順
+    let rawContents: Record<string, string> = {};
+    if (d.contentStorage === "subcollection") {
+      // サブコレクションから読み込み（失敗時は旧データにフォールバック）
+      try {
+        const [tabSnap, partSnap] = await Promise.all([
+          getDocs(collection(db, "wikiDocs", docId, "tabContents")),
+          getDocs(collection(db, "wikiDocs", docId, "tabParts")),
+        ]);
+        const chunksByTab = new Map<string, Array<{ index: number; chunk: string }>>();
+        for (const p of partSnap.docs) {
+          const pd = p.data() as any;
+          const tabId = typeof pd?.tabId === "string" ? pd.tabId : String(p.id).split("__")[0];
+          const index = typeof pd?.index === "number" ? pd.index : Number(String(p.id).split("__")[1] || 0);
+          const chunk = typeof pd?.chunk === "string" ? pd.chunk : "";
+          if (!chunksByTab.has(tabId)) chunksByTab.set(tabId, []);
+          chunksByTab.get(tabId)!.push({ index, chunk });
+        }
+        for (const tabDoc of tabSnap.docs) {
+          const tabId = tabDoc.id;
+          const tabData = tabDoc.data() as any;
+          if (typeof tabData?.html === "string") {
+            // 旧形式互換
+            rawContents[tabId] = tabData.html;
+            continue;
+          }
+          const parts = (chunksByTab.get(tabId) || []).sort((a, b) => a.index - b.index);
+          rawContents[tabId] = parts.map((x) => x.chunk).join("");
+        }
+        // 念のため、メタが無くてもパーツだけ存在するタブを救済
+        for (const [tabId, parts] of chunksByTab.entries()) {
+          if (!(tabId in rawContents)) {
+            rawContents[tabId] = parts.sort((a, b) => a.index - b.index).map((x) => x.chunk).join("");
+          }
+        }
+      } catch (tabErr) {
+        console.warn("tabContents read failed, falling back:", tabErr);
+        rawContents = {};
+      }
+      // サブコレクションが空の場合も旧データにフォールバック
+      if (Object.keys(rawContents).length === 0) {
+        if (d.contentsJson && typeof d.contentsJson === "string" && d.contentsJson.length > 2) {
+          try { rawContents = sanitizeContentsMap(JSON.parse(d.contentsJson)); } catch { /* ignore */ }
+        }
+        if (Object.keys(rawContents).length === 0) {
+          rawContents = sanitizeContentsMap(d.contents);
+        }
+      }
+    } else if (d.contentsJson && typeof d.contentsJson === "string" && d.contentsJson.length > 2) {
       try {
         rawContents = sanitizeContentsMap(JSON.parse(d.contentsJson));
       } catch {
@@ -374,6 +485,14 @@ export default function WikiDocPage() {
     if (!user || !profile) return;
     if (!confirm("このドキュメントを削除しますか？")) return;
     try {
+      // サブコレクション(tabContents/tabParts)も削除
+      const [tabSnap, partSnap] = await Promise.all([
+        getDocs(collection(db, "wikiDocs", docId, "tabContents")),
+        getDocs(collection(db, "wikiDocs", docId, "tabParts")),
+      ]);
+      const delPromises = [...tabSnap.docs, ...partSnap.docs].map((d) => deleteDoc(d.ref));
+      await Promise.all(delPromises);
+
       await deleteDoc(doc(db, "wikiDocs", docId));
       await logActivity({
         companyCode: profile.companyCode,
@@ -484,15 +603,40 @@ export default function WikiDocPage() {
     setActiveNodeId(nextId);
   };
 
-  const renameActive = () => {
+  const renameActive = async () => {
     if (!activeNode) return;
     const next = prompt("タブ名を入力", activeNode.title || "");
     if (next == null) return;
     const t = next.trim() || "無題";
-    setNodes((prev) => prev.map(n => (n.id === activeNode.id ? { ...n, title: t } : n)));
+    const nextNodes = nodes.map((n) => (n.id === activeNode.id ? { ...n, title: t } : n));
+    setNodes(nextNodes);
+
+    // Firestoreへ即時反映（再読込で名前が戻らないように）
+    try {
+      const effectiveCompanyCode = (profile?.companyCode || docCompanyCode || "").trim();
+      if (!effectiveCompanyCode) return;
+      await setDoc(
+        doc(db, "wikiDocs", docId),
+        {
+          companyCode: effectiveCompanyCode,
+          title: title.trim() || "無題",
+          nodes: sanitizeWikiNodes(nextNodes),
+          contentStorage: "subcollection",
+          updatedAt: Timestamp.now(),
+          customerId: customerId || null,
+          dealId: dealId || null,
+          scopeType: dealId ? "DEAL" : "GLOBAL",
+          scopeId: dealId || null,
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn("タブ名変更の保存に失敗:", e);
+      setError("タブ名変更の保存に失敗しました。再度お試しください。");
+    }
   };
 
-  const deleteActive = () => {
+  const deleteActive = async () => {
     if (!activeNode) return;
     if (!confirm(`このタブ「${activeNode.title}」（子孫タブ含む）を削除しますか？`)) return;
     const descendants = collectDescendants(nodes, activeNode.id);
@@ -505,6 +649,45 @@ export default function WikiDocPage() {
     setNodes(remainNodes);
     setContents(remainContents);
     setActiveNodeId(remainNodes.length > 0 ? remainNodes[0].id : null);
+
+    // Firestoreからも即時削除（tabContents + tabParts + nodesメタ更新）
+    try {
+      const effectiveCompanyCode = (profile?.companyCode || docCompanyCode || "").trim();
+      if (!effectiveCompanyCode) return;
+
+      const delPromises: Promise<unknown>[] = [];
+      for (const tabId of idsToRemove) {
+        delPromises.push(deleteDoc(doc(db, "wikiDocs", docId, "tabContents", tabId)));
+      }
+      const partsSnap = await getDocs(collection(db, "wikiDocs", docId, "tabParts"));
+      for (const p of partsSnap.docs) {
+        const partTabId = String(p.id).split("__")[0];
+        if (idsToRemove.has(partTabId)) {
+          delPromises.push(deleteDoc(p.ref));
+        }
+      }
+      await Promise.all(delPromises);
+
+      // タブ一覧（nodes）を即時反映しないと再表示時に復活する
+      await setDoc(
+        doc(db, "wikiDocs", docId),
+        {
+          companyCode: effectiveCompanyCode,
+          title: title.trim() || "無題",
+          nodes: sanitizeWikiNodes(remainNodes),
+          contentStorage: "subcollection",
+          updatedAt: Timestamp.now(),
+          customerId: customerId || null,
+          dealId: dealId || null,
+          scopeType: dealId ? "DEAL" : "GLOBAL",
+          scopeId: dealId || null,
+        },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn("タブのFirestore削除に失敗（次回保存時にクリーンアップされます）:", e);
+      setError("タブ削除の保存に失敗しました。再度お試しください。");
+    }
   };
 
   const customerName = useMemo(() => customers.find((c) => c.id === customerId)?.name || "", [customers, customerId]);
