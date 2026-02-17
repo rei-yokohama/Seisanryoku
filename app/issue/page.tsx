@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, where, addDoc, Timestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where, addDoc, Timestamp, deleteDoc, updateDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
@@ -98,6 +98,12 @@ export default function IssueHomePage() {
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const assigneeDropdownRef = useRef<HTMLDivElement>(null);
+
+  // 課題の複数選択・編集モード
+  const [editMode, setEditMode] = useState(false);
+  const [selectedIssueIds, setSelectedIssueIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const router = useRouter();
 
@@ -366,6 +372,93 @@ export default function IssueHomePage() {
     setPage(1);
   }, [projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, keyword, showArchived]);
 
+  // フィルター変更時に選択をクリア
+  useEffect(() => {
+    setSelectedIssueIds(new Set());
+  }, [projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, keyword, showArchived]);
+
+  // 編集モード終了時に選択をクリア
+  const handleEditModeToggle = () => {
+    if (editMode) {
+      setSelectedIssueIds(new Set());
+    }
+    setEditMode((prev) => !prev);
+  };
+
+  // 全選択/解除
+  const toggleSelectAll = () => {
+    if (selectedIssueIds.size === pageItems.length) {
+      setSelectedIssueIds(new Set());
+    } else {
+      setSelectedIssueIds(new Set(pageItems.map((i) => i.id)));
+    }
+  };
+
+  // 個別選択の切り替え
+  const toggleIssueSelection = (issueId: string) => {
+    setSelectedIssueIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      return next;
+    });
+  };
+
+  // 一括削除
+  const handleBulkDelete = async () => {
+    if (selectedIssueIds.size === 0) return;
+    if (!confirm(`選択した ${selectedIssueIds.size} 件の課題を削除しますか？`)) return;
+
+    setDeleting(true);
+    try {
+      const deletePromises = Array.from(selectedIssueIds).map((issueId) =>
+        deleteDoc(doc(db, "issues", issueId))
+      );
+      await Promise.all(deletePromises);
+
+      // ローカルのissuesからも削除
+      setIssues((prev) => prev.filter((i) => !selectedIssueIds.has(i.id)));
+      setSelectedIssueIds(new Set());
+    } catch (e: any) {
+      alert("削除に失敗しました: " + (e?.message || ""));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  // ステータス一括変更
+  const handleBulkStatusChange = async (newStatus: Issue["status"]) => {
+    if (selectedIssueIds.size === 0) return;
+
+    setUpdatingStatus(true);
+    try {
+      const updatePromises = Array.from(selectedIssueIds).map((issueId) =>
+        updateDoc(doc(db, "issues", issueId), {
+          status: newStatus,
+          updatedAt: Timestamp.now(),
+        })
+      );
+      await Promise.all(updatePromises);
+
+      // ローカルのissuesも更新
+      setIssues((prev) =>
+        prev.map((i) =>
+          selectedIssueIds.has(i.id)
+            ? { ...i, status: newStatus, updatedAt: Timestamp.now() }
+            : i
+        )
+      );
+      setSelectedIssueIds(new Set());
+    } catch (e: any) {
+      alert("ステータス変更に失敗しました: " + (e?.message || ""));
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
   if (loading) {
     return (
       <AppShell title="課題" subtitle="読み込み中...">
@@ -383,12 +476,55 @@ export default function IssueHomePage() {
       title="課題"
       subtitle="全体の課題一覧"
       headerRight={
-        <Link
-          href={projectFilter !== "ALL" ? `/issue/new?projectId=${encodeURIComponent(projectFilter)}` : "/issue/new"}
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition"
-        >
-          ＋ 課題作成
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleEditModeToggle}
+            className={clsx(
+              "rounded-lg px-4 py-2 text-sm font-semibold transition",
+              editMode
+                ? "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+            )}
+          >
+            {editMode ? "完了" : "編集"}
+          </button>
+          {editMode && selectedIssueIds.size > 0 && (
+            <>
+              <select
+                onChange={(e) => {
+                  const status = e.target.value as Issue["status"];
+                  if (status && confirm(`選択した ${selectedIssueIds.size} 件の課題のステータスを「${ISSUE_STATUSES.find((s) => s.value === status)?.label || status}」に変更しますか？`)) {
+                    handleBulkStatusChange(status);
+                  }
+                  e.target.value = "";
+                }}
+                disabled={updatingStatus}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-50"
+                defaultValue=""
+              >
+                <option value="" disabled>ステータス変更</option>
+                {ISSUE_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}に変更
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleBulkDelete}
+                disabled={deleting || updatingStatus}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition disabled:opacity-50"
+              >
+                {deleting ? "削除中..." : `削除 (${selectedIssueIds.size})`}
+              </button>
+            </>
+          )}
+          <Link
+            href={projectFilter !== "ALL" ? `/issue/new?projectId=${encodeURIComponent(projectFilter)}` : "/issue/new"}
+            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition"
+          >
+            ＋ 課題作成
+          </Link>
+        </div>
       }
     >
       <div className="px-0 py-1">
@@ -604,6 +740,17 @@ export default function IssueHomePage() {
             <table className="min-w-[1000px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
+                  {editMode && (
+                    <th className="px-4 py-3 text-left whitespace-nowrap w-12">
+                      <input
+                        type="checkbox"
+                        checked={pageItems.length > 0 && selectedIssueIds.size === pageItems.length}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                        title="すべて選択/解除"
+                      />
+                    </th>
+                  )}
                   <th className="px-4 py-3 text-left whitespace-nowrap">件名</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">案件</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap">顧客</th>
@@ -618,7 +765,7 @@ export default function IssueHomePage() {
               <tbody className="divide-y divide-slate-100">
                 {pageItems.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={10} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       該当する課題がありません
                     </td>
                   </tr>
@@ -640,8 +787,19 @@ export default function IssueHomePage() {
                     const assignee = assigneeName(i.assigneeUid);
                     const overdue = isOverdue(i);
 
+                    const isSelected = selectedIssueIds.has(i.id);
                     return (
-                      <tr key={i.id} className={clsx("hover:bg-slate-50", overdue && "bg-red-50")}>
+                      <tr key={i.id} className={clsx("hover:bg-slate-50", overdue && "bg-red-50", editMode && isSelected && "bg-orange-50")}>
+                        {editMode && (
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleIssueSelection(i.id)}
+                              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                            />
+                          </td>
+                        )}
                         <td className="px-4 py-3 font-bold whitespace-nowrap">
                           <Link href={href} className={clsx("hover:underline block max-w-[200px] truncate", overdue ? "text-red-700" : "text-slate-900")} title={i.title}>
                             {overdue && <span className="mr-1">⚠️</span>}

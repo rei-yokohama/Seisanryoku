@@ -130,6 +130,12 @@ function DealsInner() {
   // 月次フィルター
   const [monthFilter, setMonthFilter] = useState<string>("ALL"); // "ALL" または "YYYY-MM"
   const currentMonth = ymKey(new Date());
+
+  // 並び替え
+  type SortColumn = "title" | "customer" | "genre" | "assignee" | "revenue" | "status" | "updatedAt" | null;
+  type SortDirection = "asc" | "desc";
+  const [sortColumn, setSortColumn] = useState<SortColumn>("updatedAt");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   
   // 担当者別ショートカット
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
@@ -298,7 +304,7 @@ function DealsInner() {
 
   const filtered = useMemo(() => {
     const q = qText.trim().toLowerCase();
-    return deals.filter((d) => {
+    const filteredList = deals.filter((d) => {
       const cust = customersById[d.customerId];
       const assignees = getDealAssignees(d);
       // 担当者が全員非稼働の場合は非表示
@@ -344,7 +350,67 @@ function DealsInner() {
       const hay = `${d.title || ""} ${d.genre || ""} ${d.description || ""} ${custName}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [deals, qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, customersById, user, activeLeaderUids, monthFilter]);
+
+    // 並び替え
+    const sorted = [...filteredList].sort((a, b) => {
+      if (!sortColumn) return 0;
+      
+      let aVal: any;
+      let bVal: any;
+
+      switch (sortColumn) {
+        case "title":
+          aVal = (a.title || "").toLowerCase();
+          bVal = (b.title || "").toLowerCase();
+          break;
+        case "customer":
+          aVal = (customersById[a.customerId]?.name || "").toLowerCase();
+          bVal = (customersById[b.customerId]?.name || "").toLowerCase();
+          break;
+        case "genre":
+          aVal = (a.genre || "").toLowerCase();
+          bVal = (b.genre || "").toLowerCase();
+          break;
+        case "assignee":
+          const aAssignees = getDealAssignees(a);
+          const bAssignees = getDealAssignees(b);
+          if (aAssignees.length === 0 && bAssignees.length === 0) {
+            aVal = "";
+            bVal = "";
+          } else if (aAssignees.length === 0) {
+            aVal = "zzz"; // 未設定を最後に
+            bVal = (employeesByUid[bAssignees[0]]?.name || "").toLowerCase();
+          } else if (bAssignees.length === 0) {
+            aVal = (employeesByUid[aAssignees[0]]?.name || "").toLowerCase();
+            bVal = "zzz";
+          } else {
+            aVal = (employeesByUid[aAssignees[0]]?.name || "").toLowerCase();
+            bVal = (employeesByUid[bAssignees[0]]?.name || "").toLowerCase();
+          }
+          break;
+        case "revenue":
+          aVal = a.revenue ?? 0;
+          bVal = b.revenue ?? 0;
+          break;
+        case "status":
+          aVal = a.status;
+          bVal = b.status;
+          break;
+        case "updatedAt":
+          aVal = (a.updatedAt as any)?.toMillis?.() || (a.createdAt as any)?.toMillis?.() || 0;
+          bVal = (b.updatedAt as any)?.toMillis?.() || (b.createdAt as any)?.toMillis?.() || 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
+  }, [deals, qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, customersById, employeesByUid, user, activeLeaderUids, monthFilter, sortColumn, sortDirection]);
 
   const totalRevenue = useMemo(() => {
     let sum = 0;
@@ -355,6 +421,16 @@ function DealsInner() {
     }
     return sum;
   }, [filtered]);
+
+  // 並び替えハンドラー
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
 
   // 担当者選択の切り替え
   const toggleAssignee = (uid: string) => {
@@ -801,13 +877,83 @@ function DealsInner() {
             <table className="min-w-[900px] w-full text-xs">
               <thead className="bg-slate-50 text-[11px] font-extrabold text-slate-600">
                 <tr>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">案件</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">顧客</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">カテゴリ</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">担当者</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">売上</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">状態</th>
-                  <th className="px-3 py-2 text-left whitespace-nowrap">更新</th>
+                  <th
+                    className="px-3 py-2 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none"
+                    onClick={() => handleSort("title")}
+                  >
+                    <div className="flex items-center gap-1">
+                      案件
+                      {sortColumn === "title" && (
+                        <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-3 py-2 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none"
+                    onClick={() => handleSort("customer")}
+                  >
+                    <div className="flex items-center gap-1">
+                      顧客
+                      {sortColumn === "customer" && (
+                        <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-3 py-2 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none"
+                    onClick={() => handleSort("genre")}
+                  >
+                    <div className="flex items-center gap-1">
+                      カテゴリ
+                      {sortColumn === "genre" && (
+                        <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-3 py-2 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none"
+                    onClick={() => handleSort("assignee")}
+                  >
+                    <div className="flex items-center gap-1">
+                      担当者
+                      {sortColumn === "assignee" && (
+                        <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-3 py-2 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none"
+                    onClick={() => handleSort("revenue")}
+                  >
+                    <div className="flex items-center gap-1">
+                      売上
+                      {sortColumn === "revenue" && (
+                        <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-3 py-2 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none"
+                    onClick={() => handleSort("status")}
+                  >
+                    <div className="flex items-center gap-1">
+                      状態
+                      {sortColumn === "status" && (
+                        <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-3 py-2 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none"
+                    onClick={() => handleSort("updatedAt")}
+                  >
+                    <div className="flex items-center gap-1">
+                      更新
+                      {sortColumn === "updatedAt" && (
+                        <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
+                      )}
+                    </div>
+                  </th>
                   <th className="px-3 py-2 text-right whitespace-nowrap">操作</th>
                 </tr>
               </thead>
