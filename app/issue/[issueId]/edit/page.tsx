@@ -79,6 +79,14 @@ export default function GlobalIssueEditPage() {
     return Array.from(new Set(list)).slice(0, 20);
   }, [editCategory, editLabelsText]);
 
+  const categorySelectOptions = useMemo(
+    () =>
+      Array.from(new Set([editCategory, ...categoryOptions]))
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b)),
+    [editCategory, categoryOptions]
+  );
+
   const myDisplayName = useMemo(() => {
     return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
   }, [profile?.displayName, user?.email]);
@@ -421,7 +429,7 @@ export default function GlobalIssueEditPage() {
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                 >
                   <option value="">未設定</option>
-                  {Array.from(new Set([editCategory, ...categoryOptions]).filter(Boolean).sort((a, b) => a.localeCompare(b)).map((c) => (
+                  {categorySelectOptions.map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
