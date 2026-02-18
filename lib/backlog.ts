@@ -37,8 +37,9 @@ export type Issue = {
   description?: string;
   status: IssueStatus;
   priority: IssuePriority;
-  assigneeUid?: string | null;
-  subAssigneeUid?: string | null; // サブリーダー
+  assigneeUid?: string | null; // 単一担当（後方互換・先頭担当者）
+  assigneeUids?: string[] | null; // 担当者（複数）
+  subAssigneeUid?: string | null; // 非推奨・後方互換
   reporterUid: string;
   labels?: string[];
   startDate?: string; // YYYY-MM-DD

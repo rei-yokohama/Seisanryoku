@@ -41,14 +41,15 @@ function clsx(...xs: Array<string | false | null | undefined>) {
 
 function relativeFromNow(date: Date) {
   const diff = Date.now() - date.getTime();
-  const sec = Math.floor(diff / 1000);
+  const sec = Math.floor(Math.abs(diff) / 1000);
+  const sign = diff < 0;
   if (sec < 60) return "たった今";
   const min = Math.floor(sec / 60);
-  if (min < 60) return `約 ${min} 分前`;
+  if (min < 60) return sign ? `約 ${min} 分後` : `約 ${min} 分前`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `約 ${hr} 時間前`;
+  if (hr < 24) return sign ? `約 ${hr} 時間後` : `約 ${hr} 時間前`;
   const day = Math.floor(hr / 24);
-  return `約 ${day} 日前`;
+  return sign ? `約 ${day} 日後` : `約 ${day} 日前`;
 }
 
 export default function GlobalIssueDetailPage() {

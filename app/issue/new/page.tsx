@@ -114,7 +114,7 @@ function NewIssueInner() {
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<Issue["status"]>("TODO");
   const [priority, setPriority] = useState<Issue["priority"]>("MEDIUM");
-  const [assigneeUid, setAssigneeUid] = useState("");
+  const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(defaultDates.startDate);
   const [dueDate, setDueDate] = useState(defaultDates.dueDate);
   const [estimateHours, setEstimateHours] = useState("");
@@ -368,7 +368,8 @@ function NewIssueInner() {
           description: description.trim() || "",
           status,
           priority,
-          assigneeUid: assigneeUid || null,
+          assigneeUids: assigneeUids.length > 0 ? assigneeUids : null,
+          assigneeUid: assigneeUids[0] || null,
           reporterUid: user.uid,
           labels: labelList,
           startDate: startDate || null,
@@ -392,16 +393,18 @@ function NewIssueInner() {
         link: `/issue/${result.issueId}`,
       });
 
-      if (assigneeUid && assigneeUid !== user.uid) {
-        await pushNotification({
-          companyCode,
-          recipientUid: assigneeUid,
-          actorUid: user.uid,
-          type: "ASSIGNED",
-          title: `課題が割り当てられました: ${result.issueKey}`,
-          body: t,
-          link: `/issue/${result.issueId}`,
-        });
+      for (const uid of assigneeUids) {
+        if (uid && uid !== user.uid) {
+          await pushNotification({
+            companyCode,
+            recipientUid: uid,
+            actorUid: user.uid,
+            type: "ASSIGNED",
+            title: `課題が割り当てられました: ${result.issueKey}`,
+            body: t,
+            link: `/issue/${result.issueId}`,
+          });
+        }
       }
 
       // 作成した課題の詳細へ遷移
@@ -605,27 +608,48 @@ function NewIssueInner() {
                 </div>
 
                 <div className="md:col-span-6">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-extrabold text-slate-600">担当(リーダー)</div>
-                    <button
-                      type="button"
-                      onClick={() => setAssigneeUid(user.uid)}
-                      className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
-                    >
-                      👤 私が担当
-                    </button>
+                  <div className="text-xs font-extrabold text-slate-600">担当（複数選択可）</div>
+                  <div className="mt-1 flex flex-wrap gap-2 rounded-md border border-slate-200 bg-white p-2 min-h-[42px]">
+                    {assigneeUids.length === 0 && (
+                      <span className="text-sm text-slate-400">未割当</span>
+                    )}
+                    {assigneeUids.map((uid) => {
+                      const name = uid === user.uid ? myDisplayName : (employees.find((e) => e.authUid === uid)?.name ?? "不明");
+                      return (
+                        <span
+                          key={uid}
+                          className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-800"
+                        >
+                          {name}
+                          <button
+                            type="button"
+                            onClick={() => setAssigneeUids((prev) => prev.filter((u) => u !== uid))}
+                            className="text-orange-500 hover:text-orange-700"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                   <select
-                    value={assigneeUid}
-                    onChange={(e) => setAssigneeUid(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                    value=""
+                    onChange={(e) => {
+                      const v = (e.target.value || "").trim();
+                      if (!v) return;
+                      setAssigneeUids((prev) => (prev.includes(v) ? prev : [...prev, v]));
+                      e.target.value = "";
+                    }}
+                    className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                   >
-                    <option value="">未割当</option>
-                    <option value={user.uid}>{myDisplayName}</option>
+                    <option value="">＋ 担当を追加...</option>
+                    {user && !assigneeUids.includes(user.uid) && (
+                      <option value={user.uid}>{myDisplayName}</option>
+                    )}
                     {employees
-                      .filter((e) => !!e.authUid && e.authUid !== user.uid)
+                      .filter((e) => !!e.authUid && e.authUid !== user?.uid && !assigneeUids.includes(e.authUid!))
                       .map((e) => (
-                        <option key={e.id} value={e.authUid}>
+                        <option key={e.id} value={e.authUid!}>
                           {e.name}
                         </option>
                       ))}

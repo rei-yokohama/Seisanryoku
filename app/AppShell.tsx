@@ -86,7 +86,7 @@ function HeaderSearchForm({
           name="projectSearch"
           defaultValue={isProjectsPage ? (searchParams.get("q") ?? "") : ""}
           placeholder={isProjectsPage ? "案件名・顧客名で検索" : "ワークスペース内を検索"}
-          className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
         />
         <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-orange-600">
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -126,7 +126,7 @@ function HeaderSearchFormFallback({
           type="text"
           name="projectSearch"
           placeholder={isProjectsPage ? "案件名・顧客名で検索" : "ワークスペース内を検索"}
-          className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-48 rounded-full border border-slate-300 bg-white px-4 py-1.5 pl-10 pr-4 text-xs text-slate-900 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
         />
         <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-orange-600">
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

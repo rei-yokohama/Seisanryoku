@@ -194,6 +194,13 @@ export default function ProjectEditPage() {
 
   const customerName = useMemo(() => customers.find((c) => c.id === customerId)?.name || "", [customers, customerId]);
 
+  /** ログインユーザーの表示名（プロフィール → Auth displayName → email → フォールバック） */
+  const currentUserDisplayName =
+    (profile?.displayName && profile.displayName.trim()) ||
+    (user?.displayName && user.displayName.trim()) ||
+    (user?.email && user.email.trim()) ||
+    "私";
+
   const saveGenreOptions = async (next: string[]) => {
     if (!user) return;
     setSavingGenres(true);
@@ -356,7 +363,7 @@ export default function ProjectEditPage() {
 
       if (assigneesChanged) {
         const getAssigneeName = (uid: string) => {
-          if (uid === user.uid) return "私";
+          if (uid === user.uid) return currentUserDisplayName;
           const emp = employees.find((e) => e.authUid === uid);
           return emp?.name || "不明なユーザー";
         };
@@ -566,7 +573,7 @@ export default function ProjectEditPage() {
                 )}
                 {assigneeUids.map((uid) => {
                   const emp = employees.find((e) => e.authUid === uid);
-                  const name = uid === user.uid ? "私" : (emp?.name || "不明");
+                  const name = uid === user.uid ? currentUserDisplayName : (emp?.name || "不明");
                   return (
                     <span
                       key={uid}
@@ -587,19 +594,21 @@ export default function ProjectEditPage() {
               <select
                 value=""
                 onChange={(e) => {
-                  const v = e.target.value;
-                  if (v && !assigneeUids.includes(v)) {
-                    setAssigneeUids((prev) => [...prev, v]);
-                  }
+                  const v = (e.target.value || "").trim();
+                  if (!v) return;
+                  setAssigneeUids((prev) => (prev.includes(v) ? prev : [...prev, v]));
+                  e.target.value = "";
                 }}
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
               >
                 <option value="">＋ 担当者を追加...</option>
-                {!assigneeUids.includes(user.uid) && <option value={user.uid}>私</option>}
+                {!assigneeUids.includes(user.uid) && (
+                  <option value={user.uid}>{currentUserDisplayName}</option>
+                )}
                 {employees
                   .filter((e) => !!e.authUid && e.authUid !== user.uid && !assigneeUids.includes(e.authUid!))
                   .map((e) => (
-                    <option key={e.id} value={e.authUid}>
+                    <option key={e.id} value={e.authUid!}>
                       {e.name}
                     </option>
                   ))}

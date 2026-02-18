@@ -149,6 +149,7 @@ function DealsInner() {
   const [editDescription, setEditDescription] = useState("");
   const [editStatus, setEditStatus] = useState<DealStatus>("ACTIVE");
   const [editCustomerId, setEditCustomerId] = useState("");
+  const [editAssigneeUids, setEditAssigneeUids] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -281,6 +282,12 @@ function DealsInner() {
     return m;
   }, [employees]);
 
+  /** 担当者UIDから表示名を取得（自分＝プロフィール名、社員＝employees、それ以外＝不明） */
+  const assigneeDisplayName = (uid: string): string => {
+    if (uid === user?.uid) return profile?.displayName?.trim() || user?.displayName?.trim() || user?.email?.split("@")[0] || "ユーザー";
+    return employeesByUid[uid]?.name || "不明";
+  };
+
   const activeLeaderUids = useMemo(() => {
     const set = new Set<string>();
     if (user) set.add(user.uid);
@@ -379,13 +386,13 @@ function DealsInner() {
             bVal = "";
           } else if (aAssignees.length === 0) {
             aVal = "zzz"; // 未設定を最後に
-            bVal = (employeesByUid[bAssignees[0]]?.name || "").toLowerCase();
+            bVal = assigneeDisplayName(bAssignees[0]).toLowerCase();
           } else if (bAssignees.length === 0) {
-            aVal = (employeesByUid[aAssignees[0]]?.name || "").toLowerCase();
+            aVal = assigneeDisplayName(aAssignees[0]).toLowerCase();
             bVal = "zzz";
           } else {
-            aVal = (employeesByUid[aAssignees[0]]?.name || "").toLowerCase();
-            bVal = (employeesByUid[bAssignees[0]]?.name || "").toLowerCase();
+            aVal = assigneeDisplayName(aAssignees[0]).toLowerCase();
+            bVal = assigneeDisplayName(bAssignees[0]).toLowerCase();
           }
           break;
         case "revenue":
@@ -458,11 +465,12 @@ function DealsInner() {
 
   const openEdit = (deal: Deal) => {
     setEditing(deal);
-    setEditTitle(deal.title);
+    setEditTitle(deal.title || "");
     setEditGenre(deal.genre || "");
     setEditDescription(deal.description || "");
     setEditStatus(deal.status);
-    setEditCustomerId(deal.customerId);
+    setEditCustomerId(deal.customerId || "");
+    setEditAssigneeUids(getDealAssignees(deal));
     setError("");
     setModalOpen(true);
   };
@@ -487,6 +495,9 @@ function DealsInner() {
         description: editDescription.trim() || "",
         status: editStatus,
         customerId: editCustomerId,
+        assigneeUids: editAssigneeUids.length > 0 ? editAssigneeUids : null,
+        leaderUid: null,
+        subLeaderUid: null,
         updatedAt: Timestamp.now(),
       });
       const cust = customersById[editCustomerId];
@@ -998,16 +1009,17 @@ function DealsInner() {
                           {assignees.length > 0 ? (
                             <div className="flex items-center gap-1 flex-wrap">
                               {assignees.slice(0, 3).map((uid) => {
+                                const name = assigneeDisplayName(uid);
                                 const emp = employeesByUid[uid];
-                                if (!emp) return null;
+                                const color = uid === user?.uid ? "#F97316" : (emp?.color || "#CBD5E1");
                                 return (
                                   <div
                                     key={uid}
                                     className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
-                                    style={{ backgroundColor: emp.color || "#CBD5E1" }}
-                                    title={emp.name}
+                                    style={{ backgroundColor: color }}
+                                    title={name}
                                   >
-                                    {emp.name.charAt(0).toUpperCase()}
+                                    {name.charAt(0).toUpperCase()}
                                   </div>
                                 );
                               })}
@@ -1123,6 +1135,55 @@ function DealsInner() {
                       {opt.label}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="mb-1 text-sm font-bold text-slate-700">担当者（複数選択可）</div>
+                <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-3 min-h-[48px]">
+                  {editAssigneeUids.length === 0 && (
+                    <span className="text-sm text-slate-400">未設定</span>
+                  )}
+                  {editAssigneeUids.map((uid) => {
+                    const name = assigneeDisplayName(uid);
+                    return (
+                      <span
+                        key={uid}
+                        className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-800"
+                      >
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() => setEditAssigneeUids((prev) => prev.filter((u) => u !== uid))}
+                          className="ml-1 text-orange-500 hover:text-orange-700"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const v = (e.target.value || "").trim();
+                    if (!v) return;
+                    setEditAssigneeUids((prev) => (prev.includes(v) ? prev : [...prev, v]));
+                    e.target.value = "";
+                  }}
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none"
+                >
+                  <option value="">＋ 担当者を追加...</option>
+                  {user && !editAssigneeUids.includes(user.uid) && (
+                    <option value={user.uid}>{assigneeDisplayName(user.uid)}</option>
+                  )}
+                  {employees
+                    .filter((e) => !!e.authUid && e.authUid !== user?.uid && !editAssigneeUids.includes(e.authUid!))
+                    .map((e) => (
+                      <option key={e.id} value={e.authUid!}>
+                        {e.name}
+                      </option>
+                    ))}
                 </select>
               </div>
 

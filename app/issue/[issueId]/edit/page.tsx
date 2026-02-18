@@ -61,18 +61,23 @@ export default function GlobalIssueEditPage() {
   const [editAssigneeUid, setEditAssigneeUid] = useState("");
   const [editStartDate, setEditStartDate] = useState("");
   const [editDueDate, setEditDueDate] = useState("");
+  const [editCategory, setEditCategory] = useState("");
   const [editLabelsText, setEditLabelsText] = useState("");
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
 
   const descRef = useRef<HTMLTextAreaElement | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
+  /** カテゴリ + その他ラベル（保存用。カテゴリは先頭） */
   const labelList = useMemo(() => {
-    const raw = editLabelsText
+    const rest = editLabelsText
       .split(",")
       .map((s) => s.trim())
-      .filter(Boolean);
-    return Array.from(new Set(raw)).slice(0, 20);
-  }, [editLabelsText]);
+      .filter(Boolean)
+      .filter((l) => l !== editCategory);
+    const list = editCategory ? [editCategory, ...rest] : rest;
+    return Array.from(new Set(list)).slice(0, 20);
+  }, [editCategory, editLabelsText]);
 
   const myDisplayName = useMemo(() => {
     return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
@@ -111,7 +116,8 @@ export default function GlobalIssueEditPage() {
         setEditAssigneeUid((i.assigneeUid as any) || "");
         setEditStartDate((i.startDate as any) || "");
         setEditDueDate((i.dueDate as any) || "");
-        setEditLabelsText((i.labels || []).join(", "));
+        setEditCategory((i.labels && i.labels[0]) ? String(i.labels[0]) : "");
+        setEditLabelsText((i.labels || []).slice(1).join(", "));
 
         // 2. Fetch Project (Deal)
         const projectId = i.projectId;
@@ -137,6 +143,17 @@ export default function GlobalIssueEditPage() {
         const empById = new Map<string, Employee>();
         for (const e of mergedEmp) empById.set(e.id, e);
         setEmployees(Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+
+        // 4. カテゴリ候補（全課題の先頭ラベル）
+        if (prof.companyCode) {
+          const issuesSnap = await getDocs(query(collection(db, "issues"), where("companyCode", "==", prof.companyCode)));
+          const catSet = new Set<string>();
+          issuesSnap.docs.forEach((d) => {
+            const labels = (d.data().labels as string[] | undefined) || [];
+            if (labels[0]) catSet.add(String(labels[0]));
+          });
+          setCategoryOptions(Array.from(catSet).sort((a, b) => a.localeCompare(b)));
+        }
 
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "読み込みに失敗しました";
@@ -397,6 +414,20 @@ export default function GlobalIssueEditPage() {
               </div>
 
               <div className="md:col-span-6">
+                <div className="text-xs font-extrabold text-slate-600">カテゴリ</div>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                >
+                  <option value="">未設定</option>
+                  {Array.from(new Set([editCategory, ...categoryOptions]).filter(Boolean).sort((a, b) => a.localeCompare(b)).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="md:col-span-6">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-extrabold text-slate-600">担当(リーダー)</div>
                   <button
@@ -443,12 +474,12 @@ export default function GlobalIssueEditPage() {
               </div>
 
               <div className="md:col-span-12">
-                <div className="text-xs font-extrabold text-slate-600">ラベル（カンマ区切り）</div>
+                <div className="text-xs font-extrabold text-slate-600">ラベル（カテゴリ以外・カンマ区切り）</div>
                 <input
                   value={editLabelsText}
                   onChange={(e) => setEditLabelsText(e.target.value)}
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  placeholder="例: フロント,急ぎ"
+                  placeholder="例: 急ぎ,検討中"
                 />
               </div>
             </div>
