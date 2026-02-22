@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, doc, getDoc, Timestamp, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
@@ -18,17 +18,28 @@ type MemberProfile = {
   displayName?: string | null;
 };
 
+type Employee = {
+  id: string;
+  name: string;
+  authUid?: string;
+  color?: string;
+  isActive?: boolean | null;
+};
+
 type Customer = {
   id: string;
   companyCode: string;
   createdBy: string;
   name: string;
-  isActive?: boolean | null; // 稼働中/停止中
+  isActive?: boolean | null;
+  assigneeUid?: string | null;
+  assigneeUids?: string[] | null;
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
   notes?: string;
   industry?: string;
+  contractAmount?: number | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -54,6 +65,16 @@ function formatDate(ts?: Timestamp) {
   return `${y}/${m}/${d}`;
 }
 
+function getCustomerAssignees(c: Customer): string[] {
+  if (Array.isArray(c.assigneeUids) && c.assigneeUids.length > 0) return c.assigneeUids.filter(Boolean) as string[];
+  return c.assigneeUid ? [c.assigneeUid] : [];
+}
+
+function formatYen(n?: number | null) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "-";
+  return `¥${n.toLocaleString("ja-JP")}`;
+}
+
 export default function CustomersPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -62,10 +83,19 @@ export default function CustomersPage() {
   const [error, setError] = useState("");
 
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [qText, setQText] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE"); // デフォルト: 稼働中のみ
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
+  const [assigneeFilter, setAssigneeFilter] = useState("ALL");
+  const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
+  const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
+  const assigneeDropdownRef = useRef<HTMLDivElement>(null);
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+
+  type SortColumn = "name" | "assignee" | "status" | "deals" | "revenue" | "createdAt" | "updatedAt" | null;
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
   const loadAll = async (u: User, prof: MemberProfile) => {
     setError("");
@@ -104,6 +134,14 @@ export default function CustomersPage() {
       return bm - am;
     });
     setCustomers(items);
+
+    // 社員を取得
+    if (prof.companyCode) {
+      try {
+        const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+        setEmployees(empSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+      } catch { setEmployees([]); }
+    }
 
     // 案件を取得
     if (prof.companyCode) {
@@ -164,6 +202,61 @@ export default function CustomersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (assigneeDropdownRef.current && !assigneeDropdownRef.current.contains(e.target as Node)) {
+        setAssigneeDropdownOpen(false);
+      }
+    };
+    if (assigneeDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [assigneeDropdownOpen]);
+
+  const employeesByUid = useMemo(() => {
+    const m: Record<string, Employee> = {};
+    for (const e of employees) if (e.authUid) m[e.authUid] = e;
+    return m;
+  }, [employees]);
+
+  const assigneeDisplayName = (uid?: string | null): string => {
+    if (!uid) return "";
+    if (uid === user?.uid) return profile?.displayName?.trim() || user?.displayName?.trim() || user?.email?.split("@")[0] || "ユーザー";
+    return employeesByUid[uid]?.name || "不明";
+  };
+
+  const toggleAssignee = (uid: string) => {
+    setSelectedAssignees((prev) =>
+      prev.includes(uid) ? prev.filter((a) => a !== uid) : [...prev, uid]
+    );
+  };
+
+  const assigneeList = useMemo(() => {
+    const list: { uid: string; name: string; color?: string }[] = [];
+    list.push({ uid: "__unassigned__", name: "担当者未設定", color: "#94A3B8" });
+    if (user) {
+      const myName = profile?.displayName || user.email?.split("@")[0] || "ユーザー";
+      list.push({ uid: user.uid, name: myName, color: "#F97316" });
+    }
+    const activeEmps = employees.filter((e) => e.isActive !== false);
+    for (const emp of activeEmps) {
+      if (emp.authUid && emp.authUid !== user?.uid) {
+        list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
+      }
+    }
+    return list;
+  }, [user, employees, profile?.displayName]);
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  };
+
   // 顧客ごとの案件数を計算
   const dealCountByCustomer = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -179,13 +272,87 @@ export default function CustomersPage() {
     let list = customers;
     if (statusFilter === "ACTIVE") list = list.filter((c) => isCustomerActive(c));
     if (statusFilter === "INACTIVE") list = list.filter((c) => !isCustomerActive(c));
+    if (assigneeFilter !== "ALL") {
+      if (assigneeFilter === "__unassigned__") {
+        list = list.filter((c) => getCustomerAssignees(c).length === 0);
+      } else {
+        list = list.filter((c) => getCustomerAssignees(c).includes(assigneeFilter));
+      }
+    }
+    if (selectedAssignees.length > 0) {
+      const hasUnassigned = selectedAssignees.includes("__unassigned__");
+      const others = selectedAssignees.filter((a) => a !== "__unassigned__");
+      list = list.filter((c) => {
+        const assignees = getCustomerAssignees(c);
+        const matchesUnassigned = hasUnassigned && assignees.length === 0;
+        const matchesOther = others.length > 0 && assignees.some((uid) => others.includes(uid));
+        return matchesUnassigned || matchesOther;
+      });
+    }
     const q = qText.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((c) => {
-      const hay = `${c.name || ""} ${c.contactName || ""} ${c.contactEmail || ""} ${c.notes || ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [customers, qText, statusFilter]);
+    if (q) {
+      list = list.filter((c) => {
+        const hay = `${c.name || ""} ${c.contactName || ""} ${c.contactEmail || ""} ${c.notes || ""}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+
+    if (sortColumn) {
+      list = [...list].sort((a, b) => {
+        let aVal: any;
+        let bVal: any;
+        switch (sortColumn) {
+          case "name":
+            aVal = (a.name || "").toLowerCase();
+            bVal = (b.name || "").toLowerCase();
+            break;
+          case "assignee": {
+            const aAssignees = getCustomerAssignees(a);
+            const bAssignees = getCustomerAssignees(b);
+            aVal = aAssignees.length > 0 ? assigneeDisplayName(aAssignees[0]).toLowerCase() : "zzz";
+            bVal = bAssignees.length > 0 ? assigneeDisplayName(bAssignees[0]).toLowerCase() : "zzz";
+            break;
+          }
+          case "status":
+            aVal = isCustomerActive(a) ? 0 : 1;
+            bVal = isCustomerActive(b) ? 0 : 1;
+            break;
+          case "deals":
+            aVal = dealCountByCustomer[a.id] || 0;
+            bVal = dealCountByCustomer[b.id] || 0;
+            break;
+          case "revenue":
+            aVal = typeof a.contractAmount === "number" ? a.contractAmount : 0;
+            bVal = typeof b.contractAmount === "number" ? b.contractAmount : 0;
+            break;
+          case "createdAt":
+            aVal = (a.createdAt as any)?.toMillis?.() || 0;
+            bVal = (b.createdAt as any)?.toMillis?.() || 0;
+            break;
+          case "updatedAt":
+            aVal = (a.updatedAt as any)?.toMillis?.() || 0;
+            bVal = (b.updatedAt as any)?.toMillis?.() || 0;
+            break;
+          default:
+            return 0;
+        }
+        if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+        if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [customers, qText, statusFilter, assigneeFilter, selectedAssignees, sortColumn, sortDirection, dealCountByCustomer]);
+
+  const totalRevenue = useMemo(() => {
+    let sum = 0;
+    for (const c of filtered) {
+      const v = c.contractAmount;
+      if (typeof v === "number" && !Number.isNaN(v)) sum += v;
+    }
+    return sum;
+  }, [filtered]);
 
   if (loading) {
     return (
@@ -231,8 +398,74 @@ export default function CustomersPage() {
               >
                 {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
               </button>
+              <div className="relative" ref={assigneeDropdownRef}>
+                <button
+                  onClick={() => setAssigneeDropdownOpen((v) => !v)}
+                  className={clsx(
+                    "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
+                    selectedAssignees.length > 0
+                      ? "bg-sky-600 text-white"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200",
+                  )}
+                >
+                  担当者別
+                  {selectedAssignees.length > 0 && (
+                    <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{selectedAssignees.length}</span>
+                  )}
+                </button>
+                {assigneeDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-slate-200 bg-white shadow-lg">
+                    <div className="p-2 border-b border-slate-100">
+                      <div className="text-[10px] font-bold text-slate-500">担当者を選択</div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto p-1">
+                      {assigneeList.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-slate-500">社員データを読み込み中...</div>
+                      ) : (
+                        assigneeList.map((a) => (
+                          <label
+                            key={a.uid}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedAssignees.includes(a.uid)}
+                              onChange={() => toggleAssignee(a.uid)}
+                              className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                            />
+                            <div
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white flex-shrink-0"
+                              style={{ backgroundColor: a.color || "#CBD5E1" }}
+                            >
+                              {a.uid === "__unassigned__" ? "—" : a.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="text-xs font-bold text-slate-700 truncate">{a.name}</span>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                    {selectedAssignees.length > 0 && (
+                      <div className="p-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedAssignees([]);
+                            setAssigneeDropdownOpen(false);
+                          }}
+                          className="w-full rounded-md bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-200"
+                        >
+                          クリア
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="text-sm font-bold text-slate-700">全 {filtered.length} 件</div>
+            <div className="flex items-center gap-3 text-sm font-bold text-slate-700">
+              <span>全 {filtered.length} 件</span>
+              <span className="text-xs text-slate-500">売上合計: {formatYen(totalRevenue)}</span>
+            </div>
           </div>
 
           {isFilterExpanded && (
@@ -277,6 +510,23 @@ export default function CustomersPage() {
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                   />
                 </div>
+                <div className="md:col-span-6">
+                  <div className="text-xs font-extrabold text-slate-500">担当者</div>
+                  <select
+                    value={assigneeFilter}
+                    onChange={(e) => setAssigneeFilter(e.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  >
+                    <option value="ALL">すべて</option>
+                    <option value="__unassigned__">担当者未設定</option>
+                    {user && <option value={user.uid}>{assigneeDisplayName(user.uid)}</option>}
+                    {employees
+                      .filter((e) => e.isActive !== false && !!e.authUid && e.authUid !== user?.uid)
+                      .map((e) => (
+                        <option key={e.id} value={e.authUid!}>{e.name}</option>
+                      ))}
+                  </select>
+                </div>
               </div>
             </div>
           )}
@@ -287,18 +537,34 @@ export default function CustomersPage() {
             <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-left">顧客</th>
-                  <th className="px-4 py-3 text-left">稼働</th>
-                  <th className="px-4 py-3 text-center">案件数</th>
-                  <th className="px-4 py-3 text-left">追加日</th>
-                  <th className="px-4 py-3 text-left">更新日</th>
+                  <th className="px-4 py-3 text-left cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("name")}>
+                    <div className="flex items-center gap-1">顧客{sortColumn === "name" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-left cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("assignee")}>
+                    <div className="flex items-center gap-1">担当者{sortColumn === "assignee" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-left cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("status")}>
+                    <div className="flex items-center gap-1">稼働{sortColumn === "status" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-center cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("deals")}>
+                    <div className="flex items-center justify-center gap-1">案件数{sortColumn === "deals" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-right cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("revenue")}>
+                    <div className="flex items-center justify-end gap-1">売上{sortColumn === "revenue" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-left cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("createdAt")}>
+                    <div className="flex items-center gap-1">追加日{sortColumn === "createdAt" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-left cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("updatedAt")}>
+                    <div className="flex items-center gap-1">更新日{sortColumn === "updatedAt" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={8} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       該当する顧客がありません
                     </td>
                   </tr>
@@ -306,12 +572,43 @@ export default function CustomersPage() {
                   filtered.map((c) => {
                     const active = isCustomerActive(c);
                     const dealCount = dealCountByCustomer[c.id] || 0;
+                    const assignees = getCustomerAssignees(c);
                     return (
                       <tr key={c.id} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-bold text-slate-900">
                           <Link href={`/customers/${c.id}`} className="hover:underline">
                             {c.name}
                           </Link>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {assignees.length > 0 ? (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {assignees.slice(0, 3).map((uid) => {
+                                const aName = assigneeDisplayName(uid);
+                                const aEmp = employeesByUid[uid];
+                                const aColor = uid === user?.uid ? "#F97316" : (aEmp?.color || "#CBD5E1");
+                                return (
+                                  <div key={uid} className="flex items-center gap-1.5">
+                                    <div
+                                      className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
+                                      style={{ backgroundColor: aColor }}
+                                      title={aName}
+                                    >
+                                      {aName.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-700">{aName}</span>
+                                  </div>
+                                );
+                              })}
+                              {assignees.length > 3 && (
+                                <span className="text-[10px] text-slate-500">+{assignees.length - 3}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-extrabold text-slate-500">
+                              未設定
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -334,6 +631,9 @@ export default function CustomersPage() {
                           ) : (
                             <span className="text-slate-400 text-xs">-</span>
                           )}
+                        </td>
+                        <td className="px-4 py-3 text-right text-xs font-bold text-slate-700 whitespace-nowrap">
+                          {formatYen(c.contractAmount)}
                         </td>
                         <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
                           {formatDate(c.createdAt)}

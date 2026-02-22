@@ -15,6 +15,12 @@ type MemberProfile = {
   displayName?: string | null;
 };
 
+type Employee = {
+  id: string;
+  name: string;
+  authUid?: string;
+};
+
 type Customer = {
   id: string;
   companyCode: string;
@@ -22,7 +28,9 @@ type Customer = {
   name: string;
   type?: string;
   isActive?: boolean | null;
-  inactivatedAt?: any | null; // Timestamp
+  inactivatedAt?: any | null;
+  assigneeUid?: string | null;
+  assigneeUids?: string[] | null;
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -85,6 +93,7 @@ export default function CustomerDetailPage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [wikis, setWikis] = useState<WikiDoc[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -123,6 +132,12 @@ export default function CustomerDetailPage() {
         const dealsSnap = await getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode), where("customerId", "==", customerId)));
         const dealItems = dealsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Deal));
         setDeals(dealItems);
+
+        // 社員（担当者名の解決用）
+        if (prof.companyCode) {
+          const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+          setEmployees(empSnap.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+        }
 
         // 顧客に紐づくWiki & アクティビティ
         if (prof.companyCode) {
@@ -165,6 +180,13 @@ export default function CustomerDetailPage() {
       </AppShell>
     );
   }
+
+  const assigneeDisplayName = (uid?: string | null): string => {
+    if (!uid) return "";
+    if (uid === user?.uid) return profile?.displayName?.trim() || user?.displayName?.trim() || user?.email?.split("@")[0] || "ユーザー";
+    const emp = employees.find((e) => e.authUid === uid);
+    return emp?.name || "不明";
+  };
 
   if (!user || !customer) {
     return (
@@ -263,6 +285,22 @@ export default function CustomerDetailPage() {
                   </div>
                 </div>
               )}
+              <div className="flex items-start gap-2">
+                <div className="flex-shrink-0 w-1 h-1 rounded-full bg-slate-400 mt-2"></div>
+                <div className="flex-1">
+                  <div className="text-xs font-bold text-slate-500">担当（自社）</div>
+                  <div className="text-sm font-bold text-slate-900">
+                    {(Array.isArray(customer.assigneeUids) && customer.assigneeUids.length > 0
+                      ? customer.assigneeUids
+                      : customer.assigneeUid
+                        ? [customer.assigneeUid]
+                        : []
+                    )
+                      .map((uid) => assigneeDisplayName(uid))
+                      .join("、") || "未設定"}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -60,7 +60,6 @@ type Deal = {
   leaderUid?: string | null; // 旧: 互換用
   subLeaderUid?: string | null; // 旧: 互換用
   revenue?: number | null;
-  confirmedMonth?: string | null; // 確定した月（YYYY-MM形式）
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -85,29 +84,6 @@ function formatDateTime(ts?: Timestamp) {
   return `${m}/${d} ${hh}:${mm}`;
 }
 
-// 月次フィルター用ヘルパー関数
-function ymKey(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-function parseYM(key: string) {
-  const [y, m] = key.split("-").map((v) => Number(v));
-  return { y: y || new Date().getFullYear(), m: m || new Date().getMonth() + 1 };
-}
-
-function addMonths(key: string, delta: number) {
-  const { y, m } = parseYM(key);
-  const d = new Date(y, (m - 1) + delta, 1);
-  return ymKey(d);
-}
-
-function labelYM(key: string) {
-  const { y, m } = parseYM(key);
-  return `${y}/${m}`;
-}
-
 function DealsInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -126,10 +102,6 @@ function DealsInner() {
   const [customerFilter, setCustomerFilter] = useState("ALL");
   const [leaderFilter, setLeaderFilter] = useState("ALL");
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
-  
-  // 月次フィルター
-  const [monthFilter, setMonthFilter] = useState<string>("ALL"); // "ALL" または "YYYY-MM"
-  const currentMonth = ymKey(new Date());
 
   // 並び替え
   type SortColumn = "title" | "customer" | "genre" | "assignee" | "revenue" | "status" | "updatedAt" | null;
@@ -335,23 +307,6 @@ function DealsInner() {
         const matchesOther = otherFilters.length > 0 && assignees.some((uid) => otherFilters.includes(uid));
         if (!matchesUnassigned && !matchesOther) return false;
       }
-      // 月次フィルター
-      if (monthFilter !== "ALL") {
-        // 確定月が設定されている場合はその月のみ表示
-        if (d.confirmedMonth) {
-          if (d.confirmedMonth !== monthFilter) return false;
-        } else if (d.status === "ACTIVE") {
-          // 稼働中で確定月がない場合は全ての月で表示
-          // (フィルタを通過)
-        } else {
-          // その他のステータスは更新日/作成日でフィルタ
-          const ts = d.updatedAt || d.createdAt;
-          if (!ts) return false;
-          const dealDate = ts.toDate();
-          const dealYM = ymKey(dealDate);
-          if (dealYM !== monthFilter) return false;
-        }
-      }
       if (!q) return true;
       const custName = cust?.name || "";
       const hay = `${d.title || ""} ${d.genre || ""} ${d.description || ""} ${custName}`.toLowerCase();
@@ -417,7 +372,7 @@ function DealsInner() {
     });
 
     return sorted;
-  }, [deals, qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, customersById, employeesByUid, user, activeLeaderUids, monthFilter, sortColumn, sortDirection]);
+  }, [deals, qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, customersById, employeesByUid, user, activeLeaderUids, sortColumn, sortDirection]);
 
   const totalRevenue = useMemo(() => {
     let sum = 0;
@@ -517,89 +472,6 @@ function DealsInner() {
     }
   };
 
-  // 月一括確定/解除
-  const [busy, setBusy] = useState(false);
-
-  // 現在表示中の稼働中案件で未確定のもの
-  const unconfirmedActiveDeals = useMemo(() => {
-    return filtered.filter((d) => d.status === "ACTIVE" && !d.confirmedMonth);
-  }, [filtered]);
-
-  // 現在表示中の確定済み案件
-  const confirmedDeals = useMemo(() => {
-    return filtered.filter((d) => d.confirmedMonth === monthFilter);
-  }, [filtered, monthFilter]);
-
-  const handleBulkConfirm = async () => {
-    if (!user || !profile) return;
-    if (monthFilter === "ALL") {
-      setError("月を選択してから確定してください");
-      return;
-    }
-    if (unconfirmedActiveDeals.length === 0) {
-      setError("確定する案件がありません");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const now = Timestamp.now();
-      for (const deal of unconfirmedActiveDeals) {
-        await updateDoc(doc(db, "deals", deal.id), {
-          confirmedMonth: monthFilter,
-          updatedAt: now,
-        });
-      }
-      await logActivity({
-        companyCode: profile.companyCode,
-        actorUid: user.uid,
-        type: "DEAL_UPDATED",
-        message: `${labelYM(monthFilter)} の案件を一括確定しました（${unconfirmedActiveDeals.length}件）`,
-        link: "/projects",
-      });
-      await loadAll(user, profile);
-    } catch (e: any) {
-      setError(e?.message || "確定に失敗しました");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleBulkUnconfirm = async () => {
-    if (!user || !profile) return;
-    if (monthFilter === "ALL") {
-      setError("月を選択してから解除してください");
-      return;
-    }
-    if (confirmedDeals.length === 0) {
-      setError("解除する案件がありません");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const now = Timestamp.now();
-      for (const deal of confirmedDeals) {
-        await updateDoc(doc(db, "deals", deal.id), {
-          confirmedMonth: null,
-          updatedAt: now,
-        });
-      }
-      await logActivity({
-        companyCode: profile.companyCode,
-        actorUid: user.uid,
-        type: "DEAL_UPDATED",
-        message: `${labelYM(monthFilter)} の案件確定を一括解除しました（${confirmedDeals.length}件）`,
-        link: "/projects",
-      });
-      await loadAll(user, profile);
-    } catch (e: any) {
-      setError(e?.message || "解除に失敗しました");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   if (loading) {
     return (
       <AppShell title="案件一覧" subtitle="Deals">
@@ -628,94 +500,6 @@ function DealsInner() {
       }
     >
       <div className="px-0 py-1">
-        {/* 月次フィルターヘッダー */}
-        <div className="mb-3 rounded-lg border border-slate-200 bg-white overflow-visible">
-          <div className="flex items-center justify-between bg-emerald-50 px-3 py-2 rounded-lg">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setMonthFilter((m) => m === "ALL" ? addMonths(currentMonth, -1) : addMonths(m, -1))}
-                className="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-emerald-700 hover:bg-emerald-50"
-                aria-label="前月"
-              >
-                ←
-              </button>
-              <div className="text-base font-extrabold text-slate-900 tracking-tight">
-                {monthFilter === "ALL" ? "全期間" : labelYM(monthFilter)}
-              </div>
-              <button
-                type="button"
-                onClick={() => setMonthFilter((m) => m === "ALL" ? addMonths(currentMonth, 1) : addMonths(m, 1))}
-                className="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-emerald-700 hover:bg-emerald-50"
-                aria-label="翌月"
-              >
-                →
-              </button>
-              {/* 確定ステータス表示 */}
-              {monthFilter !== "ALL" && (
-                <div className="ml-2 flex items-center gap-2">
-                  {confirmedDeals.length > 0 ? (
-                    <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-extrabold text-emerald-700">
-                      確定済み（{confirmedDeals.length}件）
-                    </span>
-                  ) : unconfirmedActiveDeals.length > 0 ? (
-                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-extrabold text-amber-700">
-                      未確定（{unconfirmedActiveDeals.length}件）
-                    </span>
-                  ) : null}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setMonthFilter(currentMonth)}
-                className={clsx(
-                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition",
-                  monthFilter === currentMonth
-                    ? "bg-emerald-600 text-white"
-                    : "border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50",
-                )}
-              >
-                今月
-              </button>
-              {/* 確定/解除ボタン - 今月ボタンの隣 */}
-              {monthFilter !== "ALL" && unconfirmedActiveDeals.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleBulkConfirm}
-                  disabled={busy}
-                  className="rounded-md bg-sky-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-sky-700 disabled:opacity-50 transition"
-                >
-                  確定
-                </button>
-              )}
-              {monthFilter !== "ALL" && confirmedDeals.length > 0 && unconfirmedActiveDeals.length === 0 && (
-                <button
-                  type="button"
-                  onClick={handleBulkUnconfirm}
-                  disabled={busy}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition"
-                >
-                  解除
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setMonthFilter("ALL")}
-                className={clsx(
-                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition",
-                  monthFilter === "ALL"
-                    ? "bg-slate-600 text-white"
-                    : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                )}
-              >
-                全期間
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* 検索条件（/issue と同じ雛形） */}
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -893,7 +677,7 @@ function DealsInner() {
                     onClick={() => handleSort("title")}
                   >
                     <div className="flex items-center gap-1">
-                      案件
+                      案件名
                       {sortColumn === "title" && (
                         <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>
                       )}
@@ -1007,19 +791,21 @@ function DealsInner() {
                         </td>
                         <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
                           {assignees.length > 0 ? (
-                            <div className="flex items-center gap-1 flex-wrap">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               {assignees.slice(0, 3).map((uid) => {
                                 const name = assigneeDisplayName(uid);
                                 const emp = employeesByUid[uid];
                                 const color = uid === user?.uid ? "#F97316" : (emp?.color || "#CBD5E1");
                                 return (
-                                  <div
-                                    key={uid}
-                                    className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
-                                    style={{ backgroundColor: color }}
-                                    title={name}
-                                  >
-                                    {name.charAt(0).toUpperCase()}
+                                  <div key={uid} className="flex items-center gap-1.5">
+                                    <div
+                                      className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold text-white"
+                                      style={{ backgroundColor: color }}
+                                      title={name}
+                                    >
+                                      {name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span className="text-xs font-bold text-slate-700">{name}</span>
                                   </div>
                                 );
                               })}
@@ -1028,7 +814,9 @@ function DealsInner() {
                               )}
                             </div>
                           ) : (
-                            "-"
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-extrabold text-slate-500">
+                              未設定
+                            </span>
                           )}
                         </td>
                         <td className="px-3 py-2 text-slate-700 font-bold whitespace-nowrap">

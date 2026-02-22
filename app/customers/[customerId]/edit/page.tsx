@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
@@ -17,13 +17,21 @@ type MemberProfile = {
   email?: string | null;
 };
 
+type Employee = {
+  id: string;
+  name: string;
+  authUid?: string;
+};
+
 type CustomerDoc = {
   companyCode: string;
   createdBy: string;
   name: string;
   type?: string;
-  isActive?: boolean | null; // 稼働中/停止中
-  inactivatedAt?: Timestamp | null; // 停止したタイミング
+  isActive?: boolean | null;
+  inactivatedAt?: Timestamp | null;
+  assigneeUid?: string | null;
+  assigneeUids?: string[] | null;
   contactName?: string;
   contactEmail?: string;
   phone?: string;
@@ -56,10 +64,12 @@ export default function CustomerEditPage() {
 
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MemberProfile | null>(null);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
 
   // form
   const [name, setName] = useState("");
+  const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
   const [type, setType] = useState("CORPORATION");
   const [isActive, setIsActive] = useState(true);
   const [statusChangeDate, setStatusChangeDate] = useState(() => new Date().toISOString().split("T")[0]); // YYYY-MM-DD
@@ -79,6 +89,10 @@ export default function CustomerEditPage() {
   const initialIsActiveRef = useRef<boolean>(true);
 
   const notesRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const myDisplayName = useMemo(() => {
+    return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
+  }, [profile?.displayName, user?.email]);
 
   const tagList = useMemo(() => {
     const raw = tagsText
@@ -143,6 +157,10 @@ export default function CustomerEditPage() {
             const d = (c.inactivatedAt as Timestamp).toDate();
             setStatusChangeDate(d.toISOString().split("T")[0]);
           }
+          const uids = Array.isArray(c.assigneeUids) && c.assigneeUids.length > 0
+            ? c.assigneeUids.filter(Boolean) as string[]
+            : (c.assigneeUid ? [c.assigneeUid] : []);
+          setAssigneeUids(uids);
           setContactName(c.contactName || "");
           setContactEmail(c.contactEmail || "");
           setPhone(c.phone || "");
@@ -155,6 +173,12 @@ export default function CustomerEditPage() {
           setContractAmount(ca === null || ca === undefined ? "" : String(ca));
           setNotes(c.notes || "");
           setLoadedOnce(true);
+        }
+
+        // 社員
+        if (prof.companyCode) {
+          const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+          setEmployees(empSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
         }
       } catch (e: any) {
         setError(e?.message || "読み込みに失敗しました");
@@ -189,6 +213,8 @@ export default function CustomerEditPage() {
         name: n,
         type,
         isActive: nextIsActive,
+        assigneeUids: assigneeUids.length > 0 ? assigneeUids : null,
+        assigneeUid: assigneeUids[0] || null,
         contactName: contactName.trim() || "",
         contactEmail: contactEmail.trim() || "",
         phone: phone.trim() || "",
@@ -343,6 +369,54 @@ export default function CustomerEditPage() {
               </div>
             )}
 
+            <div className="md:col-span-6">
+              <div className="text-xs font-extrabold text-slate-600">担当（自社・複数選択可）</div>
+              <div className="mt-1 flex flex-wrap gap-2 rounded-md border border-slate-200 bg-white p-2 min-h-[40px]">
+                {assigneeUids.length === 0 && (
+                  <span className="text-sm text-slate-400">未設定</span>
+                )}
+                {assigneeUids.map((uid) => {
+                  const emp = employees.find((e) => e.authUid === uid);
+                  const name = uid === user?.uid ? myDisplayName : (emp?.name || "不明");
+                  return (
+                    <span
+                      key={uid}
+                      className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-bold text-orange-800"
+                    >
+                      {name}
+                      <button
+                        type="button"
+                        onClick={() => setAssigneeUids((prev) => prev.filter((u) => u !== uid))}
+                        className="ml-1 text-orange-500 hover:text-orange-700"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              <select
+                value=""
+                onChange={(e) => {
+                  const v = (e.target.value || "").trim();
+                  if (!v) return;
+                  setAssigneeUids((prev) => (prev.includes(v) ? prev : [...prev, v]));
+                  e.currentTarget.value = "";
+                }}
+                className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+              >
+                <option value="">＋ 担当者を追加...</option>
+                {user && !assigneeUids.includes(user.uid) && (
+                  <option value={user.uid}>{myDisplayName}</option>
+                )}
+                {employees
+                  .filter((e) => !!e.authUid && e.authUid !== user?.uid && !assigneeUids.includes(e.authUid!))
+                  .map((e) => (
+                    <option key={e.id} value={e.authUid!}>{e.name}</option>
+                  ))}
+              </select>
+            </div>
+
             <div className="md:col-span-12">
               <div className="text-xs font-extrabold text-slate-600">顧客名 *</div>
               <input
@@ -420,7 +494,7 @@ export default function CustomerEditPage() {
             </div>
 
             <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-600">契約金額（数値）</div>
+              <div className="text-xs font-extrabold text-slate-600">売上</div>
               <input
                 value={contractAmount}
                 onChange={(e) => setContractAmount(e.target.value)}
