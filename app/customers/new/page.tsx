@@ -57,6 +57,7 @@ export default function CustomerNewPage() {
   const [tagsText, setTagsText] = useState("");
   const [dealStartDate, setDealStartDate] = useState("");
   const [contractAmount, setContractAmount] = useState("");
+  const [assigneeSales, setAssigneeSales] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
 
   const [showPreview, setShowPreview] = useState(false);
@@ -68,6 +69,17 @@ export default function CustomerNewPage() {
   const myDisplayName = useMemo(() => {
     return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
   }, [profile?.displayName, user?.email]);
+
+  const hasMultipleAssignees = assigneeUids.length >= 2;
+
+  const assigneeSalesTotal = useMemo(() => {
+    let sum = 0;
+    for (const uid of assigneeUids) {
+      const v = Number(assigneeSales[uid] || 0);
+      if (!Number.isNaN(v)) sum += v;
+    }
+    return sum;
+  }, [assigneeSales, assigneeUids]);
 
   const tagList = useMemo(() => {
     const raw = tagsText
@@ -153,7 +165,19 @@ export default function CustomerNewPage() {
         industry: industry || "",
         tags: tagList,
         dealStartDate: dealStartDate || null,
-        contractAmount: contractAmount ? Number(contractAmount) : null,
+        contractAmount: hasMultipleAssignees
+          ? (assigneeSalesTotal > 0 ? assigneeSalesTotal : null)
+          : (contractAmount ? Number(contractAmount) : null),
+        assigneeSales: hasMultipleAssignees
+          ? (() => {
+              const m: Record<string, number> = {};
+              for (const uid of assigneeUids) {
+                const v = Number(assigneeSales[uid] || 0);
+                if (!Number.isNaN(v) && v > 0) m[uid] = v;
+              }
+              return Object.keys(m).length > 0 ? m : null;
+            })()
+          : null,
         notes: notes.trim() || "",
         createdAt: now,
         updatedAt: now,
@@ -430,16 +454,55 @@ export default function CustomerNewPage() {
                   />
                 </div>
 
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">契約金額（円/月）</div>
-                  <input
-                    type="number"
-                    value={contractAmount}
-                    onChange={(e) => setContractAmount(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                    placeholder="例：100000"
-                  />
-                </div>
+                {hasMultipleAssignees ? (
+                  <div className="md:col-span-12">
+                    <div className="text-xs font-extrabold text-slate-600">担当別売上</div>
+                    <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-3">
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                        {assigneeUids.map((uid) => {
+                          const emp = employees.find((e) => e.authUid === uid);
+                          const empName = uid === user?.uid ? myDisplayName : (emp?.name || "不明");
+                          return (
+                            <div key={uid} className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-bold text-orange-800 min-w-[80px]">
+                                {empName}
+                              </span>
+                              <div className="relative flex-1">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">¥</span>
+                                <input
+                                  value={assigneeSales[uid] || ""}
+                                  onChange={(e) => {
+                                    setAssigneeSales((prev) => ({ ...prev, [uid]: e.target.value }));
+                                  }}
+                                  className="w-full rounded-md border border-slate-200 bg-white pl-7 pr-3 py-2 text-sm font-bold text-slate-900"
+                                  placeholder="0"
+                                  inputMode="numeric"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-3 flex items-center justify-end gap-2 border-t border-slate-200 pt-2">
+                        <span className="text-xs font-extrabold text-slate-600">合計</span>
+                        <span className="text-sm font-extrabold text-orange-700">
+                          ¥{assigneeSalesTotal.toLocaleString("ja-JP")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="md:col-span-6">
+                    <div className="text-xs font-extrabold text-slate-600">契約金額（円/月）</div>
+                    <input
+                      type="number"
+                      value={contractAmount}
+                      onChange={(e) => setContractAmount(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                      placeholder="例：100000"
+                    />
+                  </div>
+                )}
 
                 <div className="md:col-span-6">
                   <div className="text-xs font-extrabold text-slate-600">タグ（カンマ区切り）</div>

@@ -105,6 +105,25 @@ export default function BillingPage() {
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
   const [statusFilter, setStatusFilter] = useState<BillingStatus | "ALL">("ALL");
+  const [isConfirmed, setIsConfirmed] = useState(false);
+
+  // 月変更時に確定状態をlocalStorageから復元
+  useEffect(() => {
+    if (!profile?.companyCode) return;
+    const key = `billing:confirmed:${profile.companyCode}:${month}`;
+    try {
+      setIsConfirmed(localStorage.getItem(key) === "true");
+    } catch { setIsConfirmed(false); }
+  }, [month, profile?.companyCode]);
+
+  const toggleConfirm = () => {
+    if (!profile?.companyCode) return;
+    const key = `billing:confirmed:${profile.companyCode}:${month}`;
+    const next = !isConfirmed;
+    setIsConfirmed(next);
+    setEditMode(false);
+    try { localStorage.setItem(key, String(next)); } catch {}
+  };
 
   // ドロップダウン外クリックで閉じる
   useEffect(() => {
@@ -317,14 +336,24 @@ export default function BillingPage() {
       headerRight={
         <div className="flex items-center gap-2">
           {saving && <span className="text-xs font-bold text-slate-500">保存中...</span>}
-          <button
-            type="button"
-            onClick={() => setEditMode((v) => !v)}
-            disabled={loading}
-            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {editMode ? "完了" : "編集"}
-          </button>
+          {isConfirmed ? (
+            <button
+              type="button"
+              onClick={toggleConfirm}
+              className="rounded-md bg-slate-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-slate-600 shadow-sm transition"
+            >
+              確定解除
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleConfirm}
+              disabled={loading}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 shadow-sm transition disabled:opacity-50"
+            >
+              確定
+            </button>
+          )}
         </div>
       }
     >
@@ -350,9 +379,38 @@ export default function BillingPage() {
               >
                 →
               </button>
+              <button
+                type="button"
+                onClick={() => setMonth(ymKey(new Date()))}
+                className={clsx(
+                  "rounded-md px-2.5 py-1 text-[11px] font-extrabold transition",
+                  month === ymKey(new Date())
+                    ? "bg-sky-600 text-white"
+                    : "border border-sky-200 bg-white text-sky-700 hover:bg-sky-50",
+                )}
+              >
+                今月
+              </button>
+              {isConfirmed && (
+                <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-extrabold text-white">確定済</span>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
+              {/* 編集ボタン */}
+              <button
+                type="button"
+                onClick={() => setEditMode((v) => !v)}
+                disabled={loading || isConfirmed}
+                className={clsx(
+                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition",
+                  editMode
+                    ? "bg-orange-600 text-white hover:bg-orange-700"
+                    : "border border-sky-200 bg-white text-slate-700 hover:bg-sky-50 disabled:opacity-50",
+                )}
+              >
+                {editMode ? "完了" : "編集"}
+              </button>
               {/* ステータスフィルター */}
               <select
                 value={statusFilter}

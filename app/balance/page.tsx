@@ -29,6 +29,7 @@ type Deal = {
 type BalanceState = {
   costs: Record<string, number>; // 担当者uid -> cost
   sales: Record<string, number>; // dealId -> sales
+  confirmed?: boolean;
 };
 
 function ymKey(d: Date) {
@@ -132,7 +133,7 @@ export default function BalancePage() {
       const totalSales = list.reduce((s, d) => {
         const base = Number((d as any).revenue) || 0;
         const override = (state.sales as any)[d.id];
-        const sales = override === undefined ? base : Number(override) || 0;
+        const sales = override === undefined ? 0 : Number(override) || 0;
         return s + sales;
       }, 0);
       const profit = totalSales - cost;
@@ -155,7 +156,7 @@ export default function BalancePage() {
       list.forEach((d, idx) => {
         const baseSales = Number((d as any).revenue) || 0;
         const override = (state.sales as any)[d.id];
-        const sales = override === undefined ? baseSales : Number(override) || 0;
+        const sales = override === undefined ? 0 : Number(override) || 0;
         out.push({
           assigneeUid,
           assigneeName: emp.name || "(無名)",
@@ -176,7 +177,7 @@ export default function BalancePage() {
       const totalSales = unassigned.reduce((s, d) => {
         const base = Number((d as any).revenue) || 0;
         const override = (state.sales as any)[d.id];
-        const sales = override === undefined ? base : Number(override) || 0;
+        const sales = override === undefined ? 0 : Number(override) || 0;
         return s + sales;
       }, 0);
       const profit = totalSales - cost;
@@ -184,7 +185,7 @@ export default function BalancePage() {
       unassigned.forEach((d, idx) => {
         const baseSales = Number((d as any).revenue) || 0;
         const override = (state.sales as any)[d.id];
-        const sales = override === undefined ? baseSales : Number(override) || 0;
+        const sales = override === undefined ? 0 : Number(override) || 0;
         out.push({
           assigneeUid: "__unassigned__",
           assigneeName: "（担当者未設定）",
@@ -318,7 +319,6 @@ export default function BalancePage() {
         const next = { ...prev.sales };
         const t = raw.trim();
         if (!t) {
-          // 空欄に戻したら「手入力上書き」を解除して案件の固定売上(revenue)に戻す
           delete (next as any)[dealId];
           return next;
         }
@@ -330,20 +330,66 @@ export default function BalancePage() {
     }));
   };
 
+  const isConfirmed = !!state.confirmed;
+
+  const toggleConfirm = () => {
+    setState((prev) => ({ ...prev, confirmed: !prev.confirmed }));
+    setEditMode(false);
+  };
+
+  const autoInsert = () => {
+    const activeDeals = deals.filter((d) => (d.status || "ACTIVE") === "ACTIVE");
+    setState((prev) => {
+      const newSales = { ...prev.sales };
+      for (const d of activeDeals) {
+        const rev = Number((d as any).revenue) || 0;
+        if (rev > 0) newSales[d.id] = rev;
+      }
+      return { ...prev, sales: newSales };
+    });
+  };
+
   return (
     <AppShell
       title="収支"
       subtitle="担当者ごとの月次 収支"
       headerRight={
         <div className="flex items-center gap-2">
+          {editMode && !isConfirmed && (
+            <button
+              type="button"
+              onClick={autoInsert}
+              className="rounded-md bg-sky-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-sky-600 shadow-sm transition"
+            >
+              自動挿入
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setEditMode((v) => !v)}
-            disabled={loading || !storageLoaded}
+            disabled={loading || !storageLoaded || isConfirmed}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             {editMode ? "完了" : "編集"}
           </button>
+          {isConfirmed ? (
+            <button
+              type="button"
+              onClick={toggleConfirm}
+              className="rounded-md bg-slate-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-slate-600 shadow-sm transition"
+            >
+              確定解除
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={toggleConfirm}
+              disabled={loading || !storageLoaded}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 shadow-sm transition disabled:opacity-50"
+            >
+              確定
+            </button>
+          )}
         </div>
       }
     >
@@ -360,7 +406,12 @@ export default function BalancePage() {
               >
                 ←
               </button>
-              <div className="text-base font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-base font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</span>
+                {isConfirmed && (
+                  <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-extrabold text-white">確定済</span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => setMonth((m) => addMonths(m, 1))}
@@ -368,6 +419,18 @@ export default function BalancePage() {
                 aria-label="翌月"
               >
                 →
+              </button>
+              <button
+                type="button"
+                onClick={() => setMonth(ymKey(new Date()))}
+                className={clsx(
+                  "rounded-md px-2.5 py-1 text-[11px] font-extrabold transition",
+                  month === ymKey(new Date())
+                    ? "bg-emerald-600 text-white"
+                    : "border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50",
+                )}
+              >
+                今月
               </button>
             </div>
             
@@ -513,7 +576,7 @@ export default function BalancePage() {
                       rowSpan={r.rowSpan}
                       className={[
                         "px-3 py-3 text-center font-extrabold whitespace-nowrap border-b border-slate-200",
-                        r.profit < 0 ? "text-rose-700" : "text-slate-900",
+                        r.profit < 0 ? "text-rose-700" : r.profit > 0 ? "text-emerald-600" : "text-slate-900",
                       ].join(" ")}
                     >
                       {yen(r.profit)}

@@ -41,6 +41,7 @@ type CustomerDoc = {
   dealStartDate?: string | null;
   transactionStartDate?: string | null;
   contractAmount?: number | string | null;
+  assigneeSales?: Record<string, number> | null;
   notes?: string;
 };
 
@@ -81,6 +82,7 @@ export default function CustomerEditPage() {
   const [tagsText, setTagsText] = useState("");
   const [dealStartDate, setDealStartDate] = useState("");
   const [contractAmount, setContractAmount] = useState("");
+  const [assigneeSales, setAssigneeSales] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
@@ -93,6 +95,19 @@ export default function CustomerEditPage() {
   const myDisplayName = useMemo(() => {
     return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
   }, [profile?.displayName, user?.email]);
+
+  // 担当別売上の合計を自動計算
+  const assigneeSalesTotal = useMemo(() => {
+    let sum = 0;
+    for (const uid of assigneeUids) {
+      const v = Number(assigneeSales[uid] || 0);
+      if (!Number.isNaN(v)) sum += v;
+    }
+    return sum;
+  }, [assigneeSales, assigneeUids]);
+
+  // 担当が複数いるかどうか
+  const hasMultipleAssignees = assigneeUids.length >= 2;
 
   const tagList = useMemo(() => {
     const raw = tagsText
@@ -171,6 +186,14 @@ export default function CustomerEditPage() {
           setDealStartDate(ds || "");
           const ca = c.contractAmount;
           setContractAmount(ca === null || ca === undefined ? "" : String(ca));
+          // 担当別売上を読み込み
+          if (c.assigneeSales && typeof c.assigneeSales === "object") {
+            const loaded: Record<string, string> = {};
+            for (const [uid, val] of Object.entries(c.assigneeSales)) {
+              loaded[uid] = val === null || val === undefined ? "" : String(val);
+            }
+            setAssigneeSales(loaded);
+          }
           setNotes(c.notes || "");
           setLoadedOnce(true);
         }
@@ -224,7 +247,19 @@ export default function CustomerEditPage() {
         // 互換性のため両方書く
         dealStartDate: dealStartDate || null,
         transactionStartDate: dealStartDate || null,
-        contractAmount: contractAmount ? Number(contractAmount) : null,
+        contractAmount: hasMultipleAssignees
+          ? (assigneeSalesTotal > 0 ? assigneeSalesTotal : null)
+          : (contractAmount ? Number(contractAmount) : null),
+        assigneeSales: hasMultipleAssignees
+          ? (() => {
+              const m: Record<string, number> = {};
+              for (const uid of assigneeUids) {
+                const v = Number(assigneeSales[uid] || 0);
+                if (!Number.isNaN(v) && v > 0) m[uid] = v;
+              }
+              return Object.keys(m).length > 0 ? m : null;
+            })()
+          : null,
         notes: notes.trim() || "",
         updatedAt: Timestamp.now(),
       };
@@ -493,16 +528,55 @@ export default function CustomerEditPage() {
               />
             </div>
 
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-600">売上</div>
-              <input
-                value={contractAmount}
-                onChange={(e) => setContractAmount(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                placeholder="例：500000"
-                inputMode="numeric"
-              />
-            </div>
+            {hasMultipleAssignees ? (
+              <div className="md:col-span-12">
+                <div className="text-xs font-extrabold text-slate-600">担当別売上</div>
+                <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {assigneeUids.map((uid) => {
+                      const emp = employees.find((e) => e.authUid === uid);
+                      const empName = uid === user?.uid ? myDisplayName : (emp?.name || "不明");
+                      return (
+                        <div key={uid} className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-bold text-orange-800 min-w-[80px]">
+                            {empName}
+                          </span>
+                          <div className="relative flex-1">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">¥</span>
+                            <input
+                              value={assigneeSales[uid] || ""}
+                              onChange={(e) => {
+                                setAssigneeSales((prev) => ({ ...prev, [uid]: e.target.value }));
+                              }}
+                              className="w-full rounded-md border border-slate-200 bg-white pl-7 pr-3 py-2 text-sm font-bold text-slate-900"
+                              placeholder="0"
+                              inputMode="numeric"
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 flex items-center justify-end gap-2 border-t border-slate-200 pt-2">
+                    <span className="text-xs font-extrabold text-slate-600">合計</span>
+                    <span className="text-sm font-extrabold text-orange-700">
+                      ¥{assigneeSalesTotal.toLocaleString("ja-JP")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="md:col-span-6">
+                <div className="text-xs font-extrabold text-slate-600">売上</div>
+                <input
+                  value={contractAmount}
+                  onChange={(e) => setContractAmount(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                  placeholder="例：500000"
+                  inputMode="numeric"
+                />
+              </div>
+            )}
 
             <div className="md:col-span-12">
               <div className="text-xs font-extrabold text-slate-600">タグ（カンマ区切り）</div>

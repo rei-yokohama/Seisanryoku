@@ -179,7 +179,7 @@ export default function DriveNewFolderPage() {
         message: `顧客/案件フォルダを作成: ${t}`,
         link: "/drive",
       });
-      router.push("/drive");
+      router.push(parentId ? `/drive/${encodeURIComponent(parentId)}` : "/drive");
     } catch (e: any) {
       setError(e?.message || "作成に失敗しました");
     } finally {

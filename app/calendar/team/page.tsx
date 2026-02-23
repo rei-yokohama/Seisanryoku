@@ -282,7 +282,7 @@ export default function TeamCalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(false);
   const [now, setNow] = useState(new Date());
   const dayScrollRef = useRef<HTMLDivElement | null>(null);
   const weekScrollRef = useRef<HTMLDivElement | null>(null);
@@ -459,11 +459,26 @@ export default function TeamCalendarPage() {
     // id で重複排除
     const byId = new Map<string, Employee>();
     for (const e of merged) byId.set(e.id, e);
-    const items = Array.from(byId.values());
+    let items = Array.from(byId.values());
 
     // 自分自身が employees に居ない場合でも、登録した工数が見えるようにする
     if (!items.some((e) => e.authUid === uid)) {
       items.push({ id: "__me__", name: profile?.displayName || user?.email?.split("@")[0] || "ユーザー", authUid: uid, color: "#10B981" });
+    }
+
+    // カレンダー権限がないユーザーをフィルタ
+    try {
+      const msSnap = await getDocs(query(collection(db, "workspaceMemberships"), where("companyCode", "==", companyCode)));
+      const noCalendarUids = new Set<string>();
+      for (const d of msSnap.docs) {
+        const msData = d.data() as any;
+        if (msData.permissions?.calendar === false && msData.uid) {
+          noCalendarUids.add(msData.uid);
+        }
+      }
+      items = items.filter(e => !e.authUid || e.authUid === uid || !noCalendarUids.has(e.authUid));
+    } catch (e) {
+      console.warn("calendar permission filter failed:", e);
     }
 
     console.log("チームカレンダー: 読み込んだ社員数:", items.length);
@@ -1954,7 +1969,7 @@ export default function TeamCalendarPage() {
   if (loading) {
     console.log("チームカレンダー: loading中...");
     return (
-      <AppShell title="カレンダー">
+      <AppShell title="カレンダー" initialSidebarCollapsed>
         <div className="flex min-h-[60vh] items-center justify-center">
           <div className="text-2xl font-extrabold text-orange-900">読み込み中...</div>
         </div>
@@ -1976,7 +1991,7 @@ export default function TeamCalendarPage() {
   const canCreateNewEntry = !!newCustomerId && !!newDealId && calendarPermissions.createEvents;
 
   return (
-    <AppShell title="カレンダー" subtitle={getDateRangeText()}>
+    <AppShell title="カレンダー" subtitle={getDateRangeText()} initialSidebarCollapsed>
       <div className="flex h-[calc(100vh-140px)] flex-col bg-white overflow-hidden rounded-xl border border-slate-200 shadow-sm transition-all">
         {/* Sub Header */}
         <div className="border-b border-slate-200 bg-slate-50/50 px-4 py-2 flex items-center justify-between flex-shrink-0 z-40">

@@ -57,7 +57,7 @@ function joinPath(parts: string[]) {
   return parts.filter(Boolean).join("/");
 }
 
-export default function DrivePage() {
+export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -68,7 +68,9 @@ export default function DrivePage() {
   const [success, setSuccess] = useState("");
 
   const [items, setItems] = useState<DriveItem[]>([]);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+
+  // フォルダIDはpropから取得（URL駆動）
+  const currentFolderId = folderIdProp ?? null;
 
   const [qText, setQText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -158,12 +160,14 @@ export default function DrivePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // URLからフォルダを開く（/drive?folderId=xxx）
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const folderId = new URLSearchParams(window.location.search).get("folderId");
-    if (folderId) setCurrentFolderId(folderId);
-  }, []);
+  // フォルダナビゲーション用ヘルパー
+  const navigateToFolder = (id: string | null) => {
+    if (id) {
+      router.push(`/drive/${encodeURIComponent(id)}`);
+    } else {
+      router.push("/drive");
+    }
+  };
 
   const foldersById = useMemo(() => {
     const m: Record<string, DriveItem> = {};
@@ -367,7 +371,7 @@ export default function DrivePage() {
 
   const folderShareUrl =
     typeof window !== "undefined"
-      ? `${window.location.origin}/drive${currentFolderId ? `?folderId=${encodeURIComponent(currentFolderId)}` : ""}`
+      ? `${window.location.origin}/drive${currentFolderId ? `/${encodeURIComponent(currentFolderId)}` : ""}`
       : "";
 
   const copyFolderUrl = async () => {
@@ -496,7 +500,7 @@ export default function DrivePage() {
                   <span key={`${b.id ?? "root"}-${idx}`}>
                     <button
                       className={idx === breadcrumb.length - 1 ? "text-slate-900" : "text-orange-700 hover:underline"}
-                      onClick={() => setCurrentFolderId(b.id)}
+                      onClick={() => navigateToFolder(b.id)}
                       type="button"
                     >
                       {b.name}
@@ -554,7 +558,7 @@ export default function DrivePage() {
                       <td className="px-4 py-3 font-bold text-slate-900">
                         {it.kind === "folder" ? (
                           <button
-                            onClick={() => setCurrentFolderId(it.id)}
+                            onClick={() => navigateToFolder(it.id)}
                             className="flex min-w-0 items-center gap-2 text-left hover:underline"
                           >
                             <span className="text-lg">📁</span>
@@ -597,5 +601,9 @@ export default function DrivePage() {
 
     </AppShell>
   );
+}
+
+export default function DrivePageRoute() {
+  return <DrivePage />;
 }
 

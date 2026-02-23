@@ -40,6 +40,7 @@ type Customer = {
   notes?: string;
   industry?: string;
   contractAmount?: number | null;
+  assigneeSales?: Record<string, number> | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -345,14 +346,34 @@ export default function CustomersPage() {
     return list;
   }, [customers, qText, statusFilter, assigneeFilter, selectedAssignees, sortColumn, sortDirection, dealCountByCustomer]);
 
+  // フィルタ中の担当者UID一覧（担当者別フィルタが有効な場合）
+  const activeAssigneeUids = useMemo(() => {
+    const uids: string[] = [];
+    if (assigneeFilter !== "ALL" && assigneeFilter !== "__unassigned__") {
+      uids.push(assigneeFilter);
+    }
+    for (const a of selectedAssignees) {
+      if (a !== "__unassigned__" && !uids.includes(a)) uids.push(a);
+    }
+    return uids;
+  }, [assigneeFilter, selectedAssignees]);
+
   const totalRevenue = useMemo(() => {
     let sum = 0;
     for (const c of filtered) {
-      const v = c.contractAmount;
-      if (typeof v === "number" && !Number.isNaN(v)) sum += v;
+      // 担当者フィルタが有効 & assigneeSales がある場合、対象担当者分だけ加算
+      if (activeAssigneeUids.length > 0 && c.assigneeSales && Object.keys(c.assigneeSales).length > 0) {
+        for (const uid of activeAssigneeUids) {
+          const v = c.assigneeSales[uid];
+          if (typeof v === "number" && !Number.isNaN(v)) sum += v;
+        }
+      } else {
+        const v = c.contractAmount;
+        if (typeof v === "number" && !Number.isNaN(v)) sum += v;
+      }
     }
     return sum;
-  }, [filtered]);
+  }, [filtered, activeAssigneeUids]);
 
   if (loading) {
     return (
@@ -583,7 +604,10 @@ export default function CustomersPage() {
                         <td className="px-4 py-3 whitespace-nowrap">
                           {assignees.length > 0 ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              {assignees.slice(0, 3).map((uid) => {
+                              {(activeAssigneeUids.length > 0
+                                ? assignees.filter((uid) => activeAssigneeUids.includes(uid))
+                                : assignees.slice(0, 3)
+                              ).map((uid) => {
                                 const aName = assigneeDisplayName(uid);
                                 const aEmp = employeesByUid[uid];
                                 const aColor = uid === user?.uid ? "#F97316" : (aEmp?.color || "#CBD5E1");
@@ -600,7 +624,7 @@ export default function CustomersPage() {
                                   </div>
                                 );
                               })}
-                              {assignees.length > 3 && (
+                              {activeAssigneeUids.length === 0 && assignees.length > 3 && (
                                 <span className="text-[10px] text-slate-500">+{assignees.length - 3}</span>
                               )}
                             </div>
@@ -633,7 +657,35 @@ export default function CustomersPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right text-xs font-bold text-slate-700 whitespace-nowrap">
-                          {formatYen(c.contractAmount)}
+                          {activeAssigneeUids.length > 0 && c.assigneeSales && Object.keys(c.assigneeSales).length > 0 ? (
+                            <>
+                              {activeAssigneeUids.map((uid) => {
+                                const amount = c.assigneeSales![uid];
+                                return amount ? (
+                                  <div key={uid} className="flex items-center justify-end gap-1.5">
+                                    {activeAssigneeUids.length > 1 && (
+                                      <span className="text-[10px] text-slate-500">{assigneeDisplayName(uid)}</span>
+                                    )}
+                                    <span>{formatYen(amount)}</span>
+                                  </div>
+                                ) : null;
+                              })}
+                            </>
+                          ) : (
+                            <>
+                              <div>{formatYen(c.contractAmount)}</div>
+                              {c.assigneeSales && Object.keys(c.assigneeSales).length > 0 && (
+                                <div className="mt-1 space-y-0.5">
+                                  {Object.entries(c.assigneeSales).map(([uid, amount]) => (
+                                    <div key={uid} className="flex items-center justify-end gap-1.5">
+                                      <span className="text-[10px] text-slate-500">{assigneeDisplayName(uid)}</span>
+                                      <span className="text-[10px] font-extrabold text-orange-600">{formatYen(amount)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
                           {formatDate(c.createdAt)}

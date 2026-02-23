@@ -54,6 +54,7 @@ export type AppShellProps = {
   projectId?: string | null;
   headerRight?: ReactNode;
   sidebarTop?: ReactNode;
+  initialSidebarCollapsed?: boolean;
 };
 
 function HeaderSearchForm({
@@ -138,10 +139,10 @@ function HeaderSearchFormFallback({
   );
 }
 
-export function AppShell({ title, subtitle, children, projectId, headerRight, sidebarTop }: AppShellProps) {
+export function AppShell({ title, subtitle, children, projectId, headerRight, sidebarTop, initialSidebarCollapsed = false }: AppShellProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialSidebarCollapsed);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [companyDisplayName, setCompanyDisplayName] = useState("会社未設定");
   const [userDisplayName, setUserDisplayName] = useState("ユーザー");

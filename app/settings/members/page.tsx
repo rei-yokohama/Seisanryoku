@@ -84,7 +84,8 @@ export default function MembersPage() {
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<EmploymentType | "ALL">("ALL");
   const [authFilter, setAuthFilter] = useState<"ALL" | "VERIFIED" | "UNVERIFIED">("ALL");
-  const [sortByEmploymentType, setSortByEmploymentType] = useState(false);
+  const [sortColumn, setSortColumn] = useState<"name" | "email" | "employmentType" | "auth" | "joinDate" | null>(null);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
 
@@ -189,6 +190,15 @@ export default function MembersPage() {
     return m;
   }, [memberships]);
 
+  const handleSort = (col: "name" | "email" | "employmentType" | "auth" | "joinDate") => {
+    if (sortColumn === col) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(col);
+      setSortDirection("asc");
+    }
+  };
+
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     const adminRow: Employee[] =
@@ -201,7 +211,7 @@ export default function MembersPage() {
               employmentType: "管理者",
               joinDate: "",
               authUid: user.uid,
-              color: "#EA580C", // orange-600
+              color: "#EA580C",
               createdBy: user.uid,
               companyCode: profile?.companyCode || "",
             },
@@ -216,7 +226,7 @@ export default function MembersPage() {
       return true;
     });
 
-    const filtered = uniq.filter((e) => {
+    let result = uniq.filter((e) => {
       if (typeFilter !== "ALL" && e.employmentType !== typeFilter) return false;
       if (authFilter === "VERIFIED" && !e.authUid) return false;
       if (authFilter === "UNVERIFIED" && !!e.authUid) return false;
@@ -225,20 +235,41 @@ export default function MembersPage() {
       return hay.includes(qq);
     });
 
-    // 雇用形態で並び替え
-    if (sortByEmploymentType) {
-      return [...filtered].sort((a, b) => {
-        const orderA = employmentTypeOrder(a.employmentType);
-        const orderB = employmentTypeOrder(b.employmentType);
-        if (orderA !== orderB) return orderA - orderB;
-        // 同じ雇用形態の場合は名前順
-        return (a.name || "").localeCompare(b.name || "");
-      });
-    }
+    result = [...result].sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+      switch (sortColumn) {
+        case "name":
+          aVal = (a.name || "").toLowerCase();
+          bVal = (b.name || "").toLowerCase();
+          break;
+        case "email":
+          aVal = (a.email || "").toLowerCase();
+          bVal = (b.email || "").toLowerCase();
+          break;
+        case "employmentType":
+          aVal = employmentTypeOrder(a.employmentType);
+          bVal = employmentTypeOrder(b.employmentType);
+          break;
+        case "auth":
+          aVal = a.authUid ? 0 : 1;
+          bVal = b.authUid ? 0 : 1;
+          break;
+        case "joinDate":
+          aVal = a.joinDate || "9999";
+          bVal = b.joinDate || "9999";
+          break;
+        default:
+          aVal = (a.name || "").toLowerCase();
+          bVal = (b.name || "").toLowerCase();
+      }
+      if (aVal < bVal) return sortDirection === "asc" ? -1 : 1;
+      if (aVal > bVal) return sortDirection === "asc" ? 1 : -1;
+      return 0;
+    });
 
-    // 並び替えなしの場合は名前順
-    return filtered.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [employees, q, typeFilter, authFilter, sortByEmploymentType, isSuperAdmin, user, profile]);
+    return result;
+  }, [employees, q, typeFilter, authFilter, sortColumn, sortDirection, isSuperAdmin, user, profile]);
 
   const handleDelete = async (id: string) => {
     if (!isSuperAdmin) {
@@ -282,12 +313,6 @@ export default function MembersPage() {
       headerRight={
         <div className="flex items-center gap-2">
           <Link
-            href="/settings/members/invite"
-            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
-            招待リンク
-          </Link>
-          <Link
             href="/settings/members/new"
             className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
           >
@@ -296,71 +321,43 @@ export default function MembersPage() {
         </div>
       }
     >
-      <div className="mx-auto w-full max-w-7xl space-y-4">
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm font-extrabold text-slate-900">参加ユーザー</div>
-            <div className="text-xs font-bold text-slate-500">
-              {profile?.companyCode ? `会社コード: ${profile.companyCode}` : null}
+      <div className="mx-auto w-full max-w-7xl space-y-3">
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 mr-1">
+              <div className="text-sm font-extrabold text-slate-900">{filtered.length}名</div>
+              {profile?.companyCode && (
+                <span className="text-[10px] font-bold text-slate-400">{profile.companyCode}</span>
+              )}
+              {isSuperAdmin && (
+                <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">管理者</span>
+              )}
             </div>
-          </div>
-          {isSuperAdmin ? (
-            <div className="mt-2 text-[11px] font-bold text-orange-700">
-              管理者モード: メール・初期パスワードの表示が可能です（共有は慎重に）。
-            </div>
-          ) : null}
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-12">
-            <div className="md:col-span-5">
-              <div className="text-xs font-extrabold text-slate-500">検索</div>
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="名前 / メールで検索"
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:ring-1 focus:ring-orange-500"
-              />
-            </div>
-            <div className="md:col-span-3">
-              <div className="text-xs font-extrabold text-slate-500">雇用形態</div>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value as any)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:ring-1 focus:ring-orange-500"
-              >
-                <option value="ALL">すべて</option>
-                {(["正社員", "契約社員", "パート", "アルバイト", "業務委託"] as const).map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <div className="text-xs font-extrabold text-slate-500">認証</div>
-              <select
-                value={authFilter}
-                onChange={(e) => setAuthFilter(e.target.value as any)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:ring-1 focus:ring-orange-500"
-              >
-                <option value="ALL">すべて</option>
-                <option value="VERIFIED">認証済み</option>
-                <option value="UNVERIFIED">未認証</option>
-              </select>
-            </div>
-            <div className="md:col-span-2">
-              <div className="text-xs font-extrabold text-slate-500">並び替え</div>
-              <button
-                onClick={() => setSortByEmploymentType((v) => !v)}
-                className={clsx(
-                  "mt-1 w-full rounded-md border px-3 py-2 text-sm font-extrabold transition",
-                  sortByEmploymentType
-                    ? "border-orange-500 bg-orange-600 text-white hover:bg-orange-700"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-                )}
-                type="button"
-              >
-                {sortByEmploymentType ? "✓ 雇用形態順" : "雇用形態順"}
-              </button>
-            </div>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="検索..."
+              className="w-40 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-1 focus:ring-orange-500"
+            />
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value as any)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="ALL">雇用形態: すべて</option>
+              {(["正社員", "契約社員", "パート", "アルバイト", "業務委託"] as const).map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <select
+              value={authFilter}
+              onChange={(e) => setAuthFilter(e.target.value as any)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-bold text-slate-800 outline-none focus:ring-1 focus:ring-orange-500"
+            >
+              <option value="ALL">認証: すべて</option>
+              <option value="VERIFIED">認証済み</option>
+              <option value="UNVERIFIED">未認証</option>
+            </select>
           </div>
         </div>
 
@@ -369,13 +366,23 @@ export default function MembersPage() {
             <table className="w-full min-w-[1000px] text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">名前</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">メール</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("name")}>
+                    <div className="flex items-center gap-1">名前{sortColumn === "name" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("email")}>
+                    <div className="flex items-center gap-1">メール{sortColumn === "email" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
                   {isSuperAdmin ? <th className="px-4 py-3 text-left whitespace-nowrap">初期パスワード</th> : null}
                   <th className="px-4 py-3 text-left whitespace-nowrap">権限</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">雇用形態</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">認証</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">入社日</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("employmentType")}>
+                    <div className="flex items-center gap-1">雇用形態{sortColumn === "employmentType" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("auth")}>
+                    <div className="flex items-center gap-1">認証{sortColumn === "auth" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("joinDate")}>
+                    <div className="flex items-center gap-1">入社日{sortColumn === "joinDate" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
+                  </th>
                   <th className="px-4 py-3 text-right whitespace-nowrap">操作</th>
                 </tr>
               </thead>
