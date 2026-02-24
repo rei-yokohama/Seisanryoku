@@ -75,6 +75,7 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
   const [qText, setQText] = useState("");
   const [busy, setBusy] = useState(false);
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
 
   // アップロード進捗管理
   const [uploadProgress, setUploadProgress] = useState<
@@ -109,6 +110,18 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
       return (a.name || "").localeCompare(b.name || "");
     });
     setItems(list);
+
+    // 顧客名を取得
+    const custIds = new Set<string>();
+    for (const it of list) if (it.customerId) custIds.add(it.customerId);
+    if (custIds.size > 0 && prof.companyCode) {
+      try {
+        const custSnap = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
+        const map: Record<string, string> = {};
+        custSnap.docs.forEach((d) => { map[d.id] = (d.data() as any).name || ""; });
+        setCustomerNames(map);
+      } catch { /* ignore */ }
+    }
   };
 
   useEffect(() => {
@@ -239,13 +252,25 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
         const task = uploadBytesResumable(sref, f, { contentType: f.type || undefined });
         
         await new Promise<void>((resolve, reject) => {
+          let stallRejected = false;
+          const stallTimer = setTimeout(() => {
+            stallRejected = true;
+            task.cancel();
+            setUploadProgress(prev =>
+              prev.map((item, idx) =>
+                idx === i ? { ...item, status: "error", errorCode: "CORS未設定の可能性（タイムアウト）", storagePath } : item
+              )
+            );
+            reject(new Error("アップロードが開始できません。Firebase StorageのCORS設定を確認してください。\n→ gsutil cors set cors.json gs://seisanryoku.firebasestorage.app"));
+          }, 15000);
+
           task.on(
             "state_changed",
             (snapshot) => {
-              // 進捗を計算
-              const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-              setUploadProgress(prev => 
-                prev.map((item, idx) => 
+              if (snapshot.bytesTransferred > 0) clearTimeout(stallTimer);
+              const progress = snapshot.totalBytes > 0 ? (snapshot.bytesTransferred / snapshot.totalBytes) * 100 : 0;
+              setUploadProgress(prev =>
+                prev.map((item, idx) =>
                   idx === i
                     ? {
                         ...item,
@@ -259,14 +284,19 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
               );
             },
             (err) => {
-              setUploadProgress(prev => 
-                prev.map((item, idx) => 
+              clearTimeout(stallTimer);
+              if (stallRejected) return;
+              setUploadProgress(prev =>
+                prev.map((item, idx) =>
                   idx === i ? { ...item, status: "error", errorCode: String(err?.code || ""), storagePath } : item
                 )
               );
               reject(err);
             },
-            () => resolve(),
+            () => {
+              clearTimeout(stallTimer);
+              resolve();
+            },
           );
         });
         
@@ -541,6 +571,7 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
                   <th className="px-4 py-3 text-left">名前</th>
+                  <th className="px-4 py-3 text-left">顧客</th>
                   <th className="px-4 py-3 text-left">種類</th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>
@@ -548,50 +579,66 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
               <tbody className="divide-y divide-slate-100">
                 {currentChildren.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       まだ何もありません。右上から追加してください。
                     </td>
                   </tr>
                 ) : (
-                  currentChildren.map((it) => (
-                    <tr key={it.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-bold text-slate-900">
-                        {it.kind === "folder" ? (
+                  currentChildren.map((it) => {
+                    const custId = it.customerId || (currentFolderId ? items.find((x) => x.id === currentFolderId)?.customerId : null);
+                    const custName = custId ? customerNames[custId] : null;
+                    return (
+                      <tr key={it.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-900">
+                          {it.kind === "folder" ? (
+                            <button
+                              onClick={() => navigateToFolder(it.id)}
+                              className="flex min-w-0 items-center gap-2 text-left hover:underline"
+                            >
+                              <span className="text-lg">📁</span>
+                              <span className="truncate">{it.name}</span>
+                            </button>
+                          ) : it.url ? (
+                            <a className="flex min-w-0 items-center gap-2 hover:underline" href={it.url} target="_blank" rel="noreferrer">
+                              <span className="text-lg">📄</span>
+                              <span className="truncate">{it.name}</span>
+                            </a>
+                          ) : (
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="text-lg">📄</span>
+                              <span className="truncate">{it.name}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {custId && custName ? (
+                            <Link
+                              href={`/customers/${encodeURIComponent(custId)}`}
+                              className="text-sm font-bold text-orange-700 hover:underline"
+                            >
+                              {custName}
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
+                            {it.kind === "folder" ? "フォルダ" : "ファイル"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
                           <button
-                            onClick={() => navigateToFolder(it.id)}
-                            className="flex min-w-0 items-center gap-2 text-left hover:underline"
+                            onClick={() => handleDelete(it)}
+                            disabled={busy}
+                            className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:bg-red-100/60"
                           >
-                            <span className="text-lg">📁</span>
-                            <span className="truncate">{it.name}</span>
+                            削除
                           </button>
-                        ) : it.url ? (
-                          <a className="flex min-w-0 items-center gap-2 hover:underline" href={it.url} target="_blank" rel="noreferrer">
-                            <span className="text-lg">📄</span>
-                            <span className="truncate">{it.name}</span>
-                          </a>
-                        ) : (
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="text-lg">📄</span>
-                            <span className="truncate">{it.name}</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
-                          {it.kind === "folder" ? "フォルダ" : "ファイル"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleDelete(it)}
-                          disabled={busy}
-                          className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100 disabled:bg-red-100/60"
-                        >
-                          削除
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

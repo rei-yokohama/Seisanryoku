@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const CANONICAL_HOST = "www.seisanryoku.jp";
+const CANONICAL_HOST = "crm.sof10.net";
 
 function isLocalHost(host?: string | null) {
   if (!host) return false;
