@@ -10,6 +10,7 @@ import { logActivity } from "../../../lib/activity";
 import { Suspense } from "react";
 import { AppShell } from "../../AppShell";
 import { ensureProfile } from "../../../lib/ensureProfile";
+import { useLocalStorageState } from "../../../lib/useLocalStorageState";
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -108,11 +109,35 @@ function DealsInner() {
   type SortDirection = "asc" | "desc";
   const [sortColumn, setSortColumn] = useState<SortColumn>("updatedAt");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
-  
+
   // 担当者別ショートカット
   const [assigneeDropdownOpen, setAssigneeDropdownOpen] = useState(false);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const assigneeDropdownRef = useRef<HTMLDivElement>(null);
+
+  // フィルタ状態の永続化
+  type DealFilterState = {
+    qText: string;
+    tab: "ALL" | "MINE";
+    statusFilter: DealStatus | "ALL";
+    customerFilter: string;
+    leaderFilter: string;
+    selectedAssignees: string[];
+    isFilterExpanded: boolean;
+    sortColumn: SortColumn;
+    sortDirection: SortDirection;
+  };
+  const filterStorage = useLocalStorageState<DealFilterState>("dealFilters:v1", {
+    qText: "",
+    tab: "ALL",
+    statusFilter: "ACTIVE",
+    customerFilter: "ALL",
+    leaderFilter: "ALL",
+    selectedAssignees: [],
+    isFilterExpanded: false,
+    sortColumn: "updatedAt",
+    sortDirection: "desc",
+  });
   
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Deal | null>(null);
@@ -167,21 +192,57 @@ function DealsInner() {
     setDeals(dealItems);
   };
 
+  // localStorage から復元（searchParams がある場合はそちらを優先）
   useEffect(() => {
-    const initialStatus = (searchParams.get("status") || "").toUpperCase();
-    const validStatuses = DEAL_STATUS_OPTIONS.map(o => o.value);
-    if (validStatuses.includes(initialStatus as DealStatus)) {
-      setStatusFilter(initialStatus as DealStatus);
-    }
-    const initialCustomerId = searchParams.get("customerId") || "";
-    if (initialCustomerId) setCustomerFilter(initialCustomerId);
-    const initialQ = searchParams.get("q") || "";
-    if (initialQ) {
-      setQText(initialQ);
-      setIsFilterExpanded(true);
+    if (!filterStorage.loaded) return;
+    const hasSearchParams = searchParams.get("status") || searchParams.get("customerId") || searchParams.get("q");
+
+    if (hasSearchParams) {
+      // URL パラメータ優先
+      const initialStatus = (searchParams.get("status") || "").toUpperCase();
+      const validStatuses = DEAL_STATUS_OPTIONS.map(o => o.value);
+      if (validStatuses.includes(initialStatus as DealStatus)) {
+        setStatusFilter(initialStatus as DealStatus);
+      }
+      const initialCustomerId = searchParams.get("customerId") || "";
+      if (initialCustomerId) setCustomerFilter(initialCustomerId);
+      const initialQ = searchParams.get("q") || "";
+      if (initialQ) {
+        setQText(initialQ);
+        setIsFilterExpanded(true);
+      }
+    } else {
+      // localStorage から復元
+      const s = filterStorage.state;
+      setQText(s.qText ?? "");
+      setTab(s.tab ?? "ALL");
+      setStatusFilter(s.statusFilter ?? "ACTIVE");
+      setCustomerFilter(s.customerFilter ?? "ALL");
+      setLeaderFilter(s.leaderFilter ?? "ALL");
+      setSelectedAssignees(s.selectedAssignees ?? []);
+      setIsFilterExpanded(s.isFilterExpanded ?? false);
+      setSortColumn(s.sortColumn ?? "updatedAt");
+      setSortDirection(s.sortDirection ?? "desc");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [filterStorage.loaded]);
+
+  // フィルタ変更時に localStorage へ保存
+  useEffect(() => {
+    if (!filterStorage.loaded) return;
+    filterStorage.setState({
+      qText,
+      tab,
+      statusFilter,
+      customerFilter,
+      leaderFilter,
+      selectedAssignees,
+      isFilterExpanded,
+      sortColumn,
+      sortDirection,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, isFilterExpanded, sortColumn, sortDirection]);
 
   // 担当者別ドロップダウンの外側クリックで閉じる
   useEffect(() => {

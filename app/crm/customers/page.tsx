@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
 import { ensureProfile } from "../../../lib/ensureProfile";
+import { useLocalStorageState } from "../../../lib/useLocalStorageState";
 import { AppShell } from "../../AppShell";
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -97,6 +98,54 @@ export default function CustomersPage() {
   type SortColumn = "name" | "assignee" | "status" | "deals" | "revenue" | "createdAt" | "updatedAt" | null;
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  // フィルタ状態の永続化
+  type CustomerFilterState = {
+    qText: string;
+    statusFilter: "ACTIVE" | "INACTIVE" | "ALL";
+    assigneeFilter: string;
+    selectedAssignees: string[];
+    isFilterExpanded: boolean;
+    sortColumn: SortColumn;
+    sortDirection: "asc" | "desc";
+  };
+  const filterStorage = useLocalStorageState<CustomerFilterState>("customerFilters:v1", {
+    qText: "",
+    statusFilter: "ACTIVE",
+    assigneeFilter: "ALL",
+    selectedAssignees: [],
+    isFilterExpanded: false,
+    sortColumn: null,
+    sortDirection: "desc",
+  });
+
+  // localStorage から復元
+  useEffect(() => {
+    if (!filterStorage.loaded) return;
+    const s = filterStorage.state;
+    setQText(s.qText ?? "");
+    setStatusFilter(s.statusFilter ?? "ACTIVE");
+    setAssigneeFilter(s.assigneeFilter ?? "ALL");
+    setSelectedAssignees(s.selectedAssignees ?? []);
+    setIsFilterExpanded(s.isFilterExpanded ?? false);
+    setSortColumn(s.sortColumn ?? null);
+    setSortDirection(s.sortDirection ?? "desc");
+  }, [filterStorage.loaded]);
+
+  // フィルタ変更時に localStorage へ保存
+  useEffect(() => {
+    if (!filterStorage.loaded) return;
+    filterStorage.setState({
+      qText,
+      statusFilter,
+      assigneeFilter,
+      selectedAssignees,
+      isFilterExpanded,
+      sortColumn,
+      sortDirection,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qText, statusFilter, assigneeFilter, selectedAssignees, isFilterExpanded, sortColumn, sortDirection]);
 
   const loadAll = async (u: User, prof: MemberProfile) => {
     setError("");
