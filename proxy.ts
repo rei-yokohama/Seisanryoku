@@ -28,7 +28,7 @@ export function proxy(req: NextRequest) {
     url.protocol = "https:";
     url.hostname = CANONICAL_HOST;
     url.port = "";
-    return NextResponse.redirect(url, 308);
+    return NextResponse.redirect(url, 301);
   }
 
   return NextResponse.next();
