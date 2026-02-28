@@ -30,8 +30,17 @@ export default function NotificationsPage() {
         router.push("/login");
         return;
       }
+      const profData = profSnap.data();
+      if (!profData?.companyCode) {
+        setLoading(false);
+        return;
+      }
 
-      const q = query(collection(db, "notifications"), where("recipientUid", "==", u.uid));
+      const q = query(
+        collection(db, "notifications"),
+        where("companyCode", "==", profData.companyCode),
+        where("recipientUid", "==", u.uid),
+      );
       const unsubSnap = onSnapshot(
         q,
         (snap) => {
