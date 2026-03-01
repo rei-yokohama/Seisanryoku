@@ -518,6 +518,42 @@ export default function MemberEditPage() {
                         <span>カレンダー権限をさらに制御する</span>
                       </Link>
                     )}
+                    {key === "projects" && permissions[key] && (
+                      <Link
+                        href={`/settings/members/${memberId}/permissions/projects`}
+                        className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                      >
+                        <span>→</span>
+                        <span>案件権限をさらに制御する</span>
+                      </Link>
+                    )}
+                    {key === "customers" && permissions[key] && (
+                      <Link
+                        href={`/settings/members/${memberId}/permissions/customers`}
+                        className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                      >
+                        <span>→</span>
+                        <span>顧客権限をさらに制御する</span>
+                      </Link>
+                    )}
+                    {key === "effort" && permissions[key] && (
+                      <Link
+                        href={`/settings/members/${memberId}/permissions/effort`}
+                        className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                      >
+                        <span>→</span>
+                        <span>工数権限をさらに制御する</span>
+                      </Link>
+                    )}
+                    {key === "issues" && permissions[key] && (
+                      <Link
+                        href={`/settings/members/${memberId}/permissions/issues`}
+                        className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                      >
+                        <span>→</span>
+                        <span>課題権限をさらに制御する</span>
+                      </Link>
+                    )}
                   </div>
                 ))}
               </div>

@@ -62,11 +62,14 @@ service cloud.firestore {
     // ワークスペース所属
     // ============================================
     match /workspaceMemberships/{membershipId} {
-      // 自分の所属は読める（一覧/切替）
+      // 同じ会社のメンバーは読める（権限確認・設定ページ用）
+      // ドキュメントが存在しない場合もオーナーは読み取り可能（exists チェック回避）
       allow read: if isSignedIn()
         && (
-          resource.data.uid == request.auth.uid
+          resource == null
+          || resource.data.uid == request.auth.uid
           || isCompanyOwner(resource.data.companyCode)
+          || isInMyCompany(resource.data.companyCode)
         );
 
       // create:
@@ -256,6 +259,15 @@ service cloud.firestore {
         );
     }
     
+    // ============================================
+    // グループ
+    // ============================================
+    match /groups/{groupId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update: if isSignedIn() && isCompanyOwner(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isCompanyOwner(resource.data.companyCode);
+    }
+
     // ============================================
     // プロパティ（課題カテゴリ等）
     // ============================================

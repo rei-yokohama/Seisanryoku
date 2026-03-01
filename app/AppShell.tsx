@@ -22,7 +22,7 @@ type MenuPermissions = {
   calendar: boolean;
 };
 
-const DEFAULT_MENU_PERMISSIONS: MenuPermissions = {
+const ALL_MENU_PERMISSIONS: MenuPermissions = {
   dashboard: true,
   members: true,
   projects: true,
@@ -34,6 +34,20 @@ const DEFAULT_MENU_PERMISSIONS: MenuPermissions = {
   wiki: true,
   effort: true,
   calendar: true,
+};
+
+const NO_MENU_PERMISSIONS: MenuPermissions = {
+  dashboard: false,
+  members: false,
+  projects: false,
+  issues: false,
+  customers: false,
+  files: false,
+  billing: false,
+  settings: false,
+  wiki: false,
+  effort: false,
+  calendar: false,
 };
 
 function cn(...xs: Array<string | false | null | undefined>) {
@@ -149,17 +163,43 @@ export function AppShell({ children, headerRight, initialSidebarCollapsed = fals
           const c = compSnap.data() as any;
           setCompanyDisplayName((c.companyName as string | undefined) || fallback);
           const ownerUid = c.ownerUid || "";
-          setIsOwner(ownerUid === u.uid);
-          setIsOwner(ownerUid === u.uid);
-          // 全ユーザーに同じメニューを表示
-          setMenuPermissions({
-            dashboard: true, members: true, projects: true, issues: true, customers: true,
-            files: true, billing: true, settings: true, wiki: true, effort: true, calendar: true,
-          });
+          const owner = ownerUid === u.uid;
+          setIsOwner(owner);
+
+          if (owner) {
+            // オーナーは全権限
+            setMenuPermissions(ALL_MENU_PERMISSIONS);
+          } else {
+            // 非オーナー: workspaceMemberships から権限取得（デフォルト全OFF）
+            try {
+              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${code}_${u.uid}`));
+              if (msSnap.exists()) {
+                const msData = msSnap.data() as any;
+                const p = (msData.permissions || {}) as Partial<MenuPermissions>;
+                setMenuPermissions({
+                  dashboard: p.dashboard ?? false,
+                  members: p.members ?? false,
+                  projects: p.projects ?? false,
+                  issues: p.issues ?? false,
+                  customers: p.customers ?? false,
+                  files: p.files ?? false,
+                  billing: p.billing ?? false,
+                  settings: p.settings ?? false,
+                  wiki: p.wiki ?? false,
+                  effort: p.effort ?? false,
+                  calendar: p.calendar ?? false,
+                });
+              } else {
+                setMenuPermissions(NO_MENU_PERMISSIONS);
+              }
+            } catch {
+              setMenuPermissions(NO_MENU_PERMISSIONS);
+            }
+          }
         } else {
           setCompanyDisplayName(fallback);
           setIsOwner(false);
-          setMenuPermissions(DEFAULT_MENU_PERMISSIONS);
+          setMenuPermissions(NO_MENU_PERMISSIONS);
         }
       } catch {
         setCompanyDisplayName("会社未設定");
@@ -246,29 +286,31 @@ export function AppShell({ children, headerRight, initialSidebarCollapsed = fals
       )}
     >
       {/* Brand */}
-      <div className="flex h-14 items-center border-b border-orange-100">
-        <button
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-all duration-200 flex-shrink-0 ml-4"
-        >
-          {hamburgerIcon}
-        </button>
+      <div className="flex h-14 items-center border-b border-orange-100 overflow-hidden">
         {sidebarCollapsed ? (
-          <Link href="/dashboard" className="flex-1 flex justify-center hover:opacity-80 transition-opacity">
-            <svg className="h-6 w-6 text-orange-500" viewBox="0 0 32 32" fill="none">
-              <rect width="32" height="32" rx="8" fill="currentColor" fillOpacity="0.1" />
-              <path d="M17.5 4L8 18h7l-1.5 10L24 14h-7l1.5-10z" fill="currentColor" />
-            </svg>
-          </Link>
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-all duration-200 flex-shrink-0 mx-auto"
+          >
+            {hamburgerIcon}
+          </button>
         ) : (
-          <Link href="/dashboard" className="flex-1 flex items-center justify-center gap-2 pr-12 hover:opacity-80 transition-opacity">
-            <svg className="h-5 w-5 text-orange-500 flex-shrink-0" viewBox="0 0 32 32" fill="none">
-              <path d="M17.5 4L8 18h7l-1.5 10L24 14h-7l1.5-10z" fill="currentColor" />
-            </svg>
-            <span className="text-[18px] font-black text-orange-600 tracking-[0.2em]" style={{ fontFamily: "var(--font-shippori), serif" }}>
-              生産力
-            </span>
-          </Link>
+          <>
+            <button
+              onClick={() => setSidebarCollapsed(true)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-orange-400 hover:text-orange-600 hover:bg-orange-50 transition-all duration-200 flex-shrink-0 ml-4"
+            >
+              {hamburgerIcon}
+            </button>
+            <Link href="/dashboard" className="flex-1 flex items-center justify-center gap-2 pr-12 hover:opacity-80 transition-opacity">
+              <svg className="h-5 w-5 text-orange-500 flex-shrink-0" viewBox="0 0 32 32" fill="none">
+                <path d="M17.5 4L8 18h7l-1.5 10L24 14h-7l1.5-10z" fill="currentColor" />
+              </svg>
+              <span className="text-[18px] font-black text-orange-600 tracking-[0.2em]" style={{ fontFamily: "var(--font-shippori), serif" }}>
+                生産力
+              </span>
+            </Link>
+          </>
         )}
       </div>
 

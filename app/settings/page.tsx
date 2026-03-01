@@ -126,6 +126,23 @@ export default function SettingsPage() {
                 </div>
               </div>
             </Link>
+
+            <Link
+              href="/settings/groups"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-white hover:shadow-sm transition"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold text-slate-900">グループ管理</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">
+                    メンバーのグループを作成・管理
+                  </div>
+                </div>
+                <div className="rounded-full bg-orange-100 px-3 py-1 text-xs font-extrabold text-orange-800 group-hover:bg-orange-200">
+                  開く →
+                </div>
+              </div>
+            </Link>
           </div>
         </div>
 

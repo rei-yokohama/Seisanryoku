@@ -219,6 +219,14 @@ export default function MembersPage() {
                 ))}
               </select>
             </div>
+            {isOwner && (
+              <Link
+                href="/settings/members"
+                className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700 transition"
+              >
+                メンバー設定
+              </Link>
+            )}
           </div>
         </div>
 

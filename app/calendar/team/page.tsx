@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "../../AppShell";
 import { logActivity } from "../../../lib/activity";
+import { resolveVisibleUids, parseDataVisibility, DEFAULT_DATA_VISIBILITY } from "../../../lib/visibilityPermissions";
 
 type MemberProfile = {
   uid: string;
@@ -261,13 +262,23 @@ type CalendarPermissions = {
   editOthersEvents: boolean;
   createEvents: boolean;
   deleteOthersEvents: boolean;
+  viewScope: "all" | "specific_members" | "specific_groups";
+  allowedMemberUids: string[];
+  allowedGroupIds: string[];
+  canSendInvitations: boolean;
+  canReceiveInvitations: boolean;
 };
 
 const DEFAULT_CALENDAR_PERMISSIONS: CalendarPermissions = {
-  viewOthersCalendar: false, // デフォルトは他メンバーのカレンダーを見れない（安全なデフォルト）
+  viewOthersCalendar: false,
   editOthersEvents: false,
   createEvents: true,
   deleteOthersEvents: false,
+  viewScope: "all",
+  allowedMemberUids: [],
+  allowedGroupIds: [],
+  canSendInvitations: true,
+  canReceiveInvitations: true,
 };
 
 export default function TeamCalendarPage() {
@@ -275,6 +286,7 @@ export default function TeamCalendarPage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [companyOwnerUid, setCompanyOwnerUid] = useState<string | null>(null);
   const [calendarPermissions, setCalendarPermissions] = useState<CalendarPermissions>(DEFAULT_CALENDAR_PERMISSIONS);
+  const [calendarVisibleUids, setCalendarVisibleUids] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -372,15 +384,28 @@ export default function TeamCalendarPage() {
     return m;
   }, [deals]);
 
-  // 全ユーザーが全メンバーのカレンダーを閲覧可能
+  // 権限に基づいてエントリをフィルタ（招待済みイベントは常に表示）
   const filteredEntries = useMemo(() => {
-    return entries;
-  }, [entries]);
+    // オーナーまたはフィルタなし（全員閲覧可）
+    if (user?.uid === companyOwnerUid || calendarVisibleUids.size === 0) return entries;
+    return entries.filter((e) => {
+      // 自分の予定は常に表示
+      if (e.uid === user?.uid) return true;
+      // ゲストとして招待されている場合は表示
+      if (user && (e.guestUids || []).includes(user.uid)) return true;
+      // 閲覧可能な UID のエントリ
+      return calendarVisibleUids.has(e.uid);
+    });
+  }, [entries, calendarVisibleUids, user, companyOwnerUid]);
 
-  // 全ユーザーが全社員一覧を閲覧可能（サイドバー用）
+  // 権限に基づいて社員リストをフィルタ（サイドバー用）
   const filteredEmployees = useMemo(() => {
-    return employees;
-  }, [employees]);
+    if (user?.uid === companyOwnerUid || calendarVisibleUids.size === 0) return employees;
+    return employees.filter((e) => {
+      if (e.authUid === user?.uid) return true;
+      return e.authUid ? calendarVisibleUids.has(e.authUid) : false;
+    });
+  }, [employees, calendarVisibleUids, user, companyOwnerUid]);
 
   // 案件の担当者リストを取得（新旧フィールド互換）
   const getDealAssignees = (d: Deal): string[] => {
@@ -611,15 +636,59 @@ export default function TeamCalendarPage() {
             console.log("チームカレンダー: ownerUid:", companyData.ownerUid, "現在のuid:", u.uid);
             setCompanyOwnerUid(companyData.ownerUid || null);
 
-            // 全ユーザーに全権限を付与
-            setCalendarPermissions({
-              viewOthersCalendar: true,
-              editOthersEvents: true,
-              createEvents: true,
-              deleteOthersEvents: true,
-            });
-
-            // 個人カレンダーを廃止したため、チームカレンダーは全ユーザーが閲覧できるようにする
+            // オーナーは全権限、メンバーは workspaceMemberships から取得
+            if (companyData.ownerUid === u.uid) {
+              setCalendarPermissions({
+                viewOthersCalendar: true,
+                editOthersEvents: true,
+                createEvents: true,
+                deleteOthersEvents: true,
+                viewScope: "all",
+                allowedMemberUids: [],
+                allowedGroupIds: [],
+                canSendInvitations: true,
+                canReceiveInvitations: true,
+              });
+              setCalendarVisibleUids(new Set());
+            } else {
+              try {
+                const msSnap = await getDoc(doc(db, "workspaceMemberships", `${data.companyCode}_${u.uid}`));
+                if (msSnap.exists()) {
+                  const msData = msSnap.data() as any;
+                  const cp = msData.calendarPermissions || {};
+                  const perms: CalendarPermissions = {
+                    viewOthersCalendar: cp.viewOthersCalendar ?? DEFAULT_CALENDAR_PERMISSIONS.viewOthersCalendar,
+                    editOthersEvents: cp.editOthersEvents ?? DEFAULT_CALENDAR_PERMISSIONS.editOthersEvents,
+                    createEvents: cp.createEvents ?? DEFAULT_CALENDAR_PERMISSIONS.createEvents,
+                    deleteOthersEvents: cp.deleteOthersEvents ?? DEFAULT_CALENDAR_PERMISSIONS.deleteOthersEvents,
+                    viewScope: cp.viewScope ?? DEFAULT_CALENDAR_PERMISSIONS.viewScope,
+                    allowedMemberUids: Array.isArray(cp.allowedMemberUids) ? cp.allowedMemberUids : [],
+                    allowedGroupIds: Array.isArray(cp.allowedGroupIds) ? cp.allowedGroupIds : [],
+                    canSendInvitations: cp.canSendInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canSendInvitations,
+                    canReceiveInvitations: cp.canReceiveInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canReceiveInvitations,
+                  };
+                  setCalendarPermissions(perms);
+                  // viewScope に基づいて visibleUids を解決
+                  if (perms.viewOthersCalendar) {
+                    const visUids = await resolveVisibleUids(u.uid, data.companyCode, {
+                      viewOthersData: true,
+                      viewScope: perms.viewScope,
+                      allowedMemberUids: perms.allowedMemberUids,
+                      allowedGroupIds: perms.allowedGroupIds,
+                    });
+                    setCalendarVisibleUids(visUids);
+                  } else {
+                    setCalendarVisibleUids(new Set([u.uid]));
+                  }
+                } else {
+                  setCalendarPermissions(DEFAULT_CALENDAR_PERMISSIONS);
+                  setCalendarVisibleUids(new Set([u.uid]));
+                }
+              } catch {
+                setCalendarPermissions(DEFAULT_CALENDAR_PERMISSIONS);
+                setCalendarVisibleUids(new Set([u.uid]));
+              }
+            }
             const loadedEmployees = await loadEmployees(data.companyCode, u.uid);
             await loadCustomersDeals(data.companyCode);
             const employeeUids = loadedEmployees.map(e => e.authUid).filter((id): id is string => !!id);
@@ -2356,6 +2425,7 @@ export default function TeamCalendarPage() {
                 )}
               </div>
 
+              {(user?.uid === companyOwnerUid || calendarPermissions.canSendInvitations) && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
@@ -2402,6 +2472,7 @@ export default function TeamCalendarPage() {
                     ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
                   </div>
                 </div>
+              )}
             </div>
 
             </div>
@@ -2773,6 +2844,7 @@ export default function TeamCalendarPage() {
                       )}
                     </div>
 
+                    {(user?.uid === companyOwnerUid || calendarPermissions.canSendInvitations) && (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                         <div className="flex items-center justify-between">
                           <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
@@ -2821,6 +2893,7 @@ export default function TeamCalendarPage() {
                           ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
                         </div>
                       </div>
+                    )}
                   </div>
 
                   <div className="mt-4 flex items-center justify-end gap-2">

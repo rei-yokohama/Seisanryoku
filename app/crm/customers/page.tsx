@@ -9,6 +9,12 @@ import { auth, db } from "../../../lib/firebase";
 import { ensureProfile } from "../../../lib/ensureProfile";
 import { useLocalStorageState } from "../../../lib/useLocalStorageState";
 import { AppShell } from "../../AppShell";
+import {
+  DEFAULT_DATA_VISIBILITY,
+  parseDataVisibility,
+  resolveVisibleUids,
+  filterByVisibleUids,
+} from "../../../lib/visibilityPermissions";
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -84,6 +90,8 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [isOwner, setIsOwner] = useState(false);
+  const [visibleUids, setVisibleUids] = useState<Set<string>>(new Set());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -223,6 +231,27 @@ export default function CustomersPage() {
         }
         setProfile(prof);
 
+        // オーナー判定 & 権限取得
+        if (prof.companyCode) {
+          try {
+            const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+            if (compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid) {
+              setIsOwner(true);
+              setVisibleUids(new Set());
+            } else {
+              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+              const perms = msSnap.exists()
+                ? parseDataVisibility(msSnap.data(), "customerPermissions")
+                : DEFAULT_DATA_VISIBILITY;
+              const uids = await resolveVisibleUids(u.uid, prof.companyCode, perms);
+              setVisibleUids(uids);
+            }
+          } catch {
+            // エラー時は自分のみ表示
+            setVisibleUids(new Set([u.uid]));
+          }
+        }
+
         await loadAll(u, prof);
       } finally {
         setLoading(false);
@@ -272,11 +301,13 @@ export default function CustomersPage() {
     const activeEmps = employees.filter((e) => e.isActive !== false);
     for (const emp of activeEmps) {
       if (emp.authUid && emp.authUid !== user?.uid) {
+        // 権限でフィルタ（visibleUids が空 = 全員表示、非空 = 含まれるもののみ）
+        if (!isOwner && visibleUids.size > 0 && !visibleUids.has(emp.authUid)) continue;
         list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
       }
     }
     return list;
-  }, [user, employees, profile?.displayName]);
+  }, [user, employees, profile?.displayName, isOwner, visibleUids]);
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn === column) {
@@ -298,8 +329,14 @@ export default function CustomersPage() {
     return counts;
   }, [deals]);
 
+  // 権限によるフィルタ済みリスト
+  const visibleCustomers = useMemo(() => {
+    if (isOwner) return customers;
+    return filterByVisibleUids(customers, (c) => getCustomerAssignees(c), visibleUids);
+  }, [customers, visibleUids, isOwner]);
+
   const filtered = useMemo(() => {
-    let list = customers;
+    let list = visibleCustomers;
     if (statusFilter === "ACTIVE") list = list.filter((c) => isCustomerActive(c));
     if (statusFilter === "INACTIVE") list = list.filter((c) => !isCustomerActive(c));
     if (assigneeFilter !== "ALL") {
@@ -373,7 +410,7 @@ export default function CustomersPage() {
     }
 
     return list;
-  }, [customers, qText, statusFilter, assigneeFilter, selectedAssignees, sortColumn, sortDirection, dealCountByCustomer]);
+  }, [visibleCustomers, qText, statusFilter, assigneeFilter, selectedAssignees, sortColumn, sortDirection, dealCountByCustomer]);
 
   // フィルタ中の担当者UID一覧（担当者別フィルタが有効な場合）
   const activeAssigneeUids = useMemo(() => {
@@ -567,7 +604,8 @@ export default function CustomersPage() {
                     <option value="__unassigned__">担当者未設定</option>
                     {user && <option value={user.uid}>{assigneeDisplayName(user.uid)}</option>}
                     {employees
-                      .filter((e) => e.isActive !== false && !!e.authUid && e.authUid !== user?.uid)
+                      .filter((e) => e.isActive !== false && !!e.authUid && e.authUid !== user?.uid
+                        && (isOwner || visibleUids.size === 0 || visibleUids.has(e.authUid!)))
                       .map((e) => (
                         <option key={e.id} value={e.authUid!}>{e.name}</option>
                       ))}

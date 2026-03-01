@@ -13,6 +13,12 @@ import { logActivity } from "../../lib/activity";
 import { ensureProperties, getCategoryValue, statusToLabel, statusToValue, statusColor } from "../../lib/properties";
 import { AppShell } from "../AppShell";
 import { useLocalStorageState } from "../../lib/useLocalStorageState";
+import {
+  DEFAULT_DATA_VISIBILITY,
+  parseDataVisibility,
+  resolveVisibleUids,
+  filterByVisibleUids,
+} from "../../lib/visibilityPermissions";
 
 type MemberProfile = {
   uid: string;
@@ -52,6 +58,8 @@ export default function IssueHomePage() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const [isOwner, setIsOwner] = useState(false);
+  const [visibleUids, setVisibleUids] = useState<Set<string>>(new Set());
   const [projects, setProjects] = useState<Project[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -179,6 +187,26 @@ export default function IssueHomePage() {
         return;
       }
       setProfile(prof);
+
+      // オーナー判定 & 課題閲覧権限取得
+      if (prof.companyCode) {
+        try {
+          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+          if (compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid) {
+            setIsOwner(true);
+            setVisibleUids(new Set());
+          } else {
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+            const perms = msSnap.exists()
+              ? parseDataVisibility(msSnap.data(), "issuePermissions")
+              : DEFAULT_DATA_VISIBILITY;
+            const uids = await resolveVisibleUids(u.uid, prof.companyCode, perms);
+            setVisibleUids(uids);
+          }
+        } catch {
+          setVisibleUids(new Set([u.uid]));
+        }
+      }
 
       try {
         // deals (案件) を取得: /projects に表示される案件一覧
@@ -318,7 +346,7 @@ export default function IssueHomePage() {
     );
   };
 
-  // 担当者リスト（自分 + 社員）を取得
+  // 担当者リスト（自分 + 社員）— 権限でフィルタ
   const assigneeList = useMemo(() => {
     const list: { uid: string; name: string; color?: string }[] = [];
     if (user) {
@@ -327,15 +355,26 @@ export default function IssueHomePage() {
     }
     for (const emp of employees) {
       if (emp.authUid && emp.authUid !== user?.uid) {
+        if (!isOwner && visibleUids.size > 0 && !visibleUids.has(emp.authUid)) continue;
         list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
       }
     }
     return list;
-  }, [user, employees, profile?.displayName]);
+  }, [user, employees, profile?.displayName, isOwner, visibleUids]);
+
+  // 権限によるフィルタ済みリスト
+  const visibleIssues = useMemo(() => {
+    if (isOwner) return issues;
+    return filterByVisibleUids(issues, (i) => {
+      // 自分が報告者の課題は常に表示
+      if (user && i.reporterUid === user.uid) return [user.uid];
+      return i.assigneeUid ? [i.assigneeUid] : [];
+    }, visibleUids);
+  }, [issues, visibleUids, isOwner, user]);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    const out = issues.filter((i) => {
+    const out = visibleIssues.filter((i) => {
       // デフォルト: アーカイブ済みは非表示
       const isArchived = !!i.archivedAt;
       if (!showArchived && isArchived) return false;
@@ -365,7 +404,7 @@ export default function IssueHomePage() {
       return (a.issueKey || "").localeCompare(b.issueKey || "");
     });
     return out;
-  }, [issues, keyword, projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, projectsById, showArchived, selectedAssignees]);
+  }, [visibleIssues, keyword, projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, projectsById, showArchived, selectedAssignees]);
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -760,7 +799,8 @@ export default function IssueHomePage() {
                   >
                     <option value="">すべて</option>
                     <option value={user.uid}>私</option>
-                    {employees.filter((e) => !!e.authUid && e.authUid !== user.uid).map((e) => (
+                    {employees.filter((e) => !!e.authUid && e.authUid !== user.uid
+                      && (isOwner || visibleUids.size === 0 || visibleUids.has(e.authUid!))).map((e) => (
                       <option key={e.id} value={e.authUid}>
                         {e.name}
                       </option>

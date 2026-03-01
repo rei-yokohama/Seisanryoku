@@ -7,6 +7,11 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "../AppShell";
 import { auth, db } from "../../lib/firebase";
 import { ensureProfile } from "../../lib/ensureProfile";
+import {
+  DEFAULT_DATA_VISIBILITY,
+  parseDataVisibility,
+  resolveVisibleUids,
+} from "../../lib/visibilityPermissions";
 
 type MemberProfile = { uid: string; companyCode: string; displayName?: string | null };
 type Employee = { id: string; name: string; authUid?: string; color?: string; isActive?: boolean | null };
@@ -199,6 +204,8 @@ export default function EffortPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [isOwner, setIsOwner] = useState(false);
+  const [visibleUids, setVisibleUids] = useState<Set<string>>(new Set());
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
@@ -260,6 +267,25 @@ export default function EffortPage() {
         }
         setProfile(prof);
 
+        // オーナー判定 & 権限取得
+        try {
+          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+          if (compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid) {
+            setIsOwner(true);
+            setVisibleUids(new Set());
+          } else {
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+            const perms = msSnap.exists()
+              ? parseDataVisibility(msSnap.data(), "effortPermissions")
+              : DEFAULT_DATA_VISIBILITY;
+            const uids = await resolveVisibleUids(u.uid, prof.companyCode, perms);
+            setVisibleUids(uids);
+          }
+        } catch {
+          // エラー時は自分のみ表示
+          setVisibleUids(new Set([u.uid]));
+        }
+
         const [empSnap, dealSnap, entrySnap] = await Promise.all([
           getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode))),
           getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode))),
@@ -320,6 +346,8 @@ export default function EffortPage() {
     for (const e of entries) {
       if (!e.uid) continue;
       if (!e.dealId) continue; // 工数は案件必須（UI側で必須化済み）
+      // 権限によるフィルタ（オーナーでない場合、visibleUids が空でなければフィルタ適用）
+      if (!isOwner && visibleUids.size > 0 && !visibleUids.has(e.uid)) continue;
       if (selectedUids.length > 0 && !selectedUids.includes(e.uid)) continue;
       if (selectedDealIds.length > 0 && !selectedDealIds.includes(e.dealId)) continue;
 
@@ -366,7 +394,7 @@ export default function EffortPage() {
     }
 
     return items;
-  }, [selectedUids, selectedDealIds, dealsById, employeesByUid, activeUids, entries, range.end, range.start]);
+  }, [selectedUids, selectedDealIds, dealsById, employeesByUid, activeUids, entries, range.end, range.start, isOwner, visibleUids]);
 
   const grandTotal = useMemo(() => rows.reduce((s, r) => s + (r.hours || 0), 0), [rows]);
 
@@ -402,7 +430,7 @@ export default function EffortPage() {
     return deals.filter(d => (d.title || "").toLowerCase().includes(q));
   }, [deals, dealSearch]);
 
-  // 担当者リスト（自分 + 稼働中社員）を取得
+  // 担当者リスト（自分 + 稼働中社員）を取得 — 権限でフィルタ
   const assigneeList = useMemo(() => {
     const list: { uid: string; name: string; color?: string }[] = [];
     if (user) {
@@ -412,11 +440,13 @@ export default function EffortPage() {
     const activeEmps = employees.filter((e) => e.isActive !== false);
     for (const emp of activeEmps) {
       if (emp.authUid && emp.authUid !== user?.uid) {
+        // 権限によるフィルタ
+        if (!isOwner && visibleUids.size > 0 && !visibleUids.has(emp.authUid)) continue;
         list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
       }
     }
     return list;
-  }, [user, employees, profile?.displayName]);
+  }, [user, employees, profile?.displayName, isOwner, visibleUids]);
 
   if (loading) {
     return (
