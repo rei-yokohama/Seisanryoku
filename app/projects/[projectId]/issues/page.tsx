@@ -9,6 +9,7 @@ import { auth, db } from "../../../../lib/firebase";
 import { ensureProfile } from "../../../../lib/ensureProfile";
 import type { Issue } from "../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../../lib/backlog";
+import { ensureProperties, getCategoryValue, statusToLabel, statusToValue, statusColor } from "../../../../lib/properties";
 import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
@@ -41,10 +42,6 @@ function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function getCategoryFromIssue(i: Issue) {
-  // MVP: labelsの先頭をカテゴリ扱い
-  return (i.labels && i.labels[0]) ? String(i.labels[0]) : "";
-}
 
 export default function ProjectIssuesPage() {
   const router = useRouter();
@@ -59,9 +56,11 @@ export default function ProjectIssuesPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [propertyCategories, setPropertyCategories] = useState<string[]>([]);
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>(ISSUE_STATUSES);
 
   // filters
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "NOT_DONE" | Issue["status"]>("NOT_DONE");
+  const [statusFilter, setStatusFilter] = useState<string>("NOT_DONE");
   const [assigneeFilter, setAssigneeFilter] = useState<string>(""); // authUid
   const [priorityFilter, setPriorityFilter] = useState<string>(""); // IssuePriority
   const [categoryFilter, setCategoryFilter] = useState<string>("");
@@ -134,6 +133,15 @@ export default function ProjectIssuesPage() {
             .filter(i => i.projectId === projectId);
           items.sort((a, b) => (a.issueKey || "").localeCompare(b.issueKey || ""));
           setIssues(items);
+
+          // プロパティからカテゴリ選択肢を取得
+          const props = await ensureProperties(prof.companyCode);
+          const catProp = props.find((p) => p.key === "category");
+          if (catProp) setPropertyCategories(catProp.options);
+          const statusProp = props.find((p) => p.key === "issueStatus");
+          if (statusProp) {
+            setStatusOptions(statusProp.options.map((label) => ({ value: statusToValue(label), label })));
+          }
         } else {
           setIssues([]);
         }
@@ -155,13 +163,13 @@ export default function ProjectIssuesPage() {
   };
 
   const categories = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(propertyCategories);
     for (const i of issues) {
-      const c = getCategoryFromIssue(i);
+      const c = getCategoryValue(i);
       if (c) set.add(c);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [issues]);
+  }, [issues, propertyCategories]);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
@@ -170,7 +178,7 @@ export default function ProjectIssuesPage() {
       if (statusFilter !== "ALL" && statusFilter !== "NOT_DONE" && i.status !== statusFilter) return false;
       if (assigneeFilter && (i.assigneeUid || "") !== assigneeFilter) return false;
       if (priorityFilter && i.priority !== priorityFilter) return false;
-      if (categoryFilter && getCategoryFromIssue(i) !== categoryFilter) return false;
+      if (categoryFilter && getCategoryValue(i) !== categoryFilter) return false;
       if (k) {
         const hay = `${i.issueKey} ${i.title} ${i.description || ""} ${(i.labels || []).join(" ")}`.toLowerCase();
         if (!hay.includes(k)) return false;
@@ -207,16 +215,17 @@ export default function ProjectIssuesPage() {
       title={`${project?.key || ""} ${project?.title || ""}`.trim() || "課題"}
       subtitle="課題一覧"
       projectId={projectId}
-      headerRight={
-        <Link
-          href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
-          className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition"
-        >
-          課題を追加
-        </Link>
-      }
     >
       <div className="px-0 py-1">
+        <div className="mb-4 flex items-center justify-between">
+          <h1 className="text-xl font-extrabold text-slate-900">課題一覧</h1>
+          <Link
+            href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
+            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition"
+          >
+            課題を追加
+          </Link>
+        </div>
           {/* Search bar like Backlog */}
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -246,7 +255,7 @@ export default function ProjectIssuesPage() {
               >
                 すべて
               </button>
-              {ISSUE_STATUSES.map(s => (
+              {statusOptions.map(s => (
                 <button
                   key={s.value}
                   onClick={() => setStatusFilter(s.value)}
@@ -364,9 +373,9 @@ export default function ProjectIssuesPage() {
                     </tr>
                   ) : (
                     pageItems.map((i) => {
-                      const st = ISSUE_STATUSES.find(s => s.value === i.status)?.label || i.status;
+                      const st = statusToLabel(i.status);
                       const pr = ISSUE_PRIORITIES.find(p => p.value === i.priority)?.label || i.priority;
-                      const cat = getCategoryFromIssue(i);
+                      const cat = getCategoryValue(i);
                       return (
                         <tr key={i.id} className="hover:bg-slate-50">
                           <td className="px-4 py-3 text-slate-700">{customer?.name || "-"}</td>
@@ -387,9 +396,7 @@ export default function ProjectIssuesPage() {
                           <td className="px-4 py-3">
                             <span className={clsx(
                               "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
-                              i.status === "DONE" ? "bg-orange-100 text-orange-700" :
-                              i.status === "IN_PROGRESS" ? "bg-sky-100 text-sky-700" :
-                              "bg-rose-100 text-rose-700",
+                              statusColor(i.status),
                             )}>
                               {st}
                             </span>

@@ -128,26 +128,6 @@ export default function WikiHomePage() {
         }
         setProfile(prof);
 
-        // 権限チェック
-        if (prof.companyCode) {
-          try {
-            const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-            const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-            if (!isOwner) {
-              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-              if (msSnap.exists()) {
-                const perms = (msSnap.data() as any).permissions || {};
-                if (perms.wiki === false) {
-                  window.location.href = "/";
-                  return;
-                }
-              }
-            }
-          } catch (e) {
-            console.warn("permission check failed:", e);
-          }
-        }
-
         await loadDocs(u, prof);
         await loadMeta(u, prof);
       } finally {
@@ -328,47 +308,6 @@ export default function WikiHomePage() {
     <AppShell
       title="Wiki"
       subtitle="Google Docs風"
-      headerRight={
-        <div className="flex items-center gap-2">
-          {editMode ? (
-            <button
-              onClick={exitEditMode}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
-              type="button"
-            >
-              完了
-            </button>
-          ) : (
-            <button
-              onClick={() => setEditMode(true)}
-              disabled={loading || docs.length === 0}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              type="button"
-            >
-              編集
-            </button>
-          )}
-          {editMode && selectedCount > 0 ? (
-            <button
-              onClick={() => void bulkDelete()}
-              disabled={bulkDeleting || loading}
-              className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-extrabold text-red-700 hover:bg-red-100 disabled:opacity-50"
-              title="選択したWikiを削除"
-              type="button"
-            >
-              {bulkDeleting ? "削除中..." : `選択を削除（${selectedCount}）`}
-            </button>
-          ) : null}
-          <button
-            onClick={createDoc}
-            disabled={creating}
-            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition disabled:bg-orange-300"
-            type="button"
-          >
-            {creating ? "作成中..." : "＋ 新規"}
-          </button>
-        </div>
-      }
     >
       <div className="px-0 py-1">
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
@@ -388,7 +327,46 @@ export default function WikiHomePage() {
                 {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
               </button>
             </div>
-              <div className="text-sm font-bold text-slate-700">全 {filtered.length} 件</div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-slate-700">全 {filtered.length} 件</span>
+              {editMode ? (
+                <button
+                  onClick={exitEditMode}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+                  type="button"
+                >
+                  完了
+                </button>
+              ) : (
+                <button
+                  onClick={() => setEditMode(true)}
+                  disabled={loading || docs.length === 0}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  type="button"
+                >
+                  編集
+                </button>
+              )}
+              {editMode && selectedCount > 0 ? (
+                <button
+                  onClick={() => void bulkDelete()}
+                  disabled={bulkDeleting || loading}
+                  className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-extrabold text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  title="選択したWikiを削除"
+                  type="button"
+                >
+                  {bulkDeleting ? "削除中..." : `選択を削除（${selectedCount}）`}
+                </button>
+              ) : null}
+              <button
+                onClick={createDoc}
+                disabled={creating}
+                className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-orange-700 transition disabled:bg-orange-300"
+                type="button"
+              >
+                {creating ? "作成中..." : "＋ 新規"}
+              </button>
+            </div>
           </div>
 
           {isFilterExpanded && (

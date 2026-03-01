@@ -19,6 +19,9 @@ import { ensureProfile } from "../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, normalizeProjectKey } from "../../../lib/backlog";
 import { logActivity, pushNotification } from "../../../lib/activity";
+import { sendIssueWebhook } from "../../../lib/webhook";
+import { ensureProperties, statusToValue } from "../../../lib/properties";
+import type { Property } from "../../../lib/properties";
 import { AppShell } from "../../AppShell";
 
 type MemberProfile = {
@@ -118,6 +121,9 @@ function NewIssueInner() {
   const [startDate, setStartDate] = useState(defaultDates.startDate);
   const [dueDate, setDueDate] = useState(defaultDates.dueDate);
   const [estimateHours, setEstimateHours] = useState("");
+  const [category, setCategory] = useState("");
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>(ISSUE_STATUSES);
   const [labelsText, setLabelsText] = useState("");
   const [parentIssueId, setParentIssueId] = useState("");
 
@@ -131,9 +137,11 @@ function NewIssueInner() {
     const raw = labelsText
       .split(",")
       .map((s) => s.trim())
-      .filter(Boolean);
-    return Array.from(new Set(raw)).slice(0, 20);
-  }, [labelsText]);
+      .filter(Boolean)
+      .filter((l) => l !== category);
+    const list = category ? [category, ...raw] : raw;
+    return Array.from(new Set(list)).slice(0, 20);
+  }, [category, labelsText]);
 
   const myDisplayName = useMemo(() => {
     return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
@@ -203,6 +211,17 @@ function NewIssueInner() {
       for (const e of mergedEmployees) empById.set(e.id, e);
       const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setEmployees(empItems);
+
+      // properties (カテゴリ・ステータス)
+      if (prof.companyCode) {
+        const props = await ensureProperties(prof.companyCode);
+        const catProp = props.find((p) => p.key === "category");
+        if (catProp) setCategoryOptions(catProp.options);
+        const statusProp = props.find((p) => p.key === "issueStatus");
+        if (statusProp) {
+          setStatusOptions(statusProp.options.map((label) => ({ value: statusToValue(label), label })));
+        }
+      }
 
       // initial customer / project
       let initialProjectId = "";
@@ -372,6 +391,7 @@ function NewIssueInner() {
           assigneeUid: assigneeUids[0] || null,
           reporterUid: user.uid,
           labels: labelList,
+          propertyValues: { category: category || "" },
           startDate: startDate || null,
           dueDate: dueDate || null,
           estimateMinutes: fromHoursText(estimateHours) || null,
@@ -407,6 +427,20 @@ function NewIssueInner() {
         }
       }
 
+      // Webhook通知（fire-and-forget）
+      void sendIssueWebhook(companyCode, {
+        issueKey: result.issueKey,
+        title: t,
+        status,
+        priority,
+        assigneeName: assigneeUids.length > 0
+          ? assigneeUids.map((uid) => uid === user.uid ? myDisplayName : (employees.find((e) => e.authUid === uid)?.name ?? "")).filter(Boolean).join(", ")
+          : undefined,
+        reporterName: myDisplayName,
+        projectName: project?.name,
+        link: `/issue/${result.issueId}`,
+      });
+
       // 作成した課題の詳細へ遷移
       router.push(`/issue/${result.issueId}`);
     } catch (e: unknown) {
@@ -434,7 +468,9 @@ function NewIssueInner() {
       title="課題の追加"
       subtitle={project ? project.name : ""}
       projectId={projectId}
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-extrabold text-slate-900">課題の追加</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowPreview((v) => !v)}
@@ -442,19 +478,9 @@ function NewIssueInner() {
           >
             {showPreview ? "編集" : "プレビュー"}
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving}
-            className={clsx(
-              "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-              saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700",
-            )}
-          >
-            {saving ? "追加中..." : "追加"}
-          </button>
         </div>
-      }
-    >
+      </div>
+
       {/* Customer / Deal Selector */}
       <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
@@ -518,7 +544,21 @@ function NewIssueInner() {
               </select>
             </div>
 
-            <div className="md:col-span-8 flex items-end justify-end gap-2">
+            <div className="md:col-span-4">
+              <div className="text-xs font-extrabold text-slate-600">カテゴリ</div>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+              >
+                <option value="">未設定</option>
+                {categoryOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="md:col-span-4 flex items-end justify-end gap-2">
               <button
                 onClick={() => setParentIssueId("")}
                 className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
@@ -599,7 +639,7 @@ function NewIssueInner() {
                     onChange={(e) => setStatus(e.target.value as Issue["status"])}
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                   >
-                    {ISSUE_STATUSES.map((s) => (
+                    {statusOptions.map((s) => (
                       <option key={s.value} value={s.value}>
                         {s.label}
                       </option>

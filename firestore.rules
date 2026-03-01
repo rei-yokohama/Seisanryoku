@@ -257,6 +257,24 @@ service cloud.firestore {
     }
     
     // ============================================
+    // プロパティ（課題カテゴリ等）
+    // ============================================
+    match /properties/{propertyId} {
+      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
+      allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+    }
+
+    // ============================================
+    // Webhook設定
+    // ============================================
+    match /webhookSettings/{companyCode} {
+      allow read: if isSignedIn() && isInMyCompany(companyCode);
+      allow create, update: if isSignedIn() && isCompanyOwner(companyCode);
+      allow delete: if isSignedIn() && isCompanyOwner(companyCode);
+    }
+
+    // ============================================
     // アクティビティ / お知らせ（通知）
     // ============================================
     match /activity/{activityId} {

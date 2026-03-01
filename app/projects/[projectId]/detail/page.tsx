@@ -269,7 +269,9 @@ export default function DealDetailPage() {
     <AppShell
       title={deal.title}
       subtitle="案件詳細"
-      headerRight={
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-xl font-extrabold text-slate-900">案件詳細</h1>
         <div className="flex items-center gap-2">
           <Link
             href={`/projects/${projectId}/edit`}
@@ -281,8 +283,7 @@ export default function DealDetailPage() {
             ← 案件一覧
           </Link>
         </div>
-      }
-    >
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* 左側：基本情報 */}
         <div className="lg:col-span-3 space-y-4">

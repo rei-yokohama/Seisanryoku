@@ -2,11 +2,12 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { addDoc, collection, doc, getDocs, query, setDoc, Timestamp, where } from "firebase/firestore";
+import { addDoc, collection, getDocs, query, Timestamp, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
 import { logActivity } from "../../../../lib/activity";
+import { ensureProperties } from "../../../../lib/properties";
 import { AppShell } from "../../../AppShell";
 import { ensureProfile } from "../../../../lib/ensureProfile";
 
@@ -14,7 +15,6 @@ type MemberProfile = {
   uid: string;
   companyCode: string;
   displayName?: string | null;
-  dealGenres?: string[] | null;
 };
 
 type Customer = {
@@ -40,16 +40,6 @@ const DEAL_STATUS_OPTIONS = [
   { value: "STOPPING", label: "停止予定", color: "bg-amber-100 text-amber-700" },
   { value: "INACTIVE", label: "停止中", color: "bg-slate-100 text-slate-700" },
 ] as const;
-
-function normalizeOptions(xs: Array<string | null | undefined>) {
-  const set = new Set<string>();
-  for (const x of xs) {
-    const t = String(x || "").trim();
-    if (!t) continue;
-    set.add(t);
-  }
-  return Array.from(set).slice(0, 30);
-}
 
 type SearchableSelectProps = {
   options: { id: string; label: string }[];
@@ -205,9 +195,6 @@ function DealNewInner() {
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState("");
   const [genreOptions, setGenreOptions] = useState<string[]>([]);
-  const [genreEditorOpen, setGenreEditorOpen] = useState(false);
-  const [newGenre, setNewGenre] = useState("");
-  const [savingGenres, setSavingGenres] = useState(false);
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<DealStatus>("ACTIVE");
   const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
@@ -269,7 +256,9 @@ function DealNewInner() {
           return;
         }
         setProfile(prof);
-        setGenreOptions(normalizeOptions(prof.dealGenres || []));
+        const props = await ensureProperties(prof.companyCode);
+        const dealCatProp = props.find((p) => p.key === "dealCategory");
+        if (dealCatProp) setGenreOptions(dealCatProp.options);
         const items = await loadCustomers(u, prof);
         await loadEmployees(prof);
         if (!customerId && items.length > 0) setCustomerId(items[0].id);
@@ -282,35 +271,6 @@ function DealNewInner() {
   }, []);
 
   const customerName = useMemo(() => customers.find((c) => c.id === customerId)?.name || "", [customers, customerId]);
-
-  const saveGenreOptions = async (next: string[]) => {
-    if (!user) return;
-    setSavingGenres(true);
-    try {
-      await setDoc(doc(db, "profiles", user.uid), { dealGenres: next }, { merge: true });
-      setGenreOptions(next);
-    } catch (e: any) {
-      const code = String(e?.code || "");
-      const msg = String(e?.message || "");
-      setError(code && msg ? `${code}: ${msg}` : msg || "ジャンル候補の保存に失敗しました");
-    } finally {
-      setSavingGenres(false);
-    }
-  };
-
-  const addGenreOption = async () => {
-    const t = newGenre.trim();
-    if (!t) return;
-    const next = normalizeOptions([...genreOptions, t]);
-    setNewGenre("");
-    await saveGenreOptions(next);
-  };
-
-  const removeGenreOption = async (g: string) => {
-    const next = genreOptions.filter((x) => x !== g);
-    await saveGenreOptions(next);
-    if (genre === g) setGenre("");
-  };
 
   const handleSubmit = async () => {
     if (!user || !profile) return;
@@ -382,12 +342,13 @@ function DealNewInner() {
     <AppShell
       title="案件の追加"
       subtitle="Deal creation"
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div />
         <Link href="/projects" className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 hover:bg-orange-50">
           ← 案件一覧
         </Link>
-      }
-    >
+      </div>
       <div className="mx-auto w-full max-w-3xl">
           <div className="rounded-2xl border border-slate-200 bg-white p-6">
             {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
@@ -437,58 +398,13 @@ function DealNewInner() {
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => setGenreEditorOpen((v) => !v)}
+                  <Link
+                    href="/settings/properties"
                     className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
                   >
                     候補を編集
-                  </button>
+                  </Link>
                 </div>
-                {genreEditorOpen ? (
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input
-                        value={newGenre}
-                        onChange={(e) => setNewGenre(e.target.value)}
-                        placeholder="ジャンル候補を追加"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none sm:flex-1"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void addGenreOption()}
-                        disabled={savingGenres}
-                        className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
-                      >
-                        追加
-                      </button>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {genreOptions.length === 0 ? (
-                        <div className="text-xs font-bold text-slate-500">候補がありません</div>
-                      ) : (
-                        genreOptions.map((g) => (
-                          <span
-                            key={g}
-                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-extrabold text-slate-700"
-                          >
-                            {g}
-                            <button
-                              type="button"
-                              onClick={() => void removeGenreOption(g)}
-                              disabled={savingGenres}
-                              className="text-slate-400 hover:text-rose-600 disabled:text-slate-300"
-                              title="削除"
-                            >
-                              ×
-                            </button>
-                          </span>
-                        ))
-                      )}
-                    </div>
-                    <div className="mt-2 text-[11px] font-bold text-slate-500">※ 候補はあなた専用です（他ユーザーには影響しません）</div>
-                  </div>
-                ) : null}
               </div>
 
               <div>

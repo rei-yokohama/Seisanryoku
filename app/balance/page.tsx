@@ -265,24 +265,6 @@ export default function BalancePage() {
         }
         setProfile(prof);
 
-        // 権限チェック
-        try {
-          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-          if (!isOwner) {
-            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-            if (msSnap.exists()) {
-              const perms = (msSnap.data() as any).permissions || {};
-              if (perms.billing === false) {
-                window.location.href = "/";
-                return;
-              }
-            }
-          }
-        } catch (e) {
-          console.warn("permission check failed:", e);
-        }
-
         // members/employees
         const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
         const empItems = empSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Employee));
@@ -353,47 +335,48 @@ export default function BalancePage() {
     <AppShell
       title="収支"
       subtitle="担当者ごとの月次 収支"
-      headerRight={
-        <div className="flex items-center gap-2">
-          {editMode && !isConfirmed && (
-            <button
-              type="button"
-              onClick={autoInsert}
-              className="rounded-md bg-sky-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-sky-600 shadow-sm transition"
-            >
-              自動挿入
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setEditMode((v) => !v)}
-            disabled={loading || !storageLoaded || isConfirmed}
-            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {editMode ? "完了" : "編集"}
-          </button>
-          {isConfirmed ? (
-            <button
-              type="button"
-              onClick={toggleConfirm}
-              className="rounded-md bg-slate-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-slate-600 shadow-sm transition"
-            >
-              確定解除
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={toggleConfirm}
-              disabled={loading || !storageLoaded}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 shadow-sm transition disabled:opacity-50"
-            >
-              確定
-            </button>
-          )}
-        </div>
-      }
     >
       <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div />
+          <div className="flex items-center gap-2">
+            {editMode && !isConfirmed && (
+              <button
+                type="button"
+                onClick={autoInsert}
+                className="rounded-md bg-sky-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-sky-600 shadow-sm transition"
+              >
+                自動挿入
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setEditMode((v) => !v)}
+              disabled={loading || !storageLoaded || isConfirmed}
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              {editMode ? "完了" : "編集"}
+            </button>
+            {isConfirmed ? (
+              <button
+                type="button"
+                onClick={toggleConfirm}
+                className="rounded-md bg-slate-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-slate-600 shadow-sm transition"
+              >
+                確定解除
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={toggleConfirm}
+                disabled={loading || !storageLoaded}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 shadow-sm transition disabled:opacity-50"
+              >
+                確定
+              </button>
+            )}
+          </div>
+        </div>
         {/* Month header (image-like) */}
         <div className="rounded-lg border border-slate-200 bg-white overflow-visible">
           <div className="flex items-center justify-between bg-emerald-50 px-3 py-2 rounded-t-lg">

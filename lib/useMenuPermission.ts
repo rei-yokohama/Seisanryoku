@@ -23,13 +23,13 @@ type MenuPermissions = {
 
 const DEFAULT_MENU_PERMISSIONS: MenuPermissions = {
   dashboard: true,
-  members: false,
+  members: true,
   projects: true,
   issues: true,
-  customers: false,
+  customers: true,
   files: true,
-  billing: false,
-  settings: false,
+  billing: true,
+  settings: true,
   wiki: true,
   effort: true,
   calendar: true,
@@ -59,42 +59,8 @@ export function useMenuPermission(requiredPermission: keyof MenuPermissions) {
           return;
         }
 
-        // オーナーかどうか確認
-        const compSnap = await getDoc(doc(db, "companies", companyCode));
-        if (compSnap.exists()) {
-          const c = compSnap.data() as any;
-          const ownerUid = c.ownerUid || "";
-          
-          // オーナーは全権限
-          if (ownerUid === u.uid) {
-            setHasPermission(true);
-            setLoading(false);
-            return;
-          }
-        }
-
-        // メンバーの権限を取得
-        const membershipId = `${companyCode}_${u.uid}`;
-        const msSnap = await getDoc(doc(db, "workspaceMemberships", membershipId));
-        
-        if (msSnap.exists()) {
-          const ms = msSnap.data() as any;
-          const p = ms.permissions || {};
-          const permitted = p[requiredPermission] ?? DEFAULT_MENU_PERMISSIONS[requiredPermission];
-          setHasPermission(permitted);
-          
-          if (!permitted) {
-            router.push("/");
-          }
-        } else {
-          // membershipがない場合はデフォルト権限を使用
-          const permitted = DEFAULT_MENU_PERMISSIONS[requiredPermission];
-          setHasPermission(permitted);
-          
-          if (!permitted) {
-            router.push("/");
-          }
-        }
+        // 全ユーザーに同じ画面を表示
+        setHasPermission(true);
       } catch (e) {
         console.warn("Permission check failed:", e);
         setHasPermission(true); // エラー時はデフォルト許可

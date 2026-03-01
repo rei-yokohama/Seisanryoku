@@ -162,24 +162,6 @@ export default function BillingPage() {
         }
         setProfile(prof);
 
-        // 権限チェック
-        try {
-          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-          if (!isOwner) {
-            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-            if (msSnap.exists()) {
-              const perms = (msSnap.data() as any).permissions || {};
-              if (perms.billing === false) {
-                window.location.href = "/";
-                return;
-              }
-            }
-          }
-        } catch (e) {
-          console.warn("permission check failed:", e);
-        }
-
         // 顧客一覧取得
         const custSnap = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
         const custItems = custSnap.docs
@@ -333,48 +315,25 @@ export default function BillingPage() {
     <AppShell
       title="請求管理"
       subtitle="顧客ごとの月次 請求"
-      headerRight={
-        <div className="flex items-center gap-2">
-          {saving && <span className="text-xs font-bold text-slate-500">保存中...</span>}
-          {isConfirmed ? (
-            <button
-              type="button"
-              onClick={toggleConfirm}
-              className="rounded-md bg-slate-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-slate-600 shadow-sm transition"
-            >
-              確定解除
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={toggleConfirm}
-              disabled={loading}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 shadow-sm transition disabled:opacity-50"
-            >
-              確定
-            </button>
-          )}
-        </div>
-      }
     >
       <div className="space-y-3">
-        {/* Month header */}
+        {/* テーブル + ツールバー */}
         <div className="rounded-lg border border-slate-200 bg-white overflow-visible">
-          <div className="flex items-center justify-between bg-sky-50 px-3 py-2 rounded-t-lg">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between bg-sky-50 px-3 py-2 rounded-t-lg gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setMonth((m) => addMonths(m, -1))}
-                className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
+                className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
                 aria-label="前月"
               >
                 ←
               </button>
-              <div className="text-base font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</div>
+              <div className="text-sm font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</div>
               <button
                 type="button"
                 onClick={() => setMonth((m) => addMonths(m, 1))}
-                className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
+                className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
                 aria-label="翌月"
               >
                 →
@@ -383,7 +342,7 @@ export default function BillingPage() {
                 type="button"
                 onClick={() => setMonth(ymKey(new Date()))}
                 className={clsx(
-                  "rounded-md px-2.5 py-1 text-[11px] font-extrabold transition",
+                  "rounded-md px-2 py-1 text-[11px] font-extrabold transition",
                   month === ymKey(new Date())
                     ? "bg-sky-600 text-white"
                     : "border border-sky-200 bg-white text-sky-700 hover:bg-sky-50",
@@ -394,10 +353,34 @@ export default function BillingPage() {
               {isConfirmed && (
                 <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-extrabold text-white">確定済</span>
               )}
+              <span className="text-xs font-extrabold text-slate-600 ml-1">
+                請求対象: <span className="text-slate-900">{rows.filter((c) => getBilling(c.id, month)?.status !== "no_invoice").length}件</span>
+              </span>
+              <span className="text-xs font-extrabold text-slate-600">
+                合計: <span className="text-sky-700">{yen(totalAmount)}</span>
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
-              {/* 編集ボタン */}
+              {saving && <span className="text-xs font-bold text-slate-500">保存中...</span>}
+              {isConfirmed ? (
+                <button
+                  type="button"
+                  onClick={toggleConfirm}
+                  className="rounded-md bg-slate-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-slate-600 shadow-sm transition"
+                >
+                  確定解除
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={toggleConfirm}
+                  disabled={loading}
+                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 shadow-sm transition disabled:opacity-50"
+                >
+                  確定
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setEditMode((v) => !v)}
@@ -411,7 +394,6 @@ export default function BillingPage() {
               >
                 {editMode ? "完了" : "編集"}
               </button>
-              {/* ステータスフィルター */}
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as BillingStatus | "ALL")}
@@ -489,17 +471,7 @@ export default function BillingPage() {
 
         {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
 
-        {/* 合計 */}
-        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <div className="text-sm font-extrabold text-slate-700">
-            請求対象: <span className="text-slate-900">{rows.filter((c) => getBilling(c.id, month)?.status !== "no_invoice").length}件</span>
-          </div>
-          <div className="text-sm font-extrabold text-slate-700">
-            合計金額: <span className="text-lg text-sky-700">{yen(totalAmount)}</span>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+        <div className="overflow-x-auto">
           <table className="min-w-[700px] w-full text-[12px] font-bold border-separate border-spacing-0">
             <thead className="bg-sky-50 text-[11px] font-extrabold text-slate-900 sticky top-0 z-10">
               <tr className="border-b border-slate-200">

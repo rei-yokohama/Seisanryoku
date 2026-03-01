@@ -203,13 +203,14 @@ export default function DriveNewFolderPage() {
     <AppShell
       title="新規フォルダ"
       subtitle="ドライブ"
-      headerRight={
-        <Link href="/drive" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-          ← ドライブ
-        </Link>
-      }
     >
       <div className="mx-auto w-full max-w-3xl">
+        <div className="flex items-center justify-between mb-4">
+          <div />
+          <Link href="/drive" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+            ← ドライブ
+          </Link>
+        </div>
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6">

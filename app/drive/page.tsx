@@ -142,26 +142,6 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
         }
         setProfile(prof);
 
-        // 権限チェック
-        if (prof.companyCode) {
-          try {
-            const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-            const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-            if (!isOwner) {
-              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-              if (msSnap.exists()) {
-                const perms = (msSnap.data() as any).permissions || {};
-                if (perms.files === false) {
-                  window.location.href = "/";
-                  return;
-                }
-              }
-            }
-          } catch (e) {
-            console.warn("permission check failed:", e);
-          }
-        }
-
         await loadItems(u, prof);
       } catch (e: any) {
         setError(e?.message || "ドライブの読み込みに失敗しました");
@@ -420,32 +400,6 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
     <AppShell
       title="ドライブ"
       subtitle="Google Drive風（フォルダ + 複数アップロード）"
-      headerRight={
-        <div className="flex items-center gap-2">
-          <Link
-            href={currentFolderId ? `/drive/new?parentId=${encodeURIComponent(currentFolderId)}` : "/drive/new"}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition"
-          >
-            ＋ 新規フォルダ
-          </Link>
-          <button
-            onClick={() => void copyFolderUrl()}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition"
-            type="button"
-            title="現在開いているフォルダのURLをコピー"
-          >
-            フォルダURL
-          </button>
-          <button
-            onClick={triggerUpload}
-            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition disabled:opacity-50 disabled:hover:bg-orange-600"
-            disabled={busy}
-            title="ファイルをアップロード"
-          >
-            アップロード
-          </button>
-        </div>
-      }
     >
       <input
         ref={fileInputRef}
@@ -525,19 +479,43 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
                   {isFilterExpanded ? "▲ 閉じる" : "▼ フィルタを表示"}
                 </button>
               </div>
-              <div className="text-sm font-bold text-slate-700">
-                {breadcrumb.map((b, idx) => (
-                  <span key={`${b.id ?? "root"}-${idx}`}>
-                    <button
-                      className={idx === breadcrumb.length - 1 ? "text-slate-900" : "text-orange-700 hover:underline"}
-                      onClick={() => navigateToFolder(b.id)}
-                      type="button"
-                    >
-                      {b.name}
-                    </button>
-                    {idx < breadcrumb.length - 1 ? <span className="mx-1 text-slate-400">/</span> : null}
-                  </span>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-bold text-slate-700 mr-1">
+                  {breadcrumb.map((b, idx) => (
+                    <span key={`${b.id ?? "root"}-${idx}`}>
+                      <button
+                        className={idx === breadcrumb.length - 1 ? "text-slate-900" : "text-orange-700 hover:underline"}
+                        onClick={() => navigateToFolder(b.id)}
+                        type="button"
+                      >
+                        {b.name}
+                      </button>
+                      {idx < breadcrumb.length - 1 ? <span className="mx-1 text-slate-400">/</span> : null}
+                    </span>
+                  ))}
+                </div>
+                <Link
+                  href={currentFolderId ? `/drive/new?parentId=${encodeURIComponent(currentFolderId)}` : "/drive/new"}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 transition"
+                >
+                  ＋ 新規フォルダ
+                </Link>
+                <button
+                  onClick={() => void copyFolderUrl()}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 transition"
+                  type="button"
+                  title="現在開いているフォルダのURLをコピー"
+                >
+                  フォルダURL
+                </button>
+                <button
+                  onClick={triggerUpload}
+                  className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 transition disabled:opacity-50 disabled:hover:bg-orange-600"
+                  disabled={busy}
+                  title="ファイルをアップロード"
+                >
+                  アップロード
+                </button>
               </div>
             </div>
 

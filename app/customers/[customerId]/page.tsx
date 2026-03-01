@@ -207,7 +207,9 @@ export default function CustomerDetailPage() {
     <AppShell
       title={customer.name}
       subtitle="顧客詳細"
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div />
         <div className="flex items-center gap-2">
           <Link
             href={`/customers/${customerId}/edit`}
@@ -219,8 +221,7 @@ export default function CustomerDetailPage() {
             ← 顧客一覧
           </Link>
         </div>
-      }
-    >
+      </div>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* 左側：基本情報 */}
         <div className="lg:col-span-3 space-y-4">

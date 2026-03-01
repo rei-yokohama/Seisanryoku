@@ -20,6 +20,8 @@ import { ensureProfile } from "../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, normalizeProjectKey } from "../../../lib/backlog";
 import { logActivity, pushNotification } from "../../../lib/activity";
+import { sendIssueWebhook } from "../../../lib/webhook";
+import { ensureProperties, statusToValue } from "../../../lib/properties";
 import { AppShell } from "../../AppShell";
 
 type MemberProfile = {
@@ -71,6 +73,7 @@ function NewIssueInner() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<Issue["status"]>("TODO");
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>(ISSUE_STATUSES);
   const [priority, setPriority] = useState<Issue["priority"]>("MEDIUM");
   const [assigneeUid, setAssigneeUid] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -139,6 +142,15 @@ function NewIssueInner() {
       for (const e of mergedEmployees) empById.set(e.id, e);
       const empItems = Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setEmployees(empItems);
+
+      // properties (ステータス)
+      if (prof.companyCode) {
+        const props = await ensureProperties(prof.companyCode);
+        const statusProp = props.find((p) => p.key === "issueStatus");
+        if (statusProp) {
+          setStatusOptions(statusProp.options.map((label) => ({ value: statusToValue(label), label })));
+        }
+      }
 
       // initial project
       const initial =
@@ -290,6 +302,20 @@ function NewIssueInner() {
         });
       }
 
+      // Webhook通知（fire-and-forget）
+      void sendIssueWebhook(profile.companyCode, {
+        issueKey: result.issueKey,
+        title: t,
+        status,
+        priority,
+        assigneeName: assigneeUid
+          ? (assigneeUid === user.uid ? myDisplayName : (employees.find((e) => e.authUid === assigneeUid)?.name ?? undefined))
+          : undefined,
+        reporterName: myDisplayName,
+        projectName: project?.name,
+        link: `/issue/${result.issueId}`,
+      });
+
       router.push(`/issue/${result.issueId}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "課題の作成に失敗しました";
@@ -312,11 +338,13 @@ function NewIssueInner() {
   if (!user || !profile) return null;
 
   return (
-    <AppShell 
-      title="課題の追加" 
+    <AppShell
+      title="課題の追加"
       subtitle={project ? `${project.key} ${project.name}` : ""}
       projectId={projectId}
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-extrabold text-slate-900">課題の追加</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowPreview(v => !v)}
@@ -324,19 +352,9 @@ function NewIssueInner() {
           >
             {showPreview ? "編集" : "プレビュー"}
           </button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving}
-            className={clsx(
-              "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-              saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700",
-            )}
-          >
-            {saving ? "追加中..." : "追加"}
-          </button>
         </div>
-      }
-    >
+      </div>
+
       {/* Project Selector */}
       <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
         <div className="text-xs font-bold text-slate-600 mb-2">プロジェクト</div>
@@ -440,7 +458,7 @@ function NewIssueInner() {
                         onChange={(e) => setStatus(e.target.value as Issue["status"])}
                         className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                       >
-                        {ISSUE_STATUSES.map(s => (
+                        {statusOptions.map(s => (
                           <option key={s.value} value={s.value}>{s.label}</option>
                         ))}
                       </select>

@@ -355,16 +355,17 @@ export default function WorkspaceSettingsPage() {
     <AppShell
       title="ワークスペース設定"
       subtitle="ワークスペース名・ワークスペースコード"
-      headerRight={
-        <Link
-          href="/settings"
-          className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-        >
-          ← 設定トップ
-        </Link>
-      }
     >
       <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-extrabold text-slate-900">ワークスペース設定</h1>
+          <Link
+            href="/settings"
+            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            ← 設定トップ
+          </Link>
+        </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="mb-4 text-lg font-extrabold text-slate-900">新しいワークスペースを作成</div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-12">

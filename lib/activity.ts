@@ -20,7 +20,8 @@ export type ActivityType =
   | "DEAL_CREATED"
   | "DEAL_UPDATED"
   | "DEAL_STATUS_CHANGED"
-  | "CALENDAR_EVENT_CREATED";
+  | "CALENDAR_EVENT_CREATED"
+  | "OUTPUT_ADDED";
 
 export type Activity = {
   companyCode: string;

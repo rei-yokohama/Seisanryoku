@@ -2,19 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, Timestamp, updateDoc, where } from "firebase/firestore";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../lib/firebase";
 import { ensureProfile } from "../../../../lib/ensureProfile";
 import { logActivity } from "../../../../lib/activity";
+import { ensureProperties } from "../../../../lib/properties";
 import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
   uid: string;
   companyCode: string;
   displayName?: string | null;
-  dealGenres?: string[] | null; // ユーザーごとの案件ジャンル候補
 };
 
 type Customer = {
@@ -62,16 +62,6 @@ type DealDoc = {
   activePeriods?: ActivePeriod[] | null;
 };
 
-function normalizeOptions(xs: Array<string | null | undefined>) {
-  const set = new Set<string>();
-  for (const x of xs) {
-    const t = String(x || "").trim();
-    if (!t) continue;
-    set.add(t);
-  }
-  return Array.from(set).slice(0, 30);
-}
-
 export default function ProjectEditPage() {
   const router = useRouter();
   const params = useParams<{ projectId: string }>();
@@ -92,9 +82,6 @@ export default function ProjectEditPage() {
   const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
   const [revenue, setRevenue] = useState("");
   const [genreOptions, setGenreOptions] = useState<string[]>([]);
-  const [genreEditorOpen, setGenreEditorOpen] = useState(false);
-  const [newGenre, setNewGenre] = useState("");
-  const [savingGenres, setSavingGenres] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [loadedOnce, setLoadedOnce] = useState(false);
@@ -145,7 +132,9 @@ export default function ProjectEditPage() {
           return;
         }
         setProfile(prof);
-        setGenreOptions(normalizeOptions(prof.dealGenres || []));
+        const props = await ensureProperties(prof.companyCode);
+        const dealCatProp = props.find((p) => p.key === "dealCategory");
+        if (dealCatProp) setGenreOptions(dealCatProp.options);
 
         await loadCustomers(u, prof);
         await loadEmployees(prof);
@@ -200,36 +189,6 @@ export default function ProjectEditPage() {
     (user?.displayName && user.displayName.trim()) ||
     (user?.email && user.email.trim()) ||
     "私";
-
-  const saveGenreOptions = async (next: string[]) => {
-    if (!user) return;
-    setSavingGenres(true);
-    try {
-      await setDoc(doc(db, "profiles", user.uid), { dealGenres: next }, { merge: true });
-      setGenreOptions(next);
-    } catch (e: any) {
-      const code = String(e?.code || "");
-      const msg = String(e?.message || "");
-      setError(code && msg ? `${code}: ${msg}` : msg || "ジャンル候補の保存に失敗しました");
-    } finally {
-      setSavingGenres(false);
-    }
-  };
-
-  const addGenreOption = async () => {
-    const t = newGenre.trim();
-    if (!t) return;
-    const next = normalizeOptions([...genreOptions, t]);
-    setNewGenre("");
-    await saveGenreOptions(next);
-  };
-
-  const removeGenreOption = async (g: string) => {
-    const next = genreOptions.filter((x) => x !== g);
-    await saveGenreOptions(next);
-    // 今選んでいる値が削除されたら未設定に戻す
-    if (genre === g) setGenre("");
-  };
 
   const handleSave = async () => {
     if (!user || !profile) return;
@@ -430,25 +389,26 @@ export default function ProjectEditPage() {
     <AppShell
       title="案件編集"
       subtitle="案件情報を更新"
-      headerRight={
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/projects/${projectId}/detail`}
-            className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 hover:bg-orange-50"
-          >
-            ← 案件詳細
-          </Link>
-          <button
-            onClick={handleSave}
-            disabled={saving || customers.length === 0}
-            className="rounded-full bg-orange-500 px-4 py-2 text-sm font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
-        </div>
-      }
     >
       <div className="mx-auto w-full max-w-3xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h1 className="text-xl font-extrabold text-slate-900">案件編集</h1>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/projects/${projectId}/detail`}
+              className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 hover:bg-orange-50"
+            >
+              ← 案件詳細
+            </Link>
+            <button
+              onClick={handleSave}
+              disabled={saving || customers.length === 0}
+              className="rounded-full bg-orange-500 px-4 py-2 text-sm font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
+          </div>
+        </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
 
@@ -499,55 +459,13 @@ export default function ProjectEditPage() {
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  onClick={() => setGenreEditorOpen((v) => !v)}
+                <Link
+                  href="/settings/properties"
                   className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"
                 >
                   候補を編集
-                </button>
+                </Link>
               </div>
-              {genreEditorOpen ? (
-                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      value={newGenre}
-                      onChange={(e) => setNewGenre(e.target.value)}
-                      placeholder="ジャンル候補を追加"
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none sm:flex-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void addGenreOption()}
-                      disabled={savingGenres}
-                      className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
-                    >
-                      追加
-                    </button>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {genreOptions.length === 0 ? (
-                      <div className="text-xs font-bold text-slate-500">候補がありません</div>
-                    ) : (
-                      genreOptions.map((g) => (
-                        <span key={g} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-extrabold text-slate-700">
-                          {g}
-                          <button
-                            type="button"
-                            onClick={() => void removeGenreOption(g)}
-                            disabled={savingGenres}
-                            className="text-slate-400 hover:text-rose-600 disabled:text-slate-300"
-                            title="削除"
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))
-                    )}
-                  </div>
-                  <div className="mt-2 text-[11px] font-bold text-slate-500">※ 候補はあなた専用です（他ユーザーには影響しません）</div>
-                </div>
-              ) : null}
             </div>
 
             <div>

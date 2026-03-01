@@ -701,27 +701,6 @@ export default function WikiDocPage() {
     <AppShell
       title={title || "無題"}
       subtitle="Wiki"
-      headerRight={
-        <div className="flex items-center gap-2">
-          <Link href="/wiki" className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-            ← 一覧
-          </Link>
-          <button
-            onClick={() => void doSaveNow({ force: true })}
-            disabled={saving || loading || !user}
-            className="rounded-full bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
-            type="button"
-            title="今の内容を保存"
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
-          {canDelete ? (
-            <button onClick={handleDelete} className="rounded-full bg-red-50 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-100">
-              削除
-            </button>
-          ) : null}
-        </div>
-      }
     >
       <div className="w-full">
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">⚠️ エラー: {error}</div> : null}
@@ -730,12 +709,6 @@ export default function WikiDocPage() {
             ✅ 保存しました（{savedAt.toLocaleTimeString()}）
           </div>
         ) : null}
-        {!loading && (!customerId || !dealId) ? (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-900">
-            このWikiは <span className="font-extrabold">顧客</span> と <span className="font-extrabold">案件</span> の両方に紐づけ推奨です（未選択でも本文は保存されます）。
-          </div>
-        ) : null}
-
         {loading ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600">読み込み中...</div>
         ) : (
@@ -803,15 +776,23 @@ export default function WikiDocPage() {
                       </option>
                     ))}
                   </select>
+                  <Link href="/wiki" className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                    ← 一覧
+                  </Link>
                   <button
                     onClick={() => void doSaveNow({ force: true })}
                     disabled={saving || loading || !user}
-                    className="rounded-lg bg-orange-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
+                    className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-orange-700 disabled:bg-orange-300"
                     type="button"
                     title="この内容を保存"
                   >
                     {saving ? "保存中..." : "保存"}
                   </button>
+                  {canDelete ? (
+                    <button onClick={handleDelete} className="rounded-md bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-100">
+                      削除
+                    </button>
+                  ) : null}
                 </div>
               </div>
 

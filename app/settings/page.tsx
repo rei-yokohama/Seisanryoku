@@ -2,11 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { auth, db } from "../../lib/firebase";
-import { ensureProfile } from "../../lib/ensureProfile";
+import { auth } from "../../lib/firebase";
 import { AppShell } from "../AppShell";
 
 export default function SettingsPage() {
@@ -19,27 +17,7 @@ export default function SettingsPage() {
         router.push("/login");
         return;
       }
-      try {
-        const prof = await ensureProfile(u);
-        if (prof?.companyCode) {
-          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-          if (!isOwner) {
-            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-            if (msSnap.exists()) {
-              const perms = (msSnap.data() as any).permissions || {};
-              if (perms.settings === false) {
-                window.location.href = "/";
-                return;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("permission check failed:", e);
-      } finally {
-        setLoading(false);
-      }
+      setLoading(false);
     });
     return () => unsub();
   }, [router]);
@@ -107,6 +85,40 @@ export default function SettingsPage() {
                   <div className="text-sm font-extrabold text-slate-900">メンバー設定</div>
                   <div className="mt-1 text-xs font-bold text-slate-500">
                     チーム招待（URL発行）・チーム全体設定
+                  </div>
+                </div>
+                <div className="rounded-full bg-orange-100 px-3 py-1 text-xs font-extrabold text-orange-800 group-hover:bg-orange-200">
+                  開く →
+                </div>
+              </div>
+            </Link>
+
+            <Link
+              href="/settings/properties"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-white hover:shadow-sm transition"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold text-slate-900">プロパティ設定</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">
+                    課題のカテゴリ・種別などの選択肢を管理
+                  </div>
+                </div>
+                <div className="rounded-full bg-orange-100 px-3 py-1 text-xs font-extrabold text-orange-800 group-hover:bg-orange-200">
+                  開く →
+                </div>
+              </div>
+            </Link>
+
+            <Link
+              href="/settings/webhooks"
+              className="group rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-white hover:shadow-sm transition"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-extrabold text-slate-900">Webhook通知</div>
+                  <div className="mt-1 text-xs font-bold text-slate-500">
+                    Discord・Slack・Chatworkへの自動通知
                   </div>
                 </div>
                 <div className="rounded-full bg-orange-100 px-3 py-1 text-xs font-extrabold text-orange-800 group-hover:bg-orange-200">

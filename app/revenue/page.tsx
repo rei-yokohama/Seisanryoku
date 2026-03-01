@@ -71,16 +71,17 @@ export default function RevenuePage() {
     <AppShell
       title="売上・利益"
       subtitle="案件別の月次 売上/利益 管理"
-      headerRight={
-        <Link
-          href="/revenue/edit"
-          className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
-        >
-          編集
-        </Link>
-      }
     >
       <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div />
+          <Link
+            href="/revenue/edit"
+            className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
+          >
+            編集
+          </Link>
+        </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">

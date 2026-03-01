@@ -225,16 +225,17 @@ export default function TeamSettingsPage() {
     <AppShell
       title="招待リンク"
       subtitle="チーム招待・チーム設定"
-      headerRight={
-        <Link
-          href="/settings/members"
-          className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-        >
-          ← メンバー一覧
-        </Link>
-      }
     >
       <div className="mx-auto w-full max-w-3xl">
+        <div className="flex items-center justify-between mb-4">
+          <div />
+          <Link
+            href="/settings/members"
+            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            ← メンバー一覧
+          </Link>
+        </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="mb-6">
             <h2 className="text-xl font-extrabold text-slate-900">招待リンク</h2>

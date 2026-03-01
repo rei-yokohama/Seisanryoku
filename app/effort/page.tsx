@@ -260,24 +260,6 @@ export default function EffortPage() {
         }
         setProfile(prof);
 
-        // 権限チェック
-        try {
-          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-          if (!isOwner) {
-            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-            if (msSnap.exists()) {
-              const perms = (msSnap.data() as any).permissions || {};
-              if (perms.effort === false) {
-                window.location.href = "/";
-                return;
-              }
-            }
-          }
-        } catch (e) {
-          console.warn("permission check failed:", e);
-        }
-
         const [empSnap, dealSnap, entrySnap] = await Promise.all([
           getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode))),
           getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode))),
@@ -450,53 +432,6 @@ export default function EffortPage() {
     <AppShell
       title="工数集計"
       subtitle={<div className="text-xs text-slate-500 font-medium">カレンダーの入力データに基づき、月次の工数を自動集計します</div>}
-      headerRight={
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-4 border-r border-slate-200 pr-4 mr-2">
-            <div className="text-right">
-              <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none mb-1">合計工数</div>
-              <div className="text-lg font-black text-slate-900 tabular-nums leading-none">
-                {hoursLabel(grandTotal)}
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none mb-1">対象人数</div>
-              <div className="text-lg font-black text-slate-900 tabular-nums leading-none">
-                {new Set(rows.map(r => r.uid)).size}<span className="text-xs font-bold text-slate-400 ml-0.5">名</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden shadow-sm">
-            <button
-              onClick={() => setViewMode("table")}
-              className={clsx(
-                "px-3 py-1.5 text-xs font-extrabold transition",
-                viewMode === "table" ? "bg-orange-600 text-white" : "text-slate-600 hover:bg-slate-50",
-              )}
-            >
-              表
-            </button>
-            <button
-              onClick={() => setViewMode("chart")}
-              className={clsx(
-                "px-3 py-1.5 text-xs font-extrabold transition",
-                viewMode === "chart" ? "bg-orange-600 text-white" : "text-slate-600 hover:bg-slate-50",
-              )}
-            >
-              グラフ
-            </button>
-          </div>
-          <button
-            onClick={() => window.print()}
-            className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-            </svg>
-            印刷
-          </button>
-        </div>
-      }
     >
       <div className="max-w-6xl mx-auto space-y-4">
         {/* フィルター・サマリーカード */}
@@ -546,7 +481,50 @@ export default function EffortPage() {
               </button>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-3 border-r border-slate-200 pr-4">
+                <div className="text-right">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none mb-0.5">合計工数</div>
+                  <div className="text-sm font-black text-slate-900 tabular-nums leading-none">
+                    {hoursLabel(grandTotal)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none mb-0.5">対象人数</div>
+                  <div className="text-sm font-black text-slate-900 tabular-nums leading-none">
+                    {new Set(rows.map(r => r.uid)).size}<span className="text-[10px] font-bold text-slate-400 ml-0.5">名</span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center rounded-md border border-slate-200 bg-white overflow-hidden">
+                <button
+                  onClick={() => setViewMode("table")}
+                  className={clsx(
+                    "px-3 py-1.5 text-xs font-extrabold transition",
+                    viewMode === "table" ? "bg-orange-600 text-white" : "text-slate-600 hover:bg-slate-50",
+                  )}
+                >
+                  表
+                </button>
+                <button
+                  onClick={() => setViewMode("chart")}
+                  className={clsx(
+                    "px-3 py-1.5 text-xs font-extrabold transition",
+                    viewMode === "chart" ? "bg-orange-600 text-white" : "text-slate-600 hover:bg-slate-50",
+                  )}
+                >
+                  グラフ
+                </button>
+              </div>
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                印刷
+              </button>
               {/* 担当者別ショートカット */}
               <div className="relative" ref={assigneeDropdownRef}>
                 <button

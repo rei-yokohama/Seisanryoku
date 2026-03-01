@@ -46,6 +46,7 @@ export type Issue = {
   dueDate?: string; // YYYY-MM-DD
   estimateMinutes?: number;
   parentIssueId?: string | null;
+  propertyValues?: Record<string, string>;
   archivedAt?: Timestamp | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;

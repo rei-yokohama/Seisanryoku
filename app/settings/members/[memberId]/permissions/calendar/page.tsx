@@ -104,11 +104,6 @@ export default function CalendarPermissionsPage() {
             const compData = compSnap.data() as Company;
             const ownerFlag = compData.ownerUid === u.uid;
             setIsOwner(ownerFlag);
-            if (!ownerFlag) {
-              setError("この操作はオーナーのみ可能です");
-              setLoading(false);
-              return;
-            }
           }
         }
 
@@ -183,28 +178,29 @@ export default function CalendarPermissionsPage() {
     <AppShell
       title="カレンダー権限"
       subtitle={employee?.name || "メンバー"}
-      headerRight={
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/settings/members/${memberId}/edit`}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
-            ← 戻る
-          </Link>
-          <button
-            onClick={handleSave}
-            disabled={saving || !isOwner}
-            className={clsx(
-              "rounded-lg px-4 py-2 text-sm font-extrabold text-white transition",
-              saving || !isOwner ? "bg-orange-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700"
-            )}
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
-        </div>
-      }
     >
       <div className="mx-auto w-full max-w-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-extrabold text-slate-900">カレンダー権限</h1>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/settings/members/${memberId}/edit`}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              ← 戻る
+            </Link>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className={clsx(
+                "rounded-lg px-4 py-2 text-sm font-extrabold text-white transition",
+                saving ? "bg-orange-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700"
+              )}
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
+          </div>
+        </div>
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
             {error}
@@ -237,17 +233,15 @@ export default function CalendarPermissionsPage() {
                   key={key}
                   className={clsx(
                     "flex items-start gap-3 rounded-lg border p-4 transition cursor-pointer",
-                    calendarPermissions[key] ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white hover:bg-slate-50",
-                    !isOwner && "cursor-not-allowed opacity-60"
+                    calendarPermissions[key] ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white hover:bg-slate-50"
                   )}
                 >
                   <input
                     type="checkbox"
                     checked={calendarPermissions[key]}
                     onChange={(e) =>
-                      isOwner && setCalendarPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
+                      setCalendarPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
                     }
-                    disabled={!isOwner}
                     className="mt-1 h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                   />
                   <div className="flex-1">

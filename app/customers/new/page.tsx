@@ -229,7 +229,9 @@ export default function CustomerNewPage() {
     <AppShell
       title="顧客追加"
       subtitle="新しい顧客情報を入力"
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div />
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowPreview((v) => !v)}
@@ -248,8 +250,7 @@ export default function CustomerNewPage() {
             {saving ? "追加中..." : "追加"}
           </button>
         </div>
-      }
-    >
+      </div>
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           {error}

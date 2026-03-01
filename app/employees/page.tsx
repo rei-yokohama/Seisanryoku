@@ -312,31 +312,31 @@ export default function EmployeesPage() {
     <AppShell
       title="社員"
       subtitle="Employees"
-      headerRight={
-        <Link href="/calendar" className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 hover:bg-orange-50">
-          カレンダー
-        </Link>
-      }
     >
       <div className="mx-auto max-w-7xl">
         {/* Header Section */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-orange-950">👥 社員管理</h1>
+            <h1 className="text-3xl font-bold text-orange-950">社員管理</h1>
             <p className="text-orange-700">
-              {profile?.companyCode 
-                ? `会社コード: ${profile.companyCode}` 
+              {profile?.companyCode
+                ? `会社コード: ${profile.companyCode}`
                 : "社員の追加・編集・削除ができます"}
             </p>
           </div>
-          {!showForm && (
-            <button
-              onClick={() => setShowForm(true)}
-              className="rounded-lg bg-gradient-to-r from-orange-400 to-orange-500 px-6 py-3 font-bold text-orange-950 shadow-lg transition hover:scale-105"
-            >
-              + 社員を追加
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            <Link href="/calendar" className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-bold text-orange-900 hover:bg-orange-50">
+              カレンダー
+            </Link>
+            {!showForm && (
+              <button
+                onClick={() => setShowForm(true)}
+                className="rounded-lg bg-gradient-to-r from-orange-400 to-orange-500 px-6 py-3 font-bold text-orange-950 shadow-lg transition hover:scale-105"
+              >
+                + 社員を追加
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Form */}

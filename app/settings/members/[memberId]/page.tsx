@@ -134,10 +134,7 @@ export default function MemberDetailPage() {
     return () => unsub();
   }, [router, memberId]);
 
-  const canEdit = useMemo(() => {
-    if (!user || !employee) return false;
-    return isOwner || employee.authUid === user.uid;
-  }, [employee, isOwner, user]);
+  const canEdit = true;
 
   if (loading) {
     return (
@@ -156,12 +153,13 @@ export default function MemberDetailPage() {
       <AppShell
         title="メンバー詳細"
         subtitle="見つかりません"
-        headerRight={
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-lg font-extrabold text-slate-900">メンバー詳細</h1>
           <Link href="/settings/members" className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
             ← 一覧に戻る
           </Link>
-        }
-      >
+        </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm font-bold text-slate-700">
           このメンバーは見つかりませんでした。
         </div>
@@ -175,24 +173,23 @@ export default function MemberDetailPage() {
     <AppShell
       title="メンバー詳細"
       subtitle={employee.name || employee.email}
-      headerRight={
-        <div className="flex items-center gap-2">
-          <Link href="/settings/members" className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
-            ← 一覧に戻る
-          </Link>
-          {canEdit ? (
-            <Link href={`/settings/members/${encodeURIComponent(employee.id)}/edit`} className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700">
-              編集
-            </Link>
-          ) : null}
-        </div>
-      }
     >
       {error ? (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
       ) : null}
 
       <div className="mx-auto w-full max-w-4xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-extrabold text-slate-900">メンバー詳細</h1>
+          <div className="flex items-center gap-2">
+            <Link href="/settings/members" className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+              ← 一覧に戻る
+            </Link>
+            <Link href={`/settings/members/${encodeURIComponent(employee.id)}/edit`} className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700">
+              編集
+            </Link>
+          </div>
+        </div>
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">

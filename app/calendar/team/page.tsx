@@ -372,23 +372,15 @@ export default function TeamCalendarPage() {
     return m;
   }, [deals]);
 
-  // 権限に基づいてフィルタされたエントリー
+  // 全ユーザーが全メンバーのカレンダーを閲覧可能
   const filteredEntries = useMemo(() => {
-    // 他メンバーのカレンダーを見れない場合、自分の予定のみ表示
-    if (!calendarPermissions.viewOthersCalendar && user) {
-      return entries.filter((e) => e.uid === user.uid || (e.guestUids || []).includes(user.uid));
-    }
     return entries;
-  }, [entries, calendarPermissions.viewOthersCalendar, user]);
+  }, [entries]);
 
-  // 権限に基づいてフィルタされた社員一覧（サイドバー用）
+  // 全ユーザーが全社員一覧を閲覧可能（サイドバー用）
   const filteredEmployees = useMemo(() => {
-    // 他メンバーのカレンダーを見れない場合、自分だけ表示
-    if (!calendarPermissions.viewOthersCalendar && user) {
-      return employees.filter((e) => e.authUid === user.uid);
-    }
     return employees;
-  }, [employees, calendarPermissions.viewOthersCalendar, user]);
+  }, [employees]);
 
   // 案件の担当者リストを取得（新旧フィールド互換）
   const getDealAssignees = (d: Deal): string[] => {
@@ -619,44 +611,13 @@ export default function TeamCalendarPage() {
             console.log("チームカレンダー: ownerUid:", companyData.ownerUid, "現在のuid:", u.uid);
             setCompanyOwnerUid(companyData.ownerUid || null);
 
-            // 権限チェック
-            const isOwner = companyData.ownerUid === u.uid;
-            if (isOwner) {
-              // オーナーは全権限
-              setCalendarPermissions({
-                viewOthersCalendar: true,
-                editOthersEvents: true,
-                createEvents: true,
-                deleteOthersEvents: true,
-              });
-            } else {
-              try {
-                const msSnap = await getDoc(doc(db, "workspaceMemberships", `${data.companyCode}_${u.uid}`));
-                if (msSnap.exists()) {
-                  const msData = msSnap.data() as any;
-                  const perms = msData.permissions || {};
-                  if (perms.calendar === false) {
-                    window.location.href = "/";
-                    return;
-                  }
-                  // カレンダー詳細権限を取得
-                  const cp = msData.calendarPermissions || {};
-                  setCalendarPermissions({
-                    viewOthersCalendar: cp.viewOthersCalendar ?? DEFAULT_CALENDAR_PERMISSIONS.viewOthersCalendar,
-                    editOthersEvents: cp.editOthersEvents ?? DEFAULT_CALENDAR_PERMISSIONS.editOthersEvents,
-                    createEvents: cp.createEvents ?? DEFAULT_CALENDAR_PERMISSIONS.createEvents,
-                    deleteOthersEvents: cp.deleteOthersEvents ?? DEFAULT_CALENDAR_PERMISSIONS.deleteOthersEvents,
-                  });
-                } else {
-                  // membershipがない場合はデフォルト権限を使用
-                  setCalendarPermissions(DEFAULT_CALENDAR_PERMISSIONS);
-                }
-              } catch (e) {
-                console.warn("permission check failed:", e);
-                // エラー時もデフォルト権限を使用
-                setCalendarPermissions(DEFAULT_CALENDAR_PERMISSIONS);
-              }
-            }
+            // 全ユーザーに全権限を付与
+            setCalendarPermissions({
+              viewOthersCalendar: true,
+              editOthersEvents: true,
+              createEvents: true,
+              deleteOthersEvents: true,
+            });
 
             // 個人カレンダーを廃止したため、チームカレンダーは全ユーザーが閲覧できるようにする
             const loadedEmployees = await loadEmployees(data.companyCode, u.uid);
@@ -736,10 +697,6 @@ export default function TeamCalendarPage() {
 
   const createEntry = async () => {
     if (!user) return;
-    if (!calendarPermissions.createEvents) {
-      alert("予定を作成する権限がありません");
-      return;
-    }
     if (!newCustomerId || !newDealId) {
       alert("顧客と案件は必ず選択してください");
       return;
@@ -882,12 +839,6 @@ export default function TeamCalendarPage() {
 
   const saveEntryEdit = async () => {
     if (!activeEntry) return;
-    // 他人の予定の編集権限チェック
-    const isOthersEntry = activeEntry.uid !== user?.uid;
-    if (isOthersEntry && !calendarPermissions.editOthersEvents) {
-      alert("他のメンバーの予定を編集する権限がありません");
-      return;
-    }
     const project = editProject.trim();
     if (!project) {
       alert("案件/作業名を入力してください");
@@ -952,12 +903,6 @@ export default function TeamCalendarPage() {
 
   const deleteEntry = async () => {
     if (!activeEntry) return;
-    // 他人の予定の削除権限チェック
-    const isOthersEntry = activeEntry.uid !== user?.uid;
-    if (isOthersEntry && !calendarPermissions.deleteOthersEvents) {
-      alert("他のメンバーの予定を削除する権限がありません");
-      return;
-    }
     if (activeEntry.repeat) {
       setRecurringDeleteOpen(true);
       return;
@@ -1060,12 +1005,6 @@ export default function TeamCalendarPage() {
   };
 
   const moveEntry = async (e: TimeEntry, nextStart: Date, nextEnd: Date) => {
-    // 他人の予定の編集権限チェック
-    const isOthersEntry = e.uid !== user?.uid;
-    if (isOthersEntry && !calendarPermissions.editOthersEvents) {
-      alert("他のメンバーの予定を編集する権限がありません");
-      return;
-    }
     const id = e.baseId || e.id;
     await updateDoc(doc(db, "timeEntries", id), {
       start: nextStart.toISOString(),
@@ -1988,7 +1927,7 @@ export default function TeamCalendarPage() {
   console.log("employees:", employees);
   console.log("showSidebar:", showSidebar);
 
-  const canCreateNewEntry = !!newCustomerId && !!newDealId && calendarPermissions.createEvents;
+  const canCreateNewEntry = !!newCustomerId && !!newDealId;
 
   return (
     <AppShell title="カレンダー" subtitle={getDateRangeText()} initialSidebarCollapsed>
@@ -2417,8 +2356,7 @@ export default function TeamCalendarPage() {
                 )}
               </div>
 
-              {calendarPermissions.viewOthersCalendar && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
                     <div className="text-[11px] font-bold text-slate-500">{newGuestUids.length} 人</div>
@@ -2464,7 +2402,6 @@ export default function TeamCalendarPage() {
                     ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
                   </div>
                 </div>
-              )}
             </div>
 
             </div>
@@ -2836,8 +2773,7 @@ export default function TeamCalendarPage() {
                       )}
                     </div>
 
-                    {calendarPermissions.viewOthersCalendar && (
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                         <div className="flex items-center justify-between">
                           <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
                           <div className="text-[11px] font-bold text-slate-500">
@@ -2885,7 +2821,6 @@ export default function TeamCalendarPage() {
                           ※ 現状はチーム内メンバー（ログインユーザー）のみ招待できます
                         </div>
                       </div>
-                    )}
                   </div>
 
                   <div className="mt-4 flex items-center justify-end gap-2">

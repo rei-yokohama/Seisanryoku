@@ -274,26 +274,6 @@ function DealsInner() {
         }
         setProfile(prof);
 
-        // 権限チェック
-        if (prof.companyCode) {
-          try {
-            const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-            const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-            if (!isOwner) {
-              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-              if (msSnap.exists()) {
-                const perms = (msSnap.data() as any).permissions || {};
-                if (perms.projects === false) {
-                  window.location.href = "/";
-                  return;
-                }
-              }
-            }
-          } catch (e) {
-            console.warn("permission check failed:", e);
-          }
-        }
-
         await loadAll(u, prof);
       } finally {
         setLoading(false);
@@ -549,16 +529,6 @@ function DealsInner() {
     <AppShell
       title="案件一覧"
       subtitle="Deals"
-      headerRight={
-        <div className="flex items-center gap-2">
-          <Link href="/customers" className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
-            ← 顧客一覧
-          </Link>
-          <Link href="/projects/new" className="rounded-md bg-orange-500 px-4 py-1.5 text-xs font-extrabold text-white hover:bg-orange-600 shadow-sm transition">
-            案件を追加
-          </Link>
-        </div>
-      }
     >
       <div className="px-0 py-1">
         {/* 検索条件（/issue と同じ雛形） */}
@@ -641,9 +611,15 @@ function DealsInner() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-3 text-sm font-bold text-slate-700">
-              <span>全 {filtered.length} 件</span>
-              <span className="text-xs text-slate-500">売上合計: ¥{formatYen(totalRevenue)}</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-slate-700">全 {filtered.length} 件</span>
+              <span className="text-xs font-bold text-slate-500">売上合計: ¥{formatYen(totalRevenue)}</span>
+              <Link href="/customers" className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                ← 顧客一覧
+              </Link>
+              <Link href="/projects/new" className="rounded-md bg-orange-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-orange-600 shadow-sm transition">
+                案件を追加
+              </Link>
             </div>
           </div>
 

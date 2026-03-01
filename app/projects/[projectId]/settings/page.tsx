@@ -232,11 +232,13 @@ export default function ProjectSettingsPage() {
   if (!user || !profile || !project) return null;
 
   return (
-    <AppShell 
+    <AppShell
       title={project.name}
       subtitle="案件設定"
       projectId={projectId}
-      headerRight={
+    >
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-xl font-extrabold text-slate-900">案件設定</h1>
         <button
           onClick={save}
           disabled={saving}
@@ -247,8 +249,7 @@ export default function ProjectSettingsPage() {
         >
           {saving ? "保存中..." : "保存"}
         </button>
-      }
-    >
+      </div>
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           {error}

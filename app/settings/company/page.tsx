@@ -105,16 +105,17 @@ export default function CompanySettingsPage() {
     <AppShell
       title="会社設定"
       subtitle="会社情報・会社コード"
-      headerRight={
-        <Link
-          href="/settings"
-          className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-        >
-          ← 設定トップ
-        </Link>
-      }
     >
       <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-extrabold text-slate-900">会社設定</h1>
+          <Link
+            href="/settings"
+            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            ← 設定トップ
+          </Link>
+        </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-6">
           <div className="mb-4 text-lg font-extrabold text-slate-900">会社情報</div>
 

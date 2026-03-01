@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, where, addDoc, Timestamp, deleteDoc, updateDoc } from "firebase/firestore";
 import Link from "next/link";
@@ -8,7 +8,9 @@ import { useRouter } from "next/navigation";
 import { auth, db } from "../../lib/firebase";
 import { ensureProfile } from "../../lib/ensureProfile";
 import type { Issue, Project } from "../../lib/backlog";
-import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../lib/backlog";
+import { ISSUE_PRIORITIES, ISSUE_STATUSES, formatLocalDate } from "../../lib/backlog";
+import { logActivity } from "../../lib/activity";
+import { ensureProperties, getCategoryValue, statusToLabel, statusToValue, statusColor } from "../../lib/properties";
 import { AppShell } from "../AppShell";
 import { useLocalStorageState } from "../../lib/useLocalStorageState";
 
@@ -35,11 +37,6 @@ function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function getCategoryFromIssue(i: Issue) {
-  // MVP: labelsの先頭をカテゴリ扱い
-  return i.labels && i.labels[0] ? String(i.labels[0]) : "";
-}
-
 // 納期超過チェック（今日を過ぎていて完了でない場合）
 function isOverdue(issue: Issue): boolean {
   if (!issue.dueDate || issue.status === "DONE") return false;
@@ -59,11 +56,13 @@ export default function IssueHomePage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [propertyCategories, setPropertyCategories] = useState<string[]>([]);
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>(ISSUE_STATUSES);
 
   // filters
   type IssueFilterState = {
     projectFilter: string;
-    statusFilter: "ALL" | "NOT_DONE" | Issue["status"];
+    statusFilter: string;
     assigneeFilter: string;
     priorityFilter: string;
     categoryFilter: string;
@@ -82,7 +81,7 @@ export default function IssueHomePage() {
   });
 
   const [projectFilter, setProjectFilter] = useState<string>("ALL");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "NOT_DONE" | Issue["status"]>("NOT_DONE");
+  const [statusFilter, setStatusFilter] = useState<string>("NOT_DONE");
   const [assigneeFilter, setAssigneeFilter] = useState<string>(""); // authUid
   const [priorityFilter, setPriorityFilter] = useState<string>(""); // IssuePriority
   const [categoryFilter, setCategoryFilter] = useState<string>("");
@@ -105,7 +104,22 @@ export default function IssueHomePage() {
   const [deleting, setDeleting] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
+  // 表示モード
+  type ViewMode = "list" | "kanban" | "gantt";
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+
+  // 看板用ドラッグ&ドロップ
+  const [draggingIssueId, setDraggingIssueId] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<Issue["status"] | null>(null);
+  const todayStr = useMemo(() => formatLocalDate(new Date()), []);
+
   const router = useRouter();
+
+  // viewMode復元
+  useEffect(() => {
+    const saved = localStorage.getItem("issueViewMode");
+    if (saved === "kanban" || saved === "gantt") setViewMode(saved);
+  }, []);
 
   // localStorage -> state (初回のみ)
   useEffect(() => {
@@ -165,26 +179,6 @@ export default function IssueHomePage() {
         return;
       }
       setProfile(prof);
-
-      // 権限チェック
-      if (prof.companyCode) {
-        try {
-          const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
-          const isOwner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
-          if (!isOwner) {
-            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
-            if (msSnap.exists()) {
-              const perms = (msSnap.data() as any).permissions || {};
-              if (perms.issues === false) {
-                window.location.href = "/";
-                return;
-              }
-            }
-          }
-        } catch (e) {
-          console.warn("permission check failed:", e);
-        }
-      }
 
       try {
         // deals (案件) を取得: /projects に表示される案件一覧
@@ -249,6 +243,17 @@ export default function IssueHomePage() {
         const issItems = Array.from(issById.values()).sort((a, b) => (b.updatedAt as any)?.toMillis?.() - (a.updatedAt as any)?.toMillis?.());
         setIssues(issItems);
 
+        // プロパティからカテゴリ・ステータス選択肢を取得
+        if (prof.companyCode) {
+          const props = await ensureProperties(prof.companyCode);
+          const catProp = props.find((p) => p.key === "category");
+          if (catProp) setPropertyCategories(catProp.options);
+          const statusProp = props.find((p) => p.key === "issueStatus");
+          if (statusProp) {
+            setStatusOptions(statusProp.options.map((label) => ({ value: statusToValue(label), label })));
+          }
+        }
+
         // 納期超過の課題がある場合、担当者にのみ警告通知を送る
         const overdueIssues = issItems.filter(
           (issue) => issue.assigneeUid === u.uid && isOverdue(issue)
@@ -298,13 +303,13 @@ export default function IssueHomePage() {
   };
 
   const categories = useMemo(() => {
-    const set = new Set<string>();
+    const set = new Set<string>(propertyCategories);
     for (const i of issues) {
-      const c = getCategoryFromIssue(i);
+      const c = getCategoryValue(i);
       if (c) set.add(c);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [issues]);
+  }, [issues, propertyCategories]);
 
   // 担当者選択の切り替え
   const toggleAssignee = (uid: string) => {
@@ -341,7 +346,7 @@ export default function IssueHomePage() {
       // 担当者別ショートカットフィルタ
       if (selectedAssignees.length > 0 && !selectedAssignees.includes(i.assigneeUid || "")) return false;
       if (priorityFilter && i.priority !== priorityFilter) return false;
-      if (categoryFilter && getCategoryFromIssue(i) !== categoryFilter) return false;
+      if (categoryFilter && getCategoryValue(i) !== categoryFilter) return false;
       if (k) {
         const p = projectsById[i.projectId];
         const cust = i.customerId ? customersById[i.customerId] : undefined;
@@ -459,6 +464,74 @@ export default function IssueHomePage() {
     }
   };
 
+  // ── 看板ビュー: ドラッグ&ドロップ ──
+  const onDropToStatus = useCallback(async (status: Issue["status"]) => {
+    if (!user || !profile || !draggingIssueId) return;
+    const issue = issues.find(i => i.id === draggingIssueId);
+    if (!issue || issue.status === status) {
+      setDraggingIssueId(null);
+      setDragOver(null);
+      return;
+    }
+    setIssues(prev => prev.map(i => (i.id === draggingIssueId ? { ...i, status } : i)));
+    try {
+      await updateDoc(doc(db, "issues", draggingIssueId), { status, updatedAt: Timestamp.now() });
+      await logActivity({
+        companyCode: profile.companyCode,
+        actorUid: user.uid,
+        type: "ISSUE_UPDATED",
+        projectId: issue.projectId,
+        issueId: draggingIssueId,
+        entityId: draggingIssueId,
+        message: `状態変更: ${issue.issueKey} → ${statusOptions.find(s => s.value === status)?.label || statusToLabel(status)}`,
+        link: `/issue/${draggingIssueId}`,
+      });
+    } catch {
+      setIssues(prev => prev.map(i => (i.id === draggingIssueId ? { ...i, status: issue.status } : i)));
+    } finally {
+      setDraggingIssueId(null);
+      setDragOver(null);
+    }
+  }, [user, profile, draggingIssueId, issues, statusOptions]);
+
+  const kanbanLanes = useMemo(() => {
+    const lanes = statusOptions.map(opt => ({
+      ...opt,
+      items: filtered.filter(i => i.status === opt.value),
+    }));
+    return {
+      lanes,
+      overdue: filtered.filter(i => !!i.dueDate && String(i.dueDate) < todayStr && i.status !== "DONE"),
+    };
+  }, [filtered, todayStr, statusOptions]);
+
+  // ── ガントチャート: タイムライン計算 ──
+  const ganttData = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const issuesWithDates = filtered.filter(i => i.startDate || i.dueDate);
+    const allDates = issuesWithDates
+      .flatMap(i => [i.startDate, i.dueDate].filter(Boolean) as string[])
+      .map(d => new Date(d).getTime());
+    const minTs = allDates.length > 0 ? Math.min(...allDates, today.getTime()) : today.getTime();
+    const maxTs = allDates.length > 0 ? Math.max(...allDates, today.getTime() + 21 * 86400000) : today.getTime() + 28 * 86400000;
+    const rangeStart = new Date(minTs);
+    rangeStart.setDate(rangeStart.getDate() - 3);
+    rangeStart.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(maxTs);
+    rangeEnd.setDate(rangeEnd.getDate() + 7);
+    rangeEnd.setHours(0, 0, 0, 0);
+    const days: Date[] = [];
+    const d = new Date(rangeStart);
+    while (d <= rangeEnd) { days.push(new Date(d)); d.setDate(d.getDate() + 1); }
+    return { days, rangeStart, today };
+  }, [filtered]);
+
+  const switchView = useCallback((v: ViewMode) => {
+    setViewMode(v);
+    localStorage.setItem("issueViewMode", v);
+  }, []);
+
   if (loading) {
     return (
       <AppShell title="課題" subtitle="読み込み中...">
@@ -475,57 +548,6 @@ export default function IssueHomePage() {
     <AppShell
       title="課題"
       subtitle="全体の課題一覧"
-      headerRight={
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleEditModeToggle}
-            className={clsx(
-              "rounded-lg px-4 py-2 text-sm font-semibold transition",
-              editMode
-                ? "bg-slate-200 text-slate-700 hover:bg-slate-300"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            )}
-          >
-            {editMode ? "完了" : "編集"}
-          </button>
-          {editMode && selectedIssueIds.size > 0 && (
-            <>
-              <select
-                onChange={(e) => {
-                  const status = e.target.value as Issue["status"];
-                  if (status && confirm(`選択した ${selectedIssueIds.size} 件の課題のステータスを「${ISSUE_STATUSES.find((s) => s.value === status)?.label || status}」に変更しますか？`)) {
-                    handleBulkStatusChange(status);
-                  }
-                  e.target.value = "";
-                }}
-                disabled={updatingStatus}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-50"
-                defaultValue=""
-              >
-                <option value="" disabled>ステータス変更</option>
-                {ISSUE_STATUSES.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}に変更
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handleBulkDelete}
-                disabled={deleting || updatingStatus}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition disabled:opacity-50"
-              >
-                {deleting ? "削除中..." : `削除 (${selectedIssueIds.size})`}
-              </button>
-            </>
-          )}
-          <Link
-            href={projectFilter !== "ALL" ? `/issue/new?projectId=${encodeURIComponent(projectFilter)}` : "/issue/new"}
-            className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 transition"
-          >
-            ＋ 課題作成
-          </Link>
-        </div>
-      }
     >
       <div className="px-0 py-1">
         <div className="rounded-lg border border-slate-200 bg-white p-4">
@@ -609,6 +631,53 @@ export default function IssueHomePage() {
             </div>
             <div className="flex items-center gap-2">
               <button className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700">検索条件を保存</button>
+              <button
+                onClick={handleEditModeToggle}
+                className={clsx(
+                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition",
+                  editMode
+                    ? "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                )}
+              >
+                {editMode ? "完了" : "編集"}
+              </button>
+              {editMode && selectedIssueIds.size > 0 && (
+                <>
+                  <select
+                    onChange={(e) => {
+                      const status = e.target.value as Issue["status"];
+                      if (status && confirm(`選択した ${selectedIssueIds.size} 件の課題のステータスを「${statusOptions.find((s) => s.value === status)?.label || statusToLabel(status)}」に変更しますか？`)) {
+                        handleBulkStatusChange(status);
+                      }
+                      e.target.value = "";
+                    }}
+                    disabled={updatingStatus}
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-extrabold text-slate-700 hover:bg-slate-50 transition disabled:opacity-50"
+                    defaultValue=""
+                  >
+                    <option value="" disabled>ステータス変更</option>
+                    {statusOptions.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.label}に変更
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={handleBulkDelete}
+                    disabled={deleting || updatingStatus}
+                    className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-red-700 transition disabled:opacity-50"
+                  >
+                    {deleting ? "削除中..." : `削除 (${selectedIssueIds.size})`}
+                  </button>
+                </>
+              )}
+              <Link
+                href={projectFilter !== "ALL" ? `/issue/new?projectId=${encodeURIComponent(projectFilter)}` : "/issue/new"}
+                className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-orange-700 transition"
+              >
+                ＋ 課題作成
+              </Link>
             </div>
           </div>
 
@@ -621,7 +690,7 @@ export default function IssueHomePage() {
                 >
                   すべて
                 </button>
-                {ISSUE_STATUSES.map((s) => (
+                {statusOptions.map((s) => (
                   <button
                     key={s.value}
                     onClick={() => setStatusFilter(s.value)}
@@ -729,194 +798,501 @@ export default function IssueHomePage() {
           )}
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm font-bold text-slate-700">
-            全 {total} 件中 {total === 0 ? 0 : pageStart + 1} 〜 {Math.min(total, pageStart + pageSize)} 件を表示
+        {/* ── ビュー切替 ── */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+            {([
+              { key: "list" as const, label: "リスト", icon: <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z"/></svg> },
+              { key: "kanban" as const, label: "看板", icon: <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z"/></svg> },
+              { key: "gantt" as const, label: "ガント", icon: <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4.5h14.25M3 9h9.75M3 13.5h5.25m5.25-.75L17.25 9m0 0L21 12.75M17.25 9v12"/></svg> },
+            ]).map(v => (
+              <button
+                key={v.key}
+                onClick={() => switchView(v.key)}
+                className={clsx(
+                  "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-bold transition-all",
+                  viewMode === v.key
+                    ? "bg-white text-orange-700 shadow-sm"
+                    : "text-slate-500 hover:text-slate-700",
+                )}
+              >
+                {v.icon}
+                <span className="hidden sm:inline">{v.label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="text-sm font-bold text-slate-500">
+            {total} 件
           </div>
         </div>
 
-        <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="overflow-x-auto">
-            <table className="min-w-[1000px] w-full text-sm">
-              <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
-                <tr>
-                  {editMode && (
-                    <th className="px-4 py-3 text-left whitespace-nowrap w-12">
-                      <input
-                        type="checkbox"
-                        checked={pageItems.length > 0 && selectedIssueIds.size === pageItems.length}
-                        onChange={toggleSelectAll}
-                        className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                        title="すべて選択/解除"
-                      />
-                    </th>
-                  )}
-                  <th className="px-4 py-3 text-left whitespace-nowrap">件名</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">案件</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">顧客</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">担当</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">状態</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">カテゴリ</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">優先度</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">期限日</th>
-                  <th className="px-4 py-3 text-left whitespace-nowrap">共有</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {pageItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
-                      該当する課題がありません
-                    </td>
-                  </tr>
-                ) : (
-                  pageItems.map((i) => {
-                    const p = projectsById[i.projectId];
-                    const cust = i.customerId ? customersById[i.customerId] : undefined;
-                    const st = ISSUE_STATUSES.find((s) => s.value === i.status)?.label || i.status;
-                    const pr = ISSUE_PRIORITIES.find((pp) => pp.value === i.priority)?.label || i.priority;
-                    const cat = getCategoryFromIssue(i);
-                    const href = `/issue/${encodeURIComponent(i.id)}`;
-                    const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/share/issues/${i.id}`;
-                    
-                    const copyShareUrl = () => {
-                      navigator.clipboard.writeText(shareUrl);
-                      alert('共有URLをコピーしました！');
-                    };
+        {/* ═══ リストビュー ═══ */}
+        {viewMode === "list" && (
+          <>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm font-bold text-slate-700">
+                全 {total} 件中 {total === 0 ? 0 : pageStart + 1} 〜 {Math.min(total, pageStart + pageSize)} 件を表示
+              </div>
+            </div>
 
-                    const assignee = assigneeName(i.assigneeUid);
-                    const overdue = isOverdue(i);
-
-                    const isSelected = selectedIssueIds.has(i.id);
-                    return (
-                      <tr key={i.id} className={clsx("hover:bg-slate-50", overdue && "bg-red-50", editMode && isSelected && "bg-orange-50")}>
-                        {editMode && (
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleIssueSelection(i.id)}
-                              className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                            />
-                          </td>
-                        )}
-                        <td className="px-4 py-3 font-bold whitespace-nowrap">
-                          <Link href={href} className={clsx("hover:underline block max-w-[200px] truncate", overdue ? "text-red-700" : "text-slate-900")} title={i.title}>
-                            {overdue && <span className="mr-1">⚠️</span>}
-                            {i.title}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 text-slate-800 font-bold whitespace-nowrap">
-                          {p ? (
-                            <Link href={`/projects/${p.id}/issues`} className="hover:underline block max-w-[120px] truncate" title={p.name}>
-                              {p.name}
-                            </Link>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-800 font-bold whitespace-nowrap">
-                          {cust ? (
-                            <Link href={`/customers/${encodeURIComponent(cust.id)}`} className="hover:underline block max-w-[100px] truncate" title={cust.name}>
-                              {cust.name}
-                            </Link>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
-                          {assignee ? (
-                            <div className="flex items-center gap-2">
-                              <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-orange-100 text-xs font-extrabold text-orange-700">
-                                {assignee.charAt(0).toUpperCase()}
-                              </div>
-                              <span className="font-bold max-w-[80px] truncate" title={assignee}>{assignee}</span>
-                            </div>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span
-                            className={clsx(
-                              "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
-                              i.status === "DONE"
-                                ? "bg-orange-100 text-orange-700"
-                                : i.status === "IN_PROGRESS"
-                                  ? "bg-sky-100 text-sky-700"
-                                  : "bg-rose-100 text-rose-700",
-                            )}
-                          >
-                            {st}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{cat || "-"}</td>
-                        <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{pr}</td>
-                        <td className={clsx("px-4 py-3 whitespace-nowrap font-bold", overdue ? "text-red-600" : "text-slate-700")}>
-                          {i.dueDate ? (
-                            <span className={overdue ? "flex items-center gap-1" : ""}>
-                              {overdue && <span className="text-red-500">●</span>}
-                              {i.dueDate}
-                            </span>
-                          ) : "-"}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <button
-                            onClick={copyShareUrl}
-                            className="rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"
-                          >
-                            🔗
-                          </button>
+            <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="overflow-x-auto">
+                <table className="min-w-[1000px] w-full text-sm">
+                  <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
+                    <tr>
+                      {editMode && (
+                        <th className="px-4 py-3 text-left whitespace-nowrap w-12">
+                          <input
+                            type="checkbox"
+                            checked={pageItems.length > 0 && selectedIssueIds.size === pageItems.length}
+                            onChange={toggleSelectAll}
+                            className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                            title="すべて選択/解除"
+                          />
+                        </th>
+                      )}
+                      <th className="px-4 py-3 text-left whitespace-nowrap">件名</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">案件</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">顧客</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">担当</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">状態</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">優先度</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">期限日</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">更新日</th>
+                      <th className="px-4 py-3 text-left whitespace-nowrap">共有</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {pageItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                          該当する課題がありません
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    ) : (
+                      pageItems.map((i) => {
+                        const p = projectsById[i.projectId];
+                        const cust = i.customerId ? customersById[i.customerId] : undefined;
+                        const st = statusToLabel(i.status);
+                        const pr = ISSUE_PRIORITIES.find((pp) => pp.value === i.priority)?.label || i.priority;
+                        const cat = getCategoryValue(i);
+                        const href = `/issue/${encodeURIComponent(i.id)}`;
+                        const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/share/issues/${i.id}`;
 
-        <div className="mt-4 flex items-center justify-between">
-          <button
-            disabled={pageSafe <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className={clsx(
-              "rounded-md border px-3 py-2 text-xs font-extrabold",
-              pageSafe <= 1 ? "border-slate-200 text-slate-400" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-            )}
-          >
-            前へ
-          </button>
-          <div className="flex items-center gap-2">
-            {Array.from({ length: Math.min(9, totalPages) }).map((_, idx) => {
-              const n = idx + 1;
-              return (
-                <button
-                  key={n}
-                  onClick={() => setPage(n)}
+                        const copyShareUrl = () => {
+                          navigator.clipboard.writeText(shareUrl);
+                          alert('共有URLをコピーしました！');
+                        };
+
+                        const assignee = assigneeName(i.assigneeUid);
+                        const overdue = isOverdue(i);
+
+                        const isSelected = selectedIssueIds.has(i.id);
+                        return (
+                          <tr key={i.id} className={clsx("hover:bg-slate-50", overdue && "bg-red-50", editMode && isSelected && "bg-orange-50")}>
+                            {editMode && (
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleIssueSelection(i.id)}
+                                  className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                                />
+                              </td>
+                            )}
+                            <td className="px-4 py-3 font-bold whitespace-nowrap">
+                              <Link href={href} className={clsx("hover:underline block max-w-[200px] truncate", overdue ? "text-red-700" : "text-slate-900")} title={i.title}>
+                                {overdue && <span className="mr-1">⚠️</span>}
+                                {i.title}
+                              </Link>
+                            </td>
+                            <td className="px-4 py-3 text-slate-800 font-bold whitespace-nowrap">
+                              {p ? (
+                                <Link href={`/projects/${p.id}/issues`} className="hover:underline block max-w-[120px] truncate" title={p.name}>
+                                  {p.name}
+                                </Link>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-800 font-bold whitespace-nowrap">
+                              {cust ? (
+                                <Link href={`/customers/${encodeURIComponent(cust.id)}`} className="hover:underline block max-w-[100px] truncate" title={cust.name}>
+                                  {cust.name}
+                                </Link>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-700 whitespace-nowrap">
+                              {assignee ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-orange-100 text-xs font-extrabold text-orange-700">
+                                    {assignee.charAt(0).toUpperCase()}
+                                  </div>
+                                  <span className="font-bold max-w-[80px] truncate" title={assignee}>{assignee}</span>
+                                </div>
+                              ) : (
+                                "-"
+                              )}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <span
+                                className={clsx(
+                                  "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
+                                  statusColor(i.status),
+                                )}
+                              >
+                                {st}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{pr}</td>
+                            <td className={clsx("px-4 py-3 whitespace-nowrap font-bold", overdue ? "text-red-600" : "text-slate-700")}>
+                              {i.dueDate ? (
+                                <span className={overdue ? "flex items-center gap-1" : ""}>
+                                  {overdue && <span className="text-red-500">●</span>}
+                                  {i.dueDate}
+                                </span>
+                              ) : "-"}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">
+                              {i.updatedAt && typeof (i.updatedAt as any).toDate === "function"
+                                ? formatLocalDate((i.updatedAt as any).toDate())
+                                : "-"}
+                            </td>
+                            <td className="px-4 py-3 whitespace-nowrap">
+                              <button
+                                onClick={copyShareUrl}
+                                className="rounded-md bg-orange-50 px-2 py-1 text-xs font-bold text-orange-700 hover:bg-orange-100"
+                              >
+                                🔗
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                disabled={pageSafe <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className={clsx(
+                  "rounded-md border px-3 py-2 text-xs font-extrabold",
+                  pageSafe <= 1 ? "border-slate-200 text-slate-400" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                )}
+              >
+                前へ
+              </button>
+              <div className="flex items-center gap-2">
+                {Array.from({ length: Math.min(9, totalPages) }).map((_, idx) => {
+                  const n = idx + 1;
+                  return (
+                    <button
+                      key={n}
+                      onClick={() => setPage(n)}
+                      className={clsx(
+                        "h-8 w-8 rounded-full text-xs font-extrabold",
+                        n === pageSafe ? "bg-orange-600 text-white" : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50",
+                      )}
+                    >
+                      {n}
+                    </button>
+                  );
+                })}
+                {totalPages > 9 ? <span className="text-xs font-bold text-slate-500">…</span> : null}
+              </div>
+              <button
+                disabled={pageSafe >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className={clsx(
+                  "rounded-md border px-3 py-2 text-xs font-extrabold",
+                  pageSafe >= totalPages ? "border-slate-200 text-slate-400" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                )}
+              >
+                次へ
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ═══ 看板ビュー ═══ */}
+        {viewMode === "kanban" && (
+          <div className="mt-4">
+            <div className="flex gap-4 overflow-x-auto pb-4">
+              {kanbanLanes.lanes.map(lane => {
+                const laneColor = (value: string) => {
+                  if (value === "DONE") return "bg-orange-500";
+                  if (value === "IN_PROGRESS") return "bg-sky-500";
+                  if (value === "TODO") return "bg-rose-500";
+                  return "bg-slate-500";
+                };
+                return (
+                <div
+                  key={lane.value}
                   className={clsx(
-                    "h-8 w-8 rounded-full text-xs font-extrabold",
-                    n === pageSafe ? "bg-orange-600 text-white" : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50",
+                    "min-w-[280px] flex-1 rounded-lg border border-slate-200 bg-slate-50/40 transition-shadow",
+                    dragOver === lane.value && "ring-2 ring-orange-300 shadow-md",
                   )}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(lane.value as Issue["status"]); }}
+                  onDragLeave={() => setDragOver(null)}
+                  onDrop={(e) => { e.preventDefault(); void onDropToStatus(lane.value as Issue["status"]); }}
                 >
-                  {n}
-                </button>
-              );
-            })}
-            {totalPages > 9 ? <span className="text-xs font-bold text-slate-500">…</span> : null}
+                  <div className="flex items-center justify-between border-b border-slate-200 bg-white px-3 py-2 rounded-t-lg">
+                    <div className="flex items-center gap-2">
+                      <span className={clsx("h-2.5 w-2.5 rounded-full", laneColor(lane.value))} />
+                      <span className="text-sm font-extrabold text-slate-900">{lane.label}</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-extrabold text-slate-600">{lane.items.length}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2 p-3">
+                    {lane.items.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-white/60 px-3 py-4 text-center text-xs font-bold text-slate-400">
+                        課題なし
+                      </div>
+                    )}
+                    {lane.items.map(issue => {
+                      const p = projectsById[issue.projectId];
+                      const who = assigneeName(issue.assigneeUid);
+                      const overdue = !!issue.dueDate && issue.dueDate < todayStr && issue.status !== "DONE";
+                      return (
+                        <Link
+                          key={issue.id}
+                          href={`/issue/${issue.id}`}
+                          draggable
+                          onDragStart={() => setDraggingIssueId(issue.id)}
+                          onDragEnd={() => { setDraggingIssueId(null); setDragOver(null); }}
+                          className={clsx(
+                            "block rounded-lg border bg-white p-3 shadow-sm transition-all",
+                            draggingIssueId === issue.id
+                              ? "border-orange-300 opacity-60 scale-[0.98]"
+                              : "border-slate-200 hover:border-slate-300 hover:shadow",
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className={clsx(
+                              "rounded-full px-2 py-0.5 text-[10px] font-extrabold",
+                              issue.priority === "URGENT" ? "bg-red-100 text-red-700"
+                                : issue.priority === "HIGH" ? "bg-orange-100 text-orange-700"
+                                : issue.priority === "MEDIUM" ? "bg-sky-100 text-sky-700"
+                                : "bg-slate-100 text-slate-600",
+                            )}>
+                              {ISSUE_PRIORITIES.find(pp => pp.value === issue.priority)?.label}
+                            </span>
+                            {p && <span className="text-[10px] font-bold text-slate-400 truncate">{p.key}</span>}
+                          </div>
+                          <div className="text-sm font-bold text-slate-900 line-clamp-2">{issue.title}</div>
+                          <div className="mt-2 flex items-center justify-between text-[11px]">
+                            <span className="font-bold text-slate-500 truncate max-w-[120px]">{who || "未割当"}</span>
+                            {issue.dueDate && (
+                              <span className={clsx("font-bold", overdue ? "text-red-600" : "text-slate-400")}>
+                                {overdue && "● "}{issue.dueDate.slice(5)}
+                              </span>
+                            )}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+                );
+              })}
+
+              {/* 納期遅れレーン */}
+              {kanbanLanes.overdue.length > 0 && (
+                <div className="min-w-[280px] flex-1 rounded-lg border border-red-200 bg-red-50/30">
+                  <div className="flex items-center gap-2 border-b border-red-200 bg-white px-3 py-2 rounded-t-lg">
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-600" />
+                    <span className="text-sm font-extrabold text-red-700">納期遅れ</span>
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-extrabold text-red-600">{kanbanLanes.overdue.length}</span>
+                  </div>
+                  <div className="space-y-2 p-3">
+                    {kanbanLanes.overdue.map(issue => {
+                      const p = projectsById[issue.projectId];
+                      const who = assigneeName(issue.assigneeUid);
+                      return (
+                        <Link
+                          key={issue.id}
+                          href={`/issue/${issue.id}`}
+                          className="block rounded-lg border border-red-200 bg-white p-3 shadow-sm hover:shadow transition-shadow"
+                        >
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-extrabold text-red-700">
+                              {ISSUE_PRIORITIES.find(pp => pp.value === issue.priority)?.label}
+                            </span>
+                            {p && <span className="text-[10px] font-bold text-slate-400 truncate">{p.key}</span>}
+                          </div>
+                          <div className="text-sm font-bold text-red-800 line-clamp-2">{issue.title}</div>
+                          <div className="mt-2 flex items-center justify-between text-[11px]">
+                            <span className="font-bold text-slate-500 truncate max-w-[120px]">{who || "未割当"}</span>
+                            <span className="font-bold text-red-600">{issue.dueDate?.slice(5)}</span>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-1 text-xs font-bold text-slate-400">
+              ドラッグ&ドロップでステータスを変更
+            </div>
           </div>
-          <button
-            disabled={pageSafe >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            className={clsx(
-              "rounded-md border px-3 py-2 text-xs font-extrabold",
-              pageSafe >= totalPages ? "border-slate-200 text-slate-400" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
-            )}
-          >
-            次へ
-          </button>
-        </div>
+        )}
+
+        {/* ═══ ガントチャートビュー ═══ */}
+        {viewMode === "gantt" && (() => {
+          const { days, rangeStart, today } = ganttData;
+          const dayW = 32;
+          const leftW = 260;
+          const totalW = days.length * dayW;
+
+          const dateToX = (ds: string) => {
+            const dt = new Date(ds);
+            dt.setHours(0, 0, 0, 0);
+            return ((dt.getTime() - rangeStart.getTime()) / 86400000) * dayW;
+          };
+          const todayX = ((today.getTime() - rangeStart.getTime()) / 86400000) * dayW;
+
+          // 月ヘッダーを生成
+          const months: { label: string; span: number }[] = [];
+          let curMonth = "";
+          for (const d of days) {
+            const m = `${d.getFullYear()}/${d.getMonth() + 1}`;
+            if (m !== curMonth) {
+              months.push({ label: m, span: 1 });
+              curMonth = m;
+            } else {
+              months[months.length - 1].span++;
+            }
+          }
+
+          const issuesForGantt = filtered;
+
+          return (
+            <div className="mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="overflow-x-auto">
+                <div style={{ minWidth: leftW + totalW }}>
+                  {/* ── ヘッダー ── */}
+                  <div className="sticky top-0 z-10 bg-white border-b border-slate-200">
+                    {/* 月行 */}
+                    <div className="flex">
+                      <div className="flex-shrink-0 border-r border-slate-200 bg-slate-50" style={{ width: leftW }} />
+                      <div className="flex">
+                        {months.map((m, idx) => (
+                          <div
+                            key={idx}
+                            className="border-r border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-extrabold text-slate-700"
+                            style={{ width: m.span * dayW }}
+                          >
+                            {m.label}月
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {/* 日行 */}
+                    <div className="flex">
+                      <div className="flex-shrink-0 border-r border-slate-200 bg-slate-50 px-3 py-1.5" style={{ width: leftW }}>
+                        <span className="text-[11px] font-extrabold text-slate-600">課題名</span>
+                      </div>
+                      <div className="flex">
+                        {days.map((d, idx) => {
+                          const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                          const isToday = d.toDateString() === today.toDateString();
+                          return (
+                            <div
+                              key={idx}
+                              className={clsx(
+                                "flex-shrink-0 border-r border-slate-100 py-1.5 text-center text-[10px] font-bold",
+                                isToday ? "bg-orange-50 text-orange-700" : isWeekend ? "bg-slate-50/60 text-slate-400" : "text-slate-500",
+                              )}
+                              style={{ width: dayW }}
+                            >
+                              {d.getDate()}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── 課題行 ── */}
+                  {issuesForGantt.length === 0 ? (
+                    <div className="px-4 py-10 text-center text-sm font-bold text-slate-400">
+                      該当する課題がありません
+                    </div>
+                  ) : (
+                    issuesForGantt.map(issue => {
+                      const p = projectsById[issue.projectId];
+                      const who = assigneeName(issue.assigneeUid);
+                      const hasRange = issue.startDate || issue.dueDate;
+                      const barStart = issue.startDate ? dateToX(issue.startDate) : issue.dueDate ? dateToX(issue.dueDate) : 0;
+                      const barEnd = issue.dueDate ? dateToX(issue.dueDate) + dayW : issue.startDate ? dateToX(issue.startDate) + dayW : 0;
+                      const barW = Math.max(barEnd - barStart, dayW);
+                      const overdue = !!issue.dueDate && issue.dueDate < todayStr && issue.status !== "DONE";
+
+                      return (
+                        <div key={issue.id} className="flex border-b border-slate-50 hover:bg-slate-50/50 group">
+                          {/* 左: 課題情報 */}
+                          <div className="sticky left-0 z-[5] flex-shrink-0 bg-white border-r border-slate-200 px-3 py-2 group-hover:bg-slate-50/50" style={{ width: leftW }}>
+                            <Link href={`/issue/${issue.id}`} className={clsx("text-xs font-bold hover:text-orange-600 truncate block", overdue ? "text-red-700" : "text-slate-900")} title={issue.title}>
+                              {issue.title}
+                            </Link>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {p && <span className="text-[10px] font-bold text-slate-400">{p.key}</span>}
+                              <span className="text-[10px] text-slate-400 truncate">{who || "未割当"}</span>
+                              <span className={clsx(
+                                "rounded-full px-1.5 py-0 text-[9px] font-extrabold",
+                                statusColor(issue.status),
+                              )}>
+                                {statusToLabel(issue.status)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* 右: タイムライン */}
+                          <div className="relative" style={{ width: totalW, minHeight: 44 }}>
+                            {/* 今日マーカー */}
+                            <div
+                              className="absolute top-0 bottom-0 w-[2px] bg-orange-400/30 z-[1]"
+                              style={{ left: todayX + dayW / 2 }}
+                            />
+
+                            {hasRange ? (
+                              <div
+                                className={clsx(
+                                  "absolute top-2.5 h-5 rounded-full transition-all cursor-pointer",
+                                  issue.status === "DONE" ? "bg-emerald-400/80"
+                                    : overdue ? "bg-red-400/80"
+                                    : issue.status === "IN_PROGRESS" ? "bg-sky-400/80"
+                                    : "bg-orange-400/80",
+                                )}
+                                style={{ left: barStart, width: barW }}
+                                title={`${issue.startDate || "?"} → ${issue.dueDate || "?"}`}
+                              >
+                                <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white truncate px-1">
+                                  {barW > 60 ? issue.title.slice(0, 12) : ""}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="absolute top-3.5 left-2 text-[10px] font-bold text-slate-300">
+                                日付未設定
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </AppShell>
   );

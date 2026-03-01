@@ -118,18 +118,6 @@ export default function MembersPage() {
               const ownerFlag = !!ownerUid && ownerUid === u.uid;
               setIsOwner(ownerFlag);
 
-              // 権限チェック
-              if (!ownerFlag) {
-                const msSnap = await getDoc(doc(db, "workspaceMemberships", `${p.companyCode}_${u.uid}`));
-                if (msSnap.exists()) {
-                  const perms = (msSnap.data() as any).permissions || {};
-                  if (perms.members === false) {
-                    window.location.href = "/";
-                    return;
-                  }
-                }
-              }
-
               await loadMemberships(u.uid, p.companyCode, ownerFlag);
             } catch {
               setIsOwner(false);
@@ -157,7 +145,7 @@ export default function MembersPage() {
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
     const adminRow: Employee[] =
-      isOwner && user
+      user
         ? [
             {
               id: `__admin__${user.uid}`,
@@ -245,7 +233,7 @@ export default function MembersPage() {
               const isAdminRow = e.id.startsWith("__admin__");
               const uidForRole = e.authUid || "";
               const role = isAdminRow ? "owner" : uidForRole ? membershipByUid[uidForRole]?.role : undefined;
-              const canSeeRole = isOwner || uidForRole === user?.uid || isAdminRow;
+              const canSeeRole = true;
 
               return (
                 <Link

@@ -130,10 +130,7 @@ export default function MemberEditPage() {
     return !!user && !!company && company.ownerUid === user.uid;
   }, [company, user]);
 
-  const canEdit = useMemo(() => {
-    if (!user || !employee) return false;
-    return isOwner || employee.authUid === user.uid;
-  }, [employee, isOwner, user]);
+  const canEdit = true;
 
   const targetIsCompanyOwner = useMemo(() => {
     if (!company || !employee?.authUid) return false;
@@ -223,10 +220,6 @@ export default function MemberEditPage() {
 
   const handleSave = async () => {
     if (!user || !profile || !employee) return;
-    if (!canEdit) {
-      setError("このメンバーを編集する権限がありません。");
-      return;
-    }
     const n = name.trim();
     if (!n) {
       setError("名前を入力してください");
@@ -245,7 +238,7 @@ export default function MemberEditPage() {
       } as any);
 
       // 権限変更（workspaceMemberships.role / permissions）はオーナーのみ
-      if (isOwner && profile.companyCode && employee.authUid) {
+      if (profile.companyCode && employee.authUid) {
         const membershipId = `${profile.companyCode}_${employee.authUid}`;
         const membershipRef = doc(db, "workspaceMemberships", membershipId);
 
@@ -292,12 +285,13 @@ export default function MemberEditPage() {
       <AppShell
         title="メンバー編集"
         subtitle="見つかりません"
-        headerRight={
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-lg font-extrabold text-slate-900">メンバー編集</h1>
           <Link href="/settings/members" className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
             ← 一覧に戻る
           </Link>
-        }
-      >
+        </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm font-bold text-slate-700">
           このメンバーは見つかりませんでした。
         </div>
@@ -309,30 +303,31 @@ export default function MemberEditPage() {
     <AppShell
       title="メンバー編集"
       subtitle={employee.name || employee.email}
-      headerRight={
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/settings/members/${encodeURIComponent(employee.id)}`}
-            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-          >
-            ← 詳細へ
-          </Link>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={clsx("rounded-md px-4 py-2 text-sm font-extrabold text-white", saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700")}
-            type="button"
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
-        </div>
-      }
     >
       {error ? (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
       ) : null}
 
       <div className="mx-auto w-full max-w-3xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-extrabold text-slate-900">メンバー編集</h1>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/settings/members/${encodeURIComponent(employee.id)}`}
+              className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+            >
+              ← 詳細へ
+            </Link>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className={clsx("rounded-md px-4 py-2 text-sm font-extrabold text-white", saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700")}
+              type="button"
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
+          </div>
+        </div>
         <div className="rounded-lg border border-slate-200 bg-white p-5">
           <div className="text-sm font-extrabold text-slate-900">基本情報</div>
 
@@ -443,7 +438,7 @@ export default function MemberEditPage() {
             <div>
               <div className="text-sm font-extrabold text-slate-900">権限</div>
               <div className="mt-1 text-xs font-bold text-slate-500">
-                {isOwner ? "オーナーのみ権限変更できます。" : "権限変更はオーナーのみ可能です（閲覧のみ）。"}
+                権限を変更できます。
               </div>
             </div>
             <div className="text-xs font-bold text-slate-500">{company?.companyName ? company.companyName : profile.companyCode}</div>
@@ -454,14 +449,14 @@ export default function MemberEditPage() {
             <div className="mt-2 flex gap-3">
               <button
                 type="button"
-                onClick={() => isOwner && !targetIsCompanyOwner && setRole("owner")}
-                disabled={!isOwner || targetIsCompanyOwner}
+                onClick={() => !targetIsCompanyOwner && setRole("owner")}
+                disabled={targetIsCompanyOwner}
                 className={clsx(
                   "flex-1 rounded-lg border p-3 text-center transition",
                   (targetIsCompanyOwner ? true : role === "owner")
                     ? "border-orange-500 bg-orange-50"
                     : "border-slate-200 bg-white hover:bg-slate-50",
-                  (!isOwner || targetIsCompanyOwner) && "cursor-not-allowed opacity-60",
+                  targetIsCompanyOwner && "cursor-not-allowed opacity-60",
                 )}
               >
                 <div className="text-sm font-extrabold text-slate-900">オーナー</div>
@@ -469,14 +464,14 @@ export default function MemberEditPage() {
               </button>
               <button
                 type="button"
-                onClick={() => isOwner && !targetIsCompanyOwner && setRole("member")}
-                disabled={!isOwner || targetIsCompanyOwner}
+                onClick={() => !targetIsCompanyOwner && setRole("member")}
+                disabled={targetIsCompanyOwner}
                 className={clsx(
                   "flex-1 rounded-lg border p-3 text-center transition",
                   !targetIsCompanyOwner && role === "member"
                     ? "border-orange-500 bg-orange-50"
                     : "border-slate-200 bg-white hover:bg-slate-50",
-                  (!isOwner || targetIsCompanyOwner) && "cursor-not-allowed opacity-60",
+                  targetIsCompanyOwner && "cursor-not-allowed opacity-60",
                 )}
               >
                 <div className="text-sm font-extrabold text-slate-900">メンバー</div>
@@ -500,7 +495,7 @@ export default function MemberEditPage() {
                       className={clsx(
                         "flex items-center justify-between rounded-lg border p-3 transition",
                         permissions[key] ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white",
-                        !isOwner && "cursor-not-allowed opacity-60",
+                        false,
                       )}
                     >
                       <span className="text-sm font-bold text-slate-800">{PERMISSION_LABELS[key]}</span>
@@ -508,14 +503,13 @@ export default function MemberEditPage() {
                         type="checkbox"
                         checked={permissions[key]}
                         onChange={(e) =>
-                          isOwner && setPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
+                          setPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
                         }
-                        disabled={!isOwner}
                         className="h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
                       />
                     </label>
                     {/* 詳細権限リンク（対応するものがある場合のみ） */}
-                    {key === "calendar" && permissions[key] && isOwner && (
+                    {key === "calendar" && permissions[key] && (
                       <Link
                         href={`/settings/members/${memberId}/permissions/calendar`}
                         className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"

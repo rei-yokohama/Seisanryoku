@@ -19,6 +19,7 @@ import { ensureProfile } from "../../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, formatLocalDate } from "../../../../lib/backlog";
 import { logActivity } from "../../../../lib/activity";
+import { ensureProperties, getCategoryValue, statusToLabel, statusToValue, statusColor } from "../../../../lib/properties";
 import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
@@ -38,9 +39,6 @@ function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function categoryFromIssue(i: Issue) {
-  return (i.labels && i.labels[0]) ? String(i.labels[0]) : "";
-}
 
 export default function ProjectBoardPage() {
   const router = useRouter();
@@ -54,6 +52,8 @@ export default function ProjectBoardPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [propertyCategories, setPropertyCategories] = useState<string[]>([]);
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>(ISSUE_STATUSES);
 
   const [hideFilters, setHideFilters] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -121,6 +121,15 @@ export default function ProjectBoardPage() {
             return bm - am;
           });
           setIssues(items);
+
+          // プロパティからカテゴリ選択肢を取得
+          const props = await ensureProperties(prof.companyCode);
+          const catProp = props.find((p) => p.key === "category");
+          if (catProp) setPropertyCategories(catProp.options);
+          const statusProp = props.find((p) => p.key === "issueStatus");
+          if (statusProp) {
+            setStatusOptions(statusProp.options.map((label) => ({ value: statusToValue(label), label })));
+          }
         } else {
           setIssues([]);
         }
@@ -132,17 +141,17 @@ export default function ProjectBoardPage() {
   }, [router, projectId]);
 
   const categories = useMemo(() => {
-    const s = new Set<string>();
+    const s = new Set<string>(propertyCategories);
     for (const i of issues) {
-      const c = categoryFromIssue(i);
+      const c = getCategoryValue(i);
       if (c) s.add(c);
     }
     return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [issues]);
+  }, [issues, propertyCategories]);
 
   const filtered = useMemo(() => {
     return issues.filter(i => {
-      if (categoryFilter && categoryFromIssue(i) !== categoryFilter) return false;
+      if (categoryFilter && getCategoryValue(i) !== categoryFilter) return false;
       if (assigneeFilter && (i.assigneeUid || "") !== assigneeFilter) return false;
       return true;
     });
@@ -153,11 +162,11 @@ export default function ProjectBoardPage() {
   }, [filtered, todayStr]);
 
   const lanes = useMemo(() => {
-    const todo = filtered.filter(i => i.status === "TODO");
-    const prog = filtered.filter(i => i.status === "IN_PROGRESS");
-    const done = filtered.filter(i => i.status === "DONE");
-    return { todo, prog, done };
-  }, [filtered]);
+    return statusOptions.map(opt => ({
+      ...opt,
+      items: filtered.filter(i => i.status === opt.value),
+    }));
+  }, [filtered, statusOptions]);
 
   const startDrag = (id: string) => setDraggingIssueId(id);
   const endDrag = () => {
@@ -185,7 +194,7 @@ export default function ProjectBoardPage() {
         projectId,
         issueId: draggingIssueId,
         entityId: draggingIssueId,
-        message: `状態変更: ${issue.issueKey} → ${ISSUE_STATUSES.find(s => s.value === status)?.label || status}`,
+        message: `状態変更: ${issue.issueKey} → ${statusOptions.find(s => s.value === status)?.label || statusToLabel(status)}`,
         link: `/issue/${draggingIssueId}`,
       });
     } catch (e) {
@@ -288,6 +297,13 @@ export default function ProjectBoardPage() {
     );
   };
 
+  const laneColor = (value: string) => {
+    if (value === "DONE") return "bg-orange-500";
+    if (value === "IN_PROGRESS") return "bg-sky-500";
+    if (value === "TODO") return "bg-rose-500";
+    return "bg-slate-500";
+  };
+
   if (loading) {
     return (
       <AppShell title="ボード" subtitle="読み込み中..." projectId={projectId}>
@@ -301,27 +317,27 @@ export default function ProjectBoardPage() {
   if (!user || !profile) return null;
 
   return (
-    <AppShell 
+    <AppShell
       title={`${project?.key || ""} ${project?.name || ""}`.trim() || "ボード"}
       subtitle="ボード"
       projectId={projectId}
-      headerRight={
-        <Link
-          href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
-          className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
-        >
-          課題の追加
-        </Link>
-      }
     >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="text-xl font-extrabold text-slate-900">ボード</div>
-        <button
-          onClick={() => setHideFilters(v => !v)}
-          className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
-        >
-          {hideFilters ? "フィルタを表示" : "フィルタを隠す"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setHideFilters(v => !v)}
+            className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+          >
+            {hideFilters ? "フィルタを表示" : "フィルタを隠す"}
+          </button>
+          <Link
+            href={`/issue/new?projectId=${encodeURIComponent(projectId)}`}
+            className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
+          >
+            課題の追加
+          </Link>
+        </div>
       </div>
 
           {!hideFilters && (
@@ -359,9 +375,16 @@ export default function ProjectBoardPage() {
           )}
 
           <div className="flex gap-4 overflow-x-auto pb-4">
-            <Lane title="未対応" count={lanes.todo.length} colorDot="bg-rose-500" status="TODO" items={lanes.todo} />
-            <Lane title="処理中" count={lanes.prog.length} colorDot="bg-sky-500" status="IN_PROGRESS" items={lanes.prog} />
-            <Lane title="処理済み" count={lanes.done.length} colorDot="bg-orange-500" status="DONE" items={lanes.done} />
+            {lanes.map(lane => (
+              <Lane
+                key={lane.value}
+                title={lane.label}
+                count={lane.items.length}
+                colorDot={laneColor(lane.value)}
+                status={lane.value as Issue["status"]}
+                items={lane.items}
+              />
+            ))}
             <Lane title="[危険] 納期遅れ中" count={overdue.length} colorDot="bg-red-600" items={overdue} allowDrop={false} />
           </div>
 

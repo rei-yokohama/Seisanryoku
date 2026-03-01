@@ -17,9 +17,10 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
 import { ensureProfile } from "../../../lib/ensureProfile";
-import type { Issue, IssueComment, Project } from "../../../lib/backlog";
+import type { Issue, Project } from "../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../lib/backlog";
 import { logActivity, type Activity } from "../../../lib/activity";
+import { statusToLabel, statusColor } from "../../../lib/properties";
 import { AppShell } from "../../AppShell";
 
 type MemberProfile = {
@@ -39,19 +40,6 @@ function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function relativeFromNow(date: Date) {
-  const diff = Date.now() - date.getTime();
-  const sec = Math.floor(Math.abs(diff) / 1000);
-  const sign = diff < 0;
-  if (sec < 60) return "たった今";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return sign ? `約 ${min} 分後` : `約 ${min} 分前`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return sign ? `約 ${hr} 時間後` : `約 ${hr} 時間前`;
-  const day = Math.floor(hr / 24);
-  return sign ? `約 ${day} 日後` : `約 ${day} 日前`;
-}
-
 export default function GlobalIssueDetailPage() {
   const router = useRouter();
   const params = useParams<{ issueId: string }>();
@@ -64,16 +52,18 @@ export default function GlobalIssueDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [issue, setIssue] = useState<Issue | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [comments, setComments] = useState<IssueComment[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const [commentBody, setCommentBody] = useState("");
-  const commentRef = useRef<HTMLTextAreaElement | null>(null);
+  const [activeTab, setActiveTab] = useState<"overview" | "activity">("overview");
 
-  const [activeTab, setActiveTab] = useState<"overview" | "activity" | "comments">("overview");
+  // アクティビティ追加
+  const [showActivityForm, setShowActivityForm] = useState(false);
+  const [activityText, setActivityText] = useState("");
+  const [savingActivity, setSavingActivity] = useState(false);
+  const activityInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const myDisplayName = useMemo(() => {
     return profile?.displayName || user?.email?.split("@")[0] || "ユーザー";
@@ -84,6 +74,13 @@ export default function GlobalIssueDetailPage() {
     if (uid === user?.uid) return myDisplayName;
     return employees.find(e => e.authUid === uid)?.name || "";
   };
+
+  // 最終更新日（アクティビティの最新日時）
+  const lastActivityDate = useMemo(() => {
+    if (activities.length === 0) return null;
+    const ts = (activities[0].createdAt as any)?.toDate?.();
+    return ts instanceof Date ? ts : null;
+  }, [activities]);
 
   const loadAll = async (u: User, prof: MemberProfile) => {
     try {
@@ -102,7 +99,6 @@ export default function GlobalIssueDetailPage() {
       let currentIssue: Issue | null = null;
 
       if (!iSnap.exists()) {
-        // issueKey 等での検索を試みる
         if (prof.companyCode) {
           try {
             const q = query(
@@ -118,7 +114,6 @@ export default function GlobalIssueDetailPage() {
             }
           } catch (e: any) {
             console.error("Step 1 fallback failed:", e);
-            // 権限エラーならここで止める
             if (e.code === 'permission-denied') {
               throw new Error("課題の検索権限がありません。所属情報を確認してください。");
             }
@@ -150,7 +145,6 @@ export default function GlobalIssueDetailPage() {
         }
       } catch (e: any) {
         console.warn("Step 2 (Deal fetch) failed:", e);
-        // 案件取得に失敗しても課題は見せるため続行
       }
 
       // 3. 社員リストを取得
@@ -169,7 +163,7 @@ export default function GlobalIssueDetailPage() {
         console.warn("Step 3 (Employees fetch) failed:", e);
       }
 
-      // 4. コメントとアクティビティ
+      // 4. アクティビティ
       try {
         await loadSideData(currentIssue.id, prof.companyCode);
       } catch (e) {
@@ -183,18 +177,6 @@ export default function GlobalIssueDetailPage() {
   };
 
   const loadSideData = async (targetIssueId: string, companyCode: string) => {
-    // comments
-    const snap = await getDocs(query(collection(db, "issueComments"), where("companyCode", "==", companyCode)));
-    const items = snap.docs
-      .map(d => ({ id: d.id, ...d.data() } as IssueComment))
-      .filter(c => c.issueId === targetIssueId);
-    items.sort((a, b) => {
-      const am = (a.createdAt as any)?.toMillis?.() || 0;
-      const bm = (b.createdAt as any)?.toMillis?.() || 0;
-      return am - bm;
-    });
-    setComments(items);
-
     // activities
     const actSnap = await getDocs(query(collection(db, "activity"), where("companyCode", "==", companyCode)));
     const actItems = actSnap.docs
@@ -235,40 +217,31 @@ export default function GlobalIssueDetailPage() {
     return () => unsub();
   }, [router, issueId]);
 
-  const addComment = async () => {
+  const addActivity = async () => {
     if (!user || !profile || !issue) return;
-    const t = commentBody.trim();
-    if (!t) {
-      setError("コメントを入力してください");
-      return;
-    }
-    setSaving(true);
+    const t = activityText.trim();
+    if (!t) return;
+    setSavingActivity(true);
     setError("");
     try {
-      await addDoc(collection(db, "issueComments"), {
-        companyCode: profile.companyCode,
-        issueId: issue.id,
-        authorUid: user.uid,
-        body: t,
-        createdAt: Timestamp.now(),
-      });
       await logActivity({
         companyCode: profile.companyCode,
         actorUid: user.uid,
-        type: "COMMENT_ADDED",
+        type: "OUTPUT_ADDED",
         projectId: issue.projectId,
         issueId: issue.id,
         entityId: issue.id,
-        message: `${issue.issueKey} にコメントを追加しました`,
+        message: t,
         link: `/issue/${issue.id}`,
       });
-      setCommentBody("");
-      await loadAll(user, profile);
+      setActivityText("");
+      setShowActivityForm(false);
+      await loadSideData(issue.id, profile.companyCode);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "コメントの追加に失敗しました";
+      const msg = e instanceof Error ? e.message : "アクティビティの追加に失敗しました";
       setError(msg);
     } finally {
-      setSaving(false);
+      setSavingActivity(false);
     }
   };
 
@@ -331,8 +304,8 @@ export default function GlobalIssueDetailPage() {
             お探しの課題は削除されたか、アクセス権限がない可能性があります。
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link 
-              href={`/issue`} 
+            <Link
+              href={`/issue`}
               className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
             >
               課題一覧へ戻る
@@ -349,12 +322,12 @@ export default function GlobalIssueDetailPage() {
     );
   }
 
-  const statusInfo = ISSUE_STATUSES.find(s => s.value === issue.status);
+  const statusLabel = statusToLabel(issue.status);
   const priorityInfo = ISSUE_PRIORITIES.find(p => p.value === issue.priority);
   const assignee = assigneeName(issue.assigneeUid);
 
   return (
-    <AppShell 
+    <AppShell
       title={`${project?.name || ""}`.trim() || "課題詳細"}
       subtitle={
         <div className="flex items-center gap-2 text-xs">
@@ -364,7 +337,9 @@ export default function GlobalIssueDetailPage() {
         </div>
       }
       projectId={issue.projectId}
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-extrabold text-slate-900">{issue.issueKey} {issue.title}</h1>
         <div className="flex items-center gap-2">
           {!issue.archivedAt && (
             <button
@@ -374,6 +349,19 @@ export default function GlobalIssueDetailPage() {
               アーカイブ
             </button>
           )}
+          <button
+            onClick={() => {
+              setActiveTab("activity");
+              setShowActivityForm(true);
+              setTimeout(() => activityInputRef.current?.focus(), 100);
+            }}
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-extrabold text-emerald-700 hover:bg-emerald-100 transition flex items-center gap-1.5"
+          >
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            アクティビティを追加
+          </button>
           <Link
             href={`/issue/${issue.id}/edit`}
             className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
@@ -381,8 +369,8 @@ export default function GlobalIssueDetailPage() {
             編集
           </Link>
         </div>
-      }
-    >
+      </div>
+
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           {error}
@@ -397,7 +385,7 @@ export default function GlobalIssueDetailPage() {
                 {issue.issueKey}
               </span>
             </div>
-            <h1 className="text-lg font-extrabold text-slate-900 leading-tight">{issue.title}</h1>
+            <h2 className="text-lg font-extrabold text-slate-900 leading-tight">{issue.title}</h2>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white p-5">
@@ -408,7 +396,7 @@ export default function GlobalIssueDetailPage() {
                 <div className="flex-1">
                   <div className="text-xs font-bold text-slate-500">作成日</div>
                   <div className="text-sm text-slate-900">
-                    {issue.createdAt ? new Date((issue.createdAt as any).toMillis()).toLocaleDateString("ja-JP") : "-"}
+                    {issue.createdAt ? new Date((issue.createdAt as any).toMillis()).toLocaleDateString("ja-JP") : ""}
                   </div>
                 </div>
               </div>
@@ -430,6 +418,20 @@ export default function GlobalIssueDetailPage() {
                   </div>
                 </div>
               )}
+              <div className="flex items-start gap-2">
+                <div className="flex-shrink-0 w-1 h-1 rounded-full bg-emerald-400 mt-2"></div>
+                <div className="flex-1">
+                  <div className="text-xs font-bold text-slate-500">最終更新</div>
+                  <div className="text-sm text-slate-900">
+                    {lastActivityDate
+                      ? lastActivityDate.toLocaleDateString("ja-JP", { year: "numeric", month: "short", day: "numeric" }) + " " + lastActivityDate.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })
+                      : issue.updatedAt
+                        ? new Date((issue.updatedAt as any).toMillis()).toLocaleDateString("ja-JP")
+                        : ""
+                    }
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -457,18 +459,7 @@ export default function GlobalIssueDetailPage() {
                     : "border-transparent text-slate-600 hover:text-slate-900"
                 )}
               >
-                アクティビティー
-              </button>
-              <button
-                onClick={() => setActiveTab("comments")}
-                className={clsx(
-                  "px-4 py-3 text-sm font-bold border-b-2 transition",
-                  activeTab === "comments"
-                    ? "border-orange-600 text-orange-700"
-                    : "border-transparent text-slate-600 hover:text-slate-900"
-                )}
-              >
-                コメント ({comments.length})
+                アクティビティ ({activities.length})
               </button>
             </div>
 
@@ -489,80 +480,116 @@ export default function GlobalIssueDetailPage() {
               )}
 
               {activeTab === "activity" && (
-                <div className="space-y-3">
-                  {activities.length === 0 ? (
-                    <div className="text-sm text-slate-600">アクティビティはまだありません。</div>
+                <div className="space-y-4">
+                  {/* アクティビティ追加フォーム */}
+                  {!showActivityForm ? (
+                    <button
+                      onClick={() => {
+                        setShowActivityForm(true);
+                        setTimeout(() => activityInputRef.current?.focus(), 50);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg border border-dashed border-slate-300 px-4 py-3 text-sm font-bold text-slate-500 hover:border-orange-400 hover:text-orange-600 hover:bg-orange-50/50 transition-all"
+                    >
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                      </svg>
+                      アクティビティを追加
+                    </button>
                   ) : (
-                    activities.map((act, idx) => {
-                      const dt = (act.createdAt as any)?.toDate?.() ? (act.createdAt as any).toDate() as Date : null;
-                      const who = act.actorUid === user.uid ? myDisplayName : (employees.find(e => e.authUid === act.actorUid)?.name || "ユーザー");
-                      return (
-                        <div key={idx} className="flex items-start gap-3 py-3 border-b border-slate-100 last:border-b-0">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-xs font-extrabold text-sky-700 flex-shrink-0">
-                            {who.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-baseline gap-2 mb-1">
-                              <span className="text-sm font-bold text-slate-900">{who}</span>
-                              <span className="text-xs text-slate-500">{dt ? relativeFromNow(dt) : ""}</span>
-                            </div>
-                            <div className="text-sm text-slate-700">{act.message}</div>
-                          </div>
+                    <div className="rounded-lg border border-orange-200 bg-orange-50/30 p-4">
+                      <div className="text-xs font-extrabold text-slate-600 mb-2">どんなアウトプットをしましたか？</div>
+                      <textarea
+                        ref={activityInputRef}
+                        value={activityText}
+                        onChange={(e) => setActivityText(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100 resize-none"
+                        rows={3}
+                        placeholder="例: デザインカンプを提出した、APIの設計書をレビュー依頼した..."
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault();
+                            void addActivity();
+                          }
+                        }}
+                      />
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-[11px] text-slate-400">Ctrl+Enter で送信</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => { setShowActivityForm(false); setActivityText(""); }}
+                            className="rounded-md px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 transition"
+                          >
+                            キャンセル
+                          </button>
+                          <button
+                            onClick={addActivity}
+                            disabled={savingActivity || !activityText.trim()}
+                            className={clsx(
+                              "rounded-md px-4 py-1.5 text-xs font-extrabold text-white transition",
+                              savingActivity || !activityText.trim() ? "bg-orange-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700",
+                            )}
+                          >
+                            {savingActivity ? "保存中..." : "追加"}
+                          </button>
                         </div>
-                      );
-                    })
+                      </div>
+                    </div>
                   )}
-                </div>
-              )}
 
-              {activeTab === "comments" && (
-                <div className="space-y-5">
-                  <div className="space-y-4">
-                    {comments.length === 0 ? (
-                      <div className="text-sm text-slate-600">コメントはまだありません。</div>
-                    ) : (
-                      comments.map((c) => {
-                        const dt = (c.createdAt as any)?.toDate?.() ? (c.createdAt as any).toDate() as Date : null;
-                        const who = c.authorUid === user.uid ? myDisplayName : (employees.find(e => e.authUid === c.authorUid)?.name || "ユーザー");
+                  {/* タイムライン */}
+                  {activities.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-slate-400">アクティビティはまだありません</div>
+                  ) : (
+                    <div className="relative">
+                      <div className="absolute left-4 top-0 bottom-0 w-px bg-slate-200" />
+
+                      {activities.map((act, idx) => {
+                        const dt = (act.createdAt as any)?.toDate?.() ? (act.createdAt as any).toDate() as Date : null;
+                        const who = act.actorUid === user.uid ? myDisplayName : (employees.find(e => e.authUid === act.actorUid)?.name || "ユーザー");
+                        const isOutput = act.type === "OUTPUT_ADDED";
+
                         return (
-                          <div key={c.id} className="flex items-start gap-3 py-3 border-b border-slate-100 last:border-b-0">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-sm font-extrabold text-orange-700 flex-shrink-0">
-                              {who.charAt(0).toUpperCase()}
+                          <div key={idx} className="relative flex items-start gap-3 pb-4 pl-1">
+                            <div className={clsx(
+                              "relative z-[1] mt-1.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full",
+                              isOutput
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-slate-100 text-slate-500",
+                            )}>
+                              {isOutput ? (
+                                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6V7.5z" />
+                                </svg>
+                              ) : (
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5" />
+                                </svg>
+                              )}
                             </div>
-                            <div className="flex-1">
-                              <div className="flex items-baseline gap-2 mb-1">
-                                <div className="text-sm font-extrabold text-slate-900">{who}</div>
-                                <div className="text-xs text-slate-500">{dt ? relativeFromNow(dt) : ""}</div>
+
+                            <div className={clsx(
+                              "flex-1 min-w-0 rounded-lg px-3 py-2",
+                              isOutput ? "bg-emerald-50/60 border border-emerald-100" : "",
+                            )}>
+                              <div className="flex items-baseline gap-2 flex-wrap">
+                                <span className="text-sm font-bold text-slate-900">{who}</span>
+                                {isOutput && <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-extrabold text-emerald-700">OUTPUT</span>}
+                                {dt && (
+                                  <span className="text-[11px] text-slate-400" title={dt.toLocaleString("ja-JP")}>
+                                    {dt.toLocaleDateString("ja-JP", { month: "short", day: "numeric" })} {dt.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                )}
                               </div>
-                              <div className="whitespace-pre-wrap text-sm text-slate-800">{c.body}</div>
+                              <div className={clsx(
+                                "mt-0.5 text-sm whitespace-pre-wrap",
+                                isOutput ? "text-slate-800" : "text-slate-600",
+                              )}>{act.message}</div>
                             </div>
                           </div>
                         );
-                      })
-                    )}
-                  </div>
-
-                  <div className="border-t border-slate-200 pt-4 mt-4">
-                    <textarea
-                      ref={commentRef}
-                      value={commentBody}
-                      onChange={(e) => setCommentBody(e.target.value)}
-                      className="min-h-[100px] w-full rounded-lg border border-slate-200 px-3 py-3 text-sm text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                      placeholder="コメントを入力..."
-                    />
-                    <div className="mt-3 flex justify-end">
-                      <button
-                        onClick={addComment}
-                        disabled={saving || !commentBody.trim()}
-                        className={clsx(
-                          "rounded-lg px-4 py-2 text-sm font-extrabold text-white transition",
-                          saving || !commentBody.trim() ? "bg-orange-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700",
-                        )}
-                      >
-                        {saving ? "投稿中..." : "コメントを投稿"}
-                      </button>
+                      })}
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -598,14 +625,10 @@ export default function GlobalIssueDetailPage() {
                 <span
                   className={clsx(
                     "inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold",
-                    issue.status === "DONE"
-                      ? "bg-orange-100 text-orange-700"
-                      : issue.status === "IN_PROGRESS"
-                        ? "bg-sky-100 text-sky-700"
-                        : "bg-rose-100 text-rose-700",
+                    statusColor(issue.status),
                   )}
                 >
-                  {statusInfo?.label || issue.status}
+                  {statusLabel}
                 </span>
               </div>
               <div>
@@ -674,4 +697,3 @@ export default function GlobalIssueDetailPage() {
     </AppShell>
   );
 }
-

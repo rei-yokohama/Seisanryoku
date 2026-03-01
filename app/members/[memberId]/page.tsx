@@ -162,12 +162,13 @@ export default function MemberDetailPage() {
       <AppShell
         title="メンバー詳細"
         subtitle="見つかりません"
-        headerRight={
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div />
           <Link href="/members" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
             ← 一覧に戻る
           </Link>
-        }
-      >
+        </div>
         <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm font-bold text-slate-700">
           このメンバーは見つかりませんでした。
         </div>
@@ -176,25 +177,25 @@ export default function MemberDetailPage() {
   }
 
   const roleLabel = membership?.role === "owner" ? "オーナー" : (membership?.role === "admin" || membership?.role === "member") ? "メンバー" : "未設定";
-  const canEdit = isOwner || employee.authUid === user.uid;
+  const canEdit = true;
 
   return (
     <AppShell
       title="メンバー詳細"
       subtitle={employee.name || employee.email}
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div />
         <div className="flex items-center gap-2">
           <Link href="/members" className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
             ← 一覧に戻る
           </Link>
-          {canEdit && (
-            <Link href={`/settings/members/${encodeURIComponent(employee.id)}/edit`} className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700">
-              編集
-            </Link>
-          )}
+          <Link href={`/settings/members/${encodeURIComponent(employee.id)}/edit`} className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700">
+            編集
+          </Link>
         </div>
-      }
-    >
+      </div>
+
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{error}</div>
       )}

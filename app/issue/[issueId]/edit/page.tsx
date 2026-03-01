@@ -19,6 +19,8 @@ import { ensureProfile } from "../../../../lib/ensureProfile";
 import type { Issue, Project } from "../../../../lib/backlog";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES } from "../../../../lib/backlog";
 import { logActivity, pushNotification } from "../../../../lib/activity";
+import { ensureProperties, getCategoryValue, statusToLabel, statusToValue } from "../../../../lib/properties";
+import type { Property } from "../../../../lib/properties";
 import { AppShell } from "../../../AppShell";
 
 type MemberProfile = {
@@ -32,6 +34,18 @@ type Employee = {
   id: string;
   name: string;
   authUid?: string;
+};
+
+type Customer = {
+  id: string;
+  name: string;
+};
+
+type DealProject = {
+  id: string;
+  name: string;
+  key: string;
+  customerId?: string;
 };
 
 function clsx(...xs: Array<string | false | null | undefined>) {
@@ -50,6 +64,8 @@ export default function GlobalIssueEditPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [issue, setIssue] = useState<Issue | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [allProjects, setAllProjects] = useState<DealProject[]>([]);
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -63,7 +79,18 @@ export default function GlobalIssueEditPage() {
   const [editDueDate, setEditDueDate] = useState("");
   const [editCategory, setEditCategory] = useState("");
   const [editLabelsText, setEditLabelsText] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
+  const [editCustomerId, setEditCustomerId] = useState("");
+  const [projectSearch, setProjectSearch] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [categoryProperty, setCategoryProperty] = useState<Property | null>(null);
+  const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>(ISSUE_STATUSES);
+
+  const projectDropdownRef = useRef<HTMLDivElement>(null);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
 
   const descRef = useRef<HTMLTextAreaElement | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -78,6 +105,42 @@ export default function GlobalIssueEditPage() {
     const list = editCategory ? [editCategory, ...rest] : rest;
     return Array.from(new Set(list)).slice(0, 20);
   }, [editCategory, editLabelsText]);
+
+  const filteredProjects = useMemo(() => {
+    const q = projectSearch.trim().toLowerCase();
+    if (!q) return allProjects;
+    return allProjects.filter((p) => p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q));
+  }, [allProjects, projectSearch]);
+
+  const filteredCustomers = useMemo(() => {
+    const q = customerSearch.trim().toLowerCase();
+    if (!q) return allCustomers;
+    return allCustomers.filter((c) => c.name.toLowerCase().includes(q));
+  }, [allCustomers, customerSearch]);
+
+  const selectedProjectName = useMemo(() => {
+    if (!editProjectId) return "";
+    return allProjects.find((p) => p.id === editProjectId)?.name || project?.name || "";
+  }, [editProjectId, allProjects, project]);
+
+  const selectedCustomerName = useMemo(() => {
+    if (!editCustomerId) return "";
+    return allCustomers.find((c) => c.id === editCustomerId)?.name || "";
+  }, [editCustomerId, allCustomers]);
+
+  // 外側クリックでドロップダウンを閉じる
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
+        setShowProjectDropdown(false);
+      }
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const categorySelectOptions = useMemo(
     () =>
@@ -124,8 +187,10 @@ export default function GlobalIssueEditPage() {
         setEditAssigneeUid((i.assigneeUid as any) || "");
         setEditStartDate((i.startDate as any) || "");
         setEditDueDate((i.dueDate as any) || "");
-        setEditCategory((i.labels && i.labels[0]) ? String(i.labels[0]) : "");
+        setEditCategory(getCategoryValue(i));
         setEditLabelsText((i.labels || []).slice(1).join(", "));
+        setEditProjectId(i.projectId || "");
+        setEditCustomerId(i.customerId || "");
 
         // 2. Fetch Project (Deal)
         const projectId = i.projectId;
@@ -140,6 +205,28 @@ export default function GlobalIssueEditPage() {
           } as Project);
         }
 
+        // 2b. Fetch all deals (projects) for search
+        if (prof.companyCode) {
+          const dealsSnap = await getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode)));
+          const deals = dealsSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              name: data.title || "無題",
+              key: data.key || data.title?.slice(0, 5)?.toUpperCase() || "DEAL",
+              customerId: data.customerId || "",
+            } as DealProject;
+          });
+          setAllProjects(deals.sort((a, b) => a.name.localeCompare(b.name)));
+        }
+
+        // 2c. Fetch all customers for search
+        if (prof.companyCode) {
+          const custSnap = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
+          const custs = custSnap.docs.map((d) => ({ id: d.id, name: (d.data().name as string) || "無名" }));
+          setAllCustomers(custs.sort((a, b) => a.name.localeCompare(b.name)));
+        }
+
         // 3. Fetch Employees
         const mergedEmp: Employee[] = [];
         if (prof.companyCode) {
@@ -152,15 +239,18 @@ export default function GlobalIssueEditPage() {
         for (const e of mergedEmp) empById.set(e.id, e);
         setEmployees(Array.from(empById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || "")));
 
-        // 4. カテゴリ候補（全課題の先頭ラベル）
+        // 4. プロパティから取得（カテゴリ・ステータス）
         if (prof.companyCode) {
-          const issuesSnap = await getDocs(query(collection(db, "issues"), where("companyCode", "==", prof.companyCode)));
-          const catSet = new Set<string>();
-          issuesSnap.docs.forEach((d) => {
-            const labels = (d.data().labels as string[] | undefined) || [];
-            if (labels[0]) catSet.add(String(labels[0]));
-          });
-          setCategoryOptions(Array.from(catSet).sort((a, b) => a.localeCompare(b)));
+          const props = await ensureProperties(prof.companyCode);
+          const catProp = props.find((p) => p.key === "category");
+          if (catProp) {
+            setCategoryProperty(catProp);
+            setCategoryOptions(catProp.options);
+          }
+          const statusProp = props.find((p) => p.key === "issueStatus");
+          if (statusProp) {
+            setStatusOptions(statusProp.options.map((label) => ({ value: statusToValue(label), label })));
+          }
         }
 
       } catch (e: unknown) {
@@ -208,8 +298,8 @@ export default function GlobalIssueEditPage() {
       if (issue.title !== t) changes.push(`件名を変更: 「${issue.title}」→「${t}」`);
       if (issue.description !== editDescription.trim()) changes.push("詳細を変更");
       if (issue.status !== editStatus) {
-        const oldStatus = ISSUE_STATUSES.find(s => s.value === issue.status)?.label || issue.status;
-        const newStatus = ISSUE_STATUSES.find(s => s.value === editStatus)?.label || editStatus;
+        const oldStatus = statusOptions.find(s => s.value === issue.status)?.label || statusToLabel(issue.status);
+        const newStatus = statusOptions.find(s => s.value === editStatus)?.label || statusToLabel(editStatus);
         changes.push(`ステータスを変更: ${oldStatus} → ${newStatus}`);
       }
       if (issue.priority !== editPriority) {
@@ -233,6 +323,16 @@ export default function GlobalIssueEditPage() {
       if (oldLabels !== newLabels) {
         changes.push(`ラベルを変更: ${oldLabels || "なし"} → ${newLabels || "なし"}`);
       }
+      if (issue.projectId !== editProjectId && editProjectId) {
+        const oldProject = project?.name || issue.projectId;
+        const newProject = allProjects.find((p) => p.id === editProjectId)?.name || editProjectId;
+        changes.push(`案件を変更: ${oldProject} → ${newProject}`);
+      }
+      if ((issue.customerId || "") !== editCustomerId) {
+        const oldCust = issue.customerId ? allCustomers.find((c) => c.id === issue.customerId)?.name || issue.customerId : "未設定";
+        const newCust = editCustomerId ? allCustomers.find((c) => c.id === editCustomerId)?.name || editCustomerId : "未設定";
+        changes.push(`顧客を変更: ${oldCust} → ${newCust}`);
+      }
 
       await updateDoc(doc(db, "issues", issue.id), {
         title: t,
@@ -240,9 +340,12 @@ export default function GlobalIssueEditPage() {
         status: editStatus,
         priority: editPriority,
         assigneeUid: nextAssignee,
+        projectId: editProjectId || null,
+        customerId: editCustomerId || null,
         startDate: editStartDate || null,
         dueDate: editDueDate || null,
         labels: labelList,
+        propertyValues: { category: editCategory || "" },
         updatedAt: Timestamp.now(),
       });
 
@@ -308,7 +411,7 @@ export default function GlobalIssueEditPage() {
   }
 
   return (
-    <AppShell 
+    <AppShell
       title={`${project?.name || ""}`.trim() || "課題編集"}
       subtitle={
         <div className="flex items-center gap-2 text-xs">
@@ -320,7 +423,9 @@ export default function GlobalIssueEditPage() {
         </div>
       }
       projectId={issue.projectId}
-      headerRight={
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-extrabold text-slate-900">{issue.issueKey} - 編集</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowPreview((v) => !v)}
@@ -328,19 +433,9 @@ export default function GlobalIssueEditPage() {
           >
             {showPreview ? "編集" : "プレビュー"}
           </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className={clsx(
-              "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-              saving ? "bg-orange-400" : "bg-orange-600 hover:bg-orange-700",
-            )}
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
         </div>
-      }
-    >
+      </div>
+
       {error && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           {error}
@@ -395,6 +490,136 @@ export default function GlobalIssueEditPage() {
 
           <div className="md:col-span-12 border-t border-slate-100 pt-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+              {/* 案件 */}
+              <div className="md:col-span-6">
+                <div className="text-xs font-extrabold text-slate-600">案件</div>
+                <div className="relative mt-1" ref={projectDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowProjectDropdown((v) => !v); setProjectSearch(""); }}
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm font-bold text-slate-900 hover:bg-slate-50"
+                  >
+                    {selectedProjectName || <span className="text-slate-400">未設定</span>}
+                  </button>
+                  {showProjectDropdown && (
+                    <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg">
+                      <div className="p-2">
+                        <input
+                          value={projectSearch}
+                          onChange={(e) => setProjectSearch(e.target.value)}
+                          placeholder="案件を検索..."
+                          className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditProjectId("");
+                            setShowProjectDropdown(false);
+                            setProjectSearch("");
+                          }}
+                          className={clsx(
+                            "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
+                            !editProjectId ? "bg-orange-50 text-orange-700" : "text-slate-400",
+                          )}
+                        >
+                          未設定
+                        </button>
+                        {filteredProjects.length === 0 && projectSearch.trim() ? (
+                          <div className="px-3 py-2 text-xs text-slate-400">見つかりません</div>
+                        ) : (
+                          filteredProjects.map((p) => (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => {
+                                setEditProjectId(p.id);
+                                if (p.customerId) setEditCustomerId(p.customerId);
+                                setShowProjectDropdown(false);
+                                setProjectSearch("");
+                              }}
+                              className={clsx(
+                                "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
+                                p.id === editProjectId ? "bg-orange-50 text-orange-700" : "text-slate-700",
+                              )}
+                            >
+                              {p.name}
+                              <span className="ml-2 text-[10px] text-slate-400">{p.key}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 顧客 */}
+              <div className="md:col-span-6">
+                <div className="text-xs font-extrabold text-slate-600">顧客</div>
+                <div className="relative mt-1" ref={customerDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowCustomerDropdown((v) => !v); setCustomerSearch(""); }}
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm font-bold text-slate-900 hover:bg-slate-50"
+                  >
+                    {selectedCustomerName || <span className="text-slate-400">未設定</span>}
+                  </button>
+                  {showCustomerDropdown && (
+                    <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg">
+                      <div className="p-2">
+                        <input
+                          value={customerSearch}
+                          onChange={(e) => setCustomerSearch(e.target.value)}
+                          placeholder="顧客を検索..."
+                          className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
+                          autoFocus
+                        />
+                      </div>
+                      <div className="max-h-48 overflow-y-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditCustomerId("");
+                            setShowCustomerDropdown(false);
+                            setCustomerSearch("");
+                          }}
+                          className={clsx(
+                            "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
+                            !editCustomerId ? "bg-orange-50 text-orange-700" : "text-slate-400",
+                          )}
+                        >
+                          未設定
+                        </button>
+                        {filteredCustomers.length === 0 && customerSearch.trim() ? (
+                          <div className="px-3 py-2 text-xs text-slate-400">見つかりません</div>
+                        ) : (
+                          filteredCustomers.map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                setEditCustomerId(c.id);
+                                setShowCustomerDropdown(false);
+                                setCustomerSearch("");
+                              }}
+                              className={clsx(
+                                "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
+                                c.id === editCustomerId ? "bg-orange-50 text-orange-700" : "text-slate-700",
+                              )}
+                            >
+                              {c.name}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="md:col-span-6">
                 <div className="text-xs font-extrabold text-slate-600">状態</div>
                 <select
@@ -402,7 +627,7 @@ export default function GlobalIssueEditPage() {
                   onChange={(e) => setEditStatus(e.target.value as Issue["status"])}
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
                 >
-                  {ISSUE_STATUSES.map((s) => (
+                  {statusOptions.map((s) => (
                     <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>

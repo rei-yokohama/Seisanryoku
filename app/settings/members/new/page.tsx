@@ -124,8 +124,6 @@ export default function MemberCreatePage() {
     e.preventDefault();
     if (!user) return;
     setError("");
-    if (!isOwner) return setError("メンバーの作成はワークスペースのオーナーのみ可能です。");
-
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
     if (!name) return setError("名前を入力してください");
@@ -210,16 +208,17 @@ export default function MemberCreatePage() {
     <AppShell
       title="メンバー作成"
       subtitle="新しいメンバーを追加"
-      headerRight={
-        <Link
-          href="/settings/members"
-          className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-        >
-          ← 一覧に戻る
-        </Link>
-      }
     >
       <div className="mx-auto w-full max-w-3xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-extrabold text-slate-900">メンバー作成</h1>
+          <Link
+            href="/settings/members"
+            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            ← 一覧に戻る
+          </Link>
+        </div>
         {error ? (
           <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>
         ) : null}
@@ -258,18 +257,6 @@ export default function MemberCreatePage() {
               社員は <Link className="underline" href="/login">ログイン</Link> からログインできます。
             </div>
             <div className="mt-4">
-              <Link href="/settings/members" className="inline-flex rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700">
-                一覧へ戻る
-              </Link>
-            </div>
-          </div>
-        ) : !isOwner ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-6">
-            <div className="text-sm font-extrabold text-slate-900">メンバー作成</div>
-            <div className="mt-2 text-sm text-slate-700">
-              メンバーの作成/削除は <span className="font-extrabold">オーナーのみ</span> 実行できます。
-            </div>
-            <div className="mt-5">
               <Link href="/settings/members" className="inline-flex rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700">
                 一覧へ戻る
               </Link>

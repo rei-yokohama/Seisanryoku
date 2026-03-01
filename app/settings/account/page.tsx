@@ -174,16 +174,17 @@ export default function AccountSettingsPage() {
     <AppShell
       title="ユーザー設定"
       subtitle="ユーザー情報 / メール / パスワード"
-      headerRight={
-        <Link
-          href="/settings"
-          className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-        >
-          ← 設定トップ
-        </Link>
-      }
     >
       <div className="mx-auto w-full max-w-4xl space-y-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-lg font-extrabold text-slate-900">ユーザー設定</h1>
+          <Link
+            href="/settings"
+            className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+          >
+            ← 設定トップ
+          </Link>
+        </div>
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
         {success ? (
           <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm font-bold text-orange-700">{success}</div>
