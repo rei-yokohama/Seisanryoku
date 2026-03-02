@@ -228,6 +228,86 @@ function setTimeOnDateKey(dateKey: string, minutes: number) {
   return d;
 }
 
+// 重複する予定を横に並べるためのレイアウト計算（Google Calendar風）
+function computeOverlapLayout(entries: TimeEntry[]): Map<string, { col: number; totalCols: number }> {
+  if (entries.length === 0) return new Map();
+
+  // 開始時間・長さでソート
+  const segments = entries.map((e) => {
+    const s = new Date(e.start);
+    const en = new Date(e.end);
+    return {
+      id: e.id,
+      startMin: s.getHours() * 60 + s.getMinutes(),
+      endMin: Math.max(en.getHours() * 60 + en.getMinutes(), s.getHours() * 60 + s.getMinutes() + 15),
+    };
+  }).sort((a, b) => a.startMin - b.startMin || (b.endMin - b.startMin) - (a.endMin - a.startMin));
+
+  // 各カラムの終了時刻を追跡し、貪欲にカラムを割り当て
+  const columnEnds: number[] = [];
+  const placed: { id: string; col: number; startMin: number; endMin: number }[] = [];
+
+  for (const seg of segments) {
+    let col = -1;
+    for (let c = 0; c < columnEnds.length; c++) {
+      if (columnEnds[c] <= seg.startMin) {
+        col = c;
+        break;
+      }
+    }
+    if (col === -1) {
+      col = columnEnds.length;
+      columnEnds.push(0);
+    }
+    columnEnds[col] = seg.endMin;
+    placed.push({ ...seg, col });
+  }
+
+  // Union-Find で重複するイベントをグループ化
+  const parentMap = new Map<string, string>();
+  for (const p of placed) parentMap.set(p.id, p.id);
+
+  function find(x: string): string {
+    while (parentMap.get(x) !== x) {
+      parentMap.set(x, parentMap.get(parentMap.get(x)!)!);
+      x = parentMap.get(x)!;
+    }
+    return x;
+  }
+  function union(a: string, b: string) {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parentMap.set(ra, rb);
+  }
+
+  for (let i = 0; i < placed.length; i++) {
+    for (let j = i + 1; j < placed.length; j++) {
+      if (placed[j].startMin < placed[i].endMin) {
+        union(placed[i].id, placed[j].id);
+      } else {
+        break;
+      }
+    }
+  }
+
+  // グループごとに totalCols を決定
+  const groups = new Map<string, typeof placed>();
+  for (const p of placed) {
+    const root = find(p.id);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root)!.push(p);
+  }
+
+  const layout = new Map<string, { col: number; totalCols: number }>();
+  for (const [, group] of groups) {
+    const totalCols = Math.max(...group.map((g) => g.col)) + 1;
+    for (const g of group) {
+      layout.set(g.id, { col: g.col, totalCols });
+    }
+  }
+
+  return layout;
+}
+
 function lastOccurrenceDateKeyForCount(baseStart: Date, rule: RepeatRule) {
   const by = (rule.byWeekday?.length ? [...rule.byWeekday] : [baseStart.getDay()]).sort((a, b) => a - b);
   const interval = Math.max(1, rule.interval || 1);
@@ -1039,31 +1119,50 @@ export default function TeamCalendarPage() {
       alert("案件/作業名を入力してください");
       return;
     }
-    // 繰り返しの場合: 日付はシリーズの基準日を変えると意図しないズレが起きやすいので、現状は時間のみ編集可能
-    const baseDateKey = activeEntry.repeat ? toDateKey(new Date(activeEntry.start)) : editDate;
-    const startIso = new Date(`${baseDateKey}T${editStartTime}:00`).toISOString();
-    const endIso = new Date(`${baseDateKey}T${editEndTime}:00`).toISOString();
-    if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
-      alert("終了時刻は開始時刻より後にしてください");
-      return;
-    }
-
-    const repeat: RepeatRule | null = editRepeatEnabled
-      ? {
-          freq: "WEEKLY",
-          interval: Math.max(1, Math.floor(editRepeatInterval || 1)),
-          byWeekday: (editRepeatByWeekday.length ? editRepeatByWeekday : [new Date(`${baseDateKey}T00:00:00`).getDay()]).slice().sort((a, b) => a - b),
-          end:
-            editRepeatEndType === "UNTIL" && editRepeatUntil
-              ? { type: "UNTIL" as const, until: editRepeatUntil }
-              : editRepeatEndType === "COUNT"
-                ? { type: "COUNT" as const, count: Math.max(1, Math.floor(editRepeatCount || 1)) }
-                : { type: "NONE" as const },
-        }
-      : null;
 
     setIsDeleting(true); // 保存中も isDeleting を借用（または isSaving を作る）
     try {
+      // 繰り返しの場合: Firestoreから最新ドキュメントを取得し、
+      // 元の基準日（start）と削除済み日付（exdates）を正確に保持する
+      let baseDateKey: string;
+      let preservedExdates: string[] = [];
+
+      if (activeEntry.repeat) {
+        const snap = await getDoc(doc(db, "timeEntries", activeEntry.id));
+        if (snap.exists()) {
+          const currentData = snap.data();
+          baseDateKey = toDateKey(new Date(currentData.start));
+          preservedExdates = currentData.repeat?.exdates || [];
+        } else {
+          baseDateKey = toDateKey(new Date(activeEntry.start));
+          preservedExdates = activeEntry.repeat.exdates || [];
+        }
+      } else {
+        baseDateKey = editDate;
+      }
+
+      const startIso = new Date(`${baseDateKey}T${editStartTime}:00`).toISOString();
+      const endIso = new Date(`${baseDateKey}T${editEndTime}:00`).toISOString();
+      if (new Date(endIso).getTime() <= new Date(startIso).getTime()) {
+        alert("終了時刻は開始時刻より後にしてください");
+        return;
+      }
+
+      const repeat: RepeatRule | null = editRepeatEnabled
+        ? {
+            freq: "WEEKLY",
+            interval: Math.max(1, Math.floor(editRepeatInterval || 1)),
+            byWeekday: (editRepeatByWeekday.length ? editRepeatByWeekday : [new Date(`${baseDateKey}T00:00:00`).getDay()]).slice().sort((a, b) => a - b),
+            end:
+              editRepeatEndType === "UNTIL" && editRepeatUntil
+                ? { type: "UNTIL" as const, until: editRepeatUntil }
+                : editRepeatEndType === "COUNT"
+                  ? { type: "COUNT" as const, count: Math.max(1, Math.floor(editRepeatCount || 1)) }
+                  : { type: "NONE" as const },
+            exdates: preservedExdates,
+          }
+        : null;
+
       await updateDoc(doc(db, "timeEntries", activeEntry.id), {
         project,
         summary: editSummary.trim(),
@@ -1127,10 +1226,13 @@ export default function TeamCalendarPage() {
     setIsDeleting(true);
     try {
       const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
-      const nextExdates = Array.from(new Set([...(activeEntry.repeat.exdates || []), key])).sort();
       const docId = activeEntry.baseId || activeEntry.id;
+      // Firestoreから最新のrepeatを取得し、古い状態で上書きしないようにする
+      const snap = await getDoc(doc(db, "timeEntries", docId));
+      const currentRepeat = snap.exists() ? (snap.data().repeat || activeEntry.repeat) : activeEntry.repeat;
+      const nextExdates = Array.from(new Set([...(currentRepeat.exdates || []), key])).sort();
       await updateDoc(doc(db, "timeEntries", docId), {
-        repeat: { ...activeEntry.repeat, exdates: nextExdates },
+        repeat: { ...currentRepeat, exdates: nextExdates },
       });
     } catch (e: any) {
       console.error("Delete recurring one failed:", e);
@@ -1149,8 +1251,11 @@ export default function TeamCalendarPage() {
       d.setDate(d.getDate() - 1);
       const until = toDateKey(d);
       const docId = activeEntry.baseId || activeEntry.id;
+      // Firestoreから最新のrepeatを取得し、古い状態で上書きしないようにする
+      const snap = await getDoc(doc(db, "timeEntries", docId));
+      const currentRepeat = snap.exists() ? (snap.data().repeat || activeEntry.repeat) : activeEntry.repeat;
       await updateDoc(doc(db, "timeEntries", docId), {
-        repeat: { ...activeEntry.repeat, end: { type: "UNTIL", until } },
+        repeat: { ...currentRepeat, end: { type: "UNTIL", until } },
       });
     } catch (e: any) {
       console.error("Delete recurring from this day failed:", e);
@@ -1762,8 +1867,10 @@ export default function TeamCalendarPage() {
                             ></div>
                           ))}
 
-                          {/* イベント */}
-                          {empEntries.map((entry) => {
+                          {/* イベント（重複時は横に並べる） */}
+                          {(() => {
+                            const overlapLayout = computeOverlapLayout(empEntries);
+                            return empEntries.map((entry) => {
                             const start = new Date(entry.start);
                             const end = new Date(entry.end);
                             const startHour = start.getHours();
@@ -1776,12 +1883,13 @@ export default function TeamCalendarPage() {
 
                             const empColors = getEmployeeColors(entry.color || emp.color || "#3B82F6");
                             const isDraggingThis = dragPreview?.entryId === entry.id;
+                            const ol = overlapLayout.get(entry.id) || { col: 0, totalCols: 1 };
 
                             return (
                               <div
                                 key={entry.id}
                                 className={clsx(
-                                  "absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-4 px-2 py-1.5 shadow-sm transition hover:shadow-md hover:brightness-95 active:scale-[0.98]",
+                                  "absolute z-10 overflow-hidden rounded-md border-l-4 px-1.5 py-1.5 shadow-sm transition hover:shadow-md hover:brightness-95 active:scale-[0.98]",
                                   isDraggingThis && "opacity-30 grayscale-[0.5] scale-[0.98] shadow-none pointer-events-none"
                                 )}
                                 onMouseEnter={(ev) => showTooltip(ev, entry, emp.name)}
@@ -1817,6 +1925,8 @@ export default function TeamCalendarPage() {
                                 style={{
                                   top: `${top}px`,
                                   height: `${height}px`,
+                                  left: `calc(${(ol.col / ol.totalCols) * 100}% + 2px)`,
+                                  width: `calc(${(1 / ol.totalCols) * 100}% - 4px)`,
                                   backgroundColor: empColors.light,
                                   borderLeftColor: empColors.border,
                                   cursor: canDragEntry(entry) ? "grab" : "pointer",
@@ -1833,7 +1943,8 @@ export default function TeamCalendarPage() {
                                 )}
                               </div>
                             );
-                          })}
+                          });
+                          })()}
 
                           {/* プレビュー (ドラッグ中) */}
                           {dragPreview && viewMode === "day" && dragPreview.uid === emp.uid && (
@@ -1860,11 +1971,11 @@ export default function TeamCalendarPage() {
                     );
                   })}
 
-                  {/* 現在時刻のインジケーター (赤い線) */}
+                  {/* 現在時刻のインジケーター (赤い線) — h-12ヘッダー分のオフセットを加算 */}
                   {isToday && (
                     <div
                       className="pointer-events-none absolute left-0 right-0 z-40 border-t-2 border-rose-500"
-                      style={{ top: `${currentTimeTop}px` }}
+                      style={{ top: `calc(${currentTimeTop}px + 3rem)` }}
                     >
                       <div className="absolute -left-1 -top-1.5 h-3 w-3 rounded-full bg-rose-500 shadow-sm" />
                     </div>
@@ -1987,8 +2098,10 @@ export default function TeamCalendarPage() {
                         </div>
                       )}
 
-                      {/* イベント */}
-                      {dayEntries.map((entry) => {
+                      {/* イベント（重複時は横に並べる） */}
+                      {(() => {
+                        const weekOverlapLayout = computeOverlapLayout(dayEntries);
+                        return dayEntries.map((entry) => {
                         const start = new Date(entry.start);
                         const end = new Date(entry.end);
                         const startHour = start.getHours();
@@ -2002,17 +2115,20 @@ export default function TeamCalendarPage() {
                         const emp = employees.find((e) => e.authUid === entry.uid);
                         const empColors = getEmployeeColors(entry.color || emp?.color || "#3B82F6");
                         const isDraggingThis = dragPreview?.entryId === entry.id;
+                        const ol = weekOverlapLayout.get(entry.id) || { col: 0, totalCols: 1 };
 
                         return (
                           <div
                             key={entry.id}
                             className={clsx(
-                              "absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-4 px-2 py-1 shadow-sm transition hover:shadow-md hover:brightness-95 active:scale-[0.98]",
+                              "absolute z-10 overflow-hidden rounded-md border-l-4 px-1 py-1 shadow-sm transition hover:shadow-md hover:brightness-95 active:scale-[0.98]",
                               isDraggingThis && "opacity-30 grayscale-[0.5] scale-[0.98] shadow-none pointer-events-none"
                             )}
                             style={{
                               top: `${top}px`,
                               height: `${height}px`,
+                              left: `calc(${(ol.col / ol.totalCols) * 100}% + 1px)`,
+                              width: `calc(${(1 / ol.totalCols) * 100}% - 2px)`,
                               backgroundColor: empColors.light,
                               borderLeftColor: empColors.border,
                               cursor: canDragEntry(entry) ? "grab" : "pointer",
@@ -2060,7 +2176,8 @@ export default function TeamCalendarPage() {
                             )}
                           </div>
                         );
-                      })}
+                      });
+                      })()}
 
                       {/* プレビュー (ドラッグ中) */}
                       {dragPreview && viewMode === "week" && dragPreview.dayIdx === index && (
