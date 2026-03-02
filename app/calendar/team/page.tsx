@@ -39,6 +39,7 @@ type TimeEntry = {
   summary: string;
   start: string;
   end: string;
+  color?: string | null;
   repeat?: RepeatRule | null;
   guestUids?: string[];
   // クライアント側で展開した「繰り返しの各回」用
@@ -60,6 +61,68 @@ type ViewMode = "day" | "week" | "month";
 
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+// 日本の祝日判定（振替休日・国民の休日を含む）
+function getJapaneseHolidays(year: number): Map<string, string> {
+  const holidays = new Map<string, string>();
+  const add = (m: number, d: number, name: string) => {
+    holidays.set(`${year}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`, name);
+  };
+  // 春分・秋分の近似計算
+  const vernalEquinox = Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+  const autumnalEquinox = Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+  // ハッピーマンデー（第n月曜日）
+  const nthMonday = (m: number, n: number) => {
+    const first = new Date(year, m - 1, 1).getDay();
+    return 1 + ((8 - first) % 7) + (n - 1) * 7;
+  };
+  add(1, 1, "元日");
+  add(1, nthMonday(1, 2), "成人の日");
+  add(2, 11, "建国記念の日");
+  add(2, 23, "天皇誕生日");
+  add(3, vernalEquinox, "春分の日");
+  add(4, 29, "昭和の日");
+  add(5, 3, "憲法記念日");
+  add(5, 4, "みどりの日");
+  add(5, 5, "こどもの日");
+  add(7, nthMonday(7, 3), "海の日");
+  add(8, 11, "山の日");
+  add(9, nthMonday(9, 3), "敬老の日");
+  add(9, autumnalEquinox, "秋分の日");
+  add(10, nthMonday(10, 2), "スポーツの日");
+  add(11, 3, "文化の日");
+  add(11, 23, "勤労感謝の日");
+  // 振替休日（祝日が日曜の場合、翌月曜）
+  for (const [key, name] of [...holidays]) {
+    const d = new Date(key + "T00:00:00");
+    if (d.getDay() === 0) {
+      let next = new Date(d);
+      next.setDate(next.getDate() + 1);
+      let nextKey = next.toISOString().slice(0, 10);
+      while (holidays.has(nextKey)) {
+        next.setDate(next.getDate() + 1);
+        nextKey = next.toISOString().slice(0, 10);
+      }
+      holidays.set(nextKey, name + "（振替休日）");
+    }
+  }
+  // 国民の休日（祝日に挟まれた平日）
+  const sorted = [...holidays.keys()].sort();
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const d1 = new Date(sorted[i] + "T00:00:00");
+    const d2 = new Date(sorted[i + 1] + "T00:00:00");
+    const diff = (d2.getTime() - d1.getTime()) / 86400000;
+    if (diff === 2) {
+      const mid = new Date(d1);
+      mid.setDate(mid.getDate() + 1);
+      const midKey = mid.toISOString().slice(0, 10);
+      if (!holidays.has(midKey) && mid.getDay() !== 0) {
+        holidays.set(midKey, "国民の休日");
+      }
+    }
+  }
+  return holidays;
 }
 
 type RepeatRule = {
@@ -294,6 +357,9 @@ export default function TeamCalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
+  const [memberOrder, setMemberOrder] = useState<string[]>([]);
+  const [memberDragIdx, setMemberDragIdx] = useState<number | null>(null);
+  const [memberDragOverIdx, setMemberDragOverIdx] = useState<number | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [now, setNow] = useState(new Date());
   const dayScrollRef = useRef<HTMLDivElement | null>(null);
@@ -334,6 +400,8 @@ export default function TeamCalendarPage() {
   const [newDealId, setNewDealId] = useState<string>("");
   const [newProject, setNewProject] = useState("");
   const [newSummary, setNewSummary] = useState("");
+  const [newColor, setNewColor] = useState("");
+  const [isBreakMode, setIsBreakMode] = useState(false);
   const [newDate, setNewDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -350,6 +418,9 @@ export default function TeamCalendarPage() {
   const [newGuestUids, setNewGuestUids] = useState<string[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
 
+  const [hoverTooltip, setHoverTooltip] = useState<{ x: number; y: number; title: string; time: string; summary: string; emp: string } | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailEdit, setDetailEdit] = useState(false);
   const [activeEntry, setActiveEntry] = useState<TimeEntry | null>(null);
@@ -358,6 +429,7 @@ export default function TeamCalendarPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [editProject, setEditProject] = useState("");
   const [editSummary, setEditSummary] = useState("");
+  const [editColor, setEditColor] = useState("");
   const [editDate, setEditDate] = useState("");
   const [editStartTime, setEditStartTime] = useState("09:00");
   const [editEndTime, setEditEndTime] = useState("10:00");
@@ -399,13 +471,24 @@ export default function TeamCalendarPage() {
   }, [entries, calendarVisibleUids, user, companyOwnerUid]);
 
   // 権限に基づいて社員リストをフィルタ（サイドバー用）
-  const filteredEmployees = useMemo(() => {
+  const filteredEmployeesRaw = useMemo(() => {
     if (user?.uid === companyOwnerUid || calendarVisibleUids.size === 0) return employees;
     return employees.filter((e) => {
       if (e.authUid === user?.uid) return true;
       return e.authUid ? calendarVisibleUids.has(e.authUid) : false;
     });
   }, [employees, calendarVisibleUids, user, companyOwnerUid]);
+
+  // メンバー並び順を適用
+  const filteredEmployees = useMemo(() => {
+    if (memberOrder.length === 0) return filteredEmployeesRaw;
+    const orderMap = new Map(memberOrder.map((id, i) => [id, i]));
+    return [...filteredEmployeesRaw].sort((a, b) => {
+      const ai = orderMap.get(a.id) ?? 9999;
+      const bi = orderMap.get(b.id) ?? 9999;
+      return ai - bi;
+    });
+  }, [filteredEmployeesRaw, memberOrder]);
 
   // 案件の担当者リストを取得（新旧フィールド互換）
   const getDealAssignees = (d: Deal): string[] => {
@@ -457,6 +540,25 @@ export default function TeamCalendarPage() {
     [customersById, dealsById],
   );
 
+  const showTooltip = useCallback((e: React.MouseEvent, entry: TimeEntry, empName?: string) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => {
+      setHoverTooltip({
+        x: e.clientX,
+        y: e.clientY,
+        title: entryTitle(entry),
+        time: `${formatTime(entry.start)} - ${formatTime(entry.end)}`,
+        summary: entry.summary || "",
+        emp: empName || "",
+      });
+    }, 400);
+  }, [entryTitle]);
+
+  const hideTooltip = useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    setHoverTooltip(null);
+  }, []);
+
   // 社員一覧を読み込む
   const loadEmployees = useCallback(async (companyCode: string, uid: string) => {
     const merged: Employee[] = [];
@@ -505,8 +607,28 @@ export default function TeamCalendarPage() {
     // デフォルトで全員選択（authUidがあるもののみ）
     const allIds = new Set(items.map(e => e.authUid).filter((id): id is string => !!id));
     console.log("チームカレンダー: authUidがある社員のID:", Array.from(allIds));
+
+    // クッキーから非選択メンバーを復元
+    const uncheckedCookie = document.cookie.split("; ").find(c => c.startsWith("cal_unchecked="));
+    if (uncheckedCookie) {
+      const uncheckedIds = decodeURIComponent(uncheckedCookie.split("=")[1]).split(",").filter(Boolean);
+      uncheckedIds.forEach(id => allIds.delete(id));
+    }
     setSelectedEmployeeIds(allIds);
-    
+
+    // クッキーからメンバー並び順を復元
+    const orderCookie = document.cookie.split("; ").find(c => c.startsWith("cal_member_order="));
+    if (orderCookie) {
+      const savedOrder = decodeURIComponent(orderCookie.split("=")[1]).split(",").filter(Boolean);
+      // 保存済みの順番 + 新メンバーを末尾に追加
+      const currentIds = items.map(e => e.id);
+      const ordered = savedOrder.filter(id => currentIds.includes(id));
+      const newIds = currentIds.filter(id => !ordered.includes(id));
+      setMemberOrder([...ordered, ...newIds]);
+    } else {
+      setMemberOrder(items.map(e => e.id));
+    }
+
     return items;
   }, [profile?.displayName]);
 
@@ -766,7 +888,7 @@ export default function TeamCalendarPage() {
 
   const createEntry = async () => {
     if (!user) return;
-    if (!newCustomerId || !newDealId) {
+    if (!isBreakMode && (!newCustomerId || !newDealId)) {
       alert("顧客と案件は必ず選択してください");
       return;
     }
@@ -800,6 +922,7 @@ export default function TeamCalendarPage() {
       dealId: newDealId || null,
       project,
       summary: newSummary.trim(),
+      color: newColor || null,
       start: startIso,
       end: endIso,
       repeat,
@@ -843,10 +966,12 @@ export default function TeamCalendarPage() {
     }
 
     setCreateOpen(false);
+    setIsBreakMode(false);
     setNewCustomerId("");
     setNewDealId("");
     setNewProject("");
     setNewSummary("");
+    setNewColor("");
     setNewRepeatEnabled(false);
     setNewRepeatInterval(1);
     setNewRepeatByWeekday([]);
@@ -895,6 +1020,7 @@ export default function TeamCalendarPage() {
     setEditEndTime(`${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`);
     setEditProject(base.project || "");
     setEditSummary(base.summary || "");
+    setEditColor(base.color || "");
     setEditGuestUids((base.guestUids || []).filter(Boolean));
 
     const r = base.repeat || null;
@@ -941,6 +1067,7 @@ export default function TeamCalendarPage() {
       await updateDoc(doc(db, "timeEntries", activeEntry.id), {
         project,
         summary: editSummary.trim(),
+        color: editColor || null,
         start: startIso,
         end: endIso,
         repeat,
@@ -1001,7 +1128,8 @@ export default function TeamCalendarPage() {
     try {
       const key = activeOccurrenceDateKey || toDateKey(new Date(activeEntry.start));
       const nextExdates = Array.from(new Set([...(activeEntry.repeat.exdates || []), key])).sort();
-      await updateDoc(doc(db, "timeEntries", activeEntry.id), {
+      const docId = activeEntry.baseId || activeEntry.id;
+      await updateDoc(doc(db, "timeEntries", docId), {
         repeat: { ...activeEntry.repeat, exdates: nextExdates },
       });
     } catch (e: any) {
@@ -1020,7 +1148,8 @@ export default function TeamCalendarPage() {
       const d = new Date(`${key}T00:00:00`);
       d.setDate(d.getDate() - 1);
       const until = toDateKey(d);
-      await updateDoc(doc(db, "timeEntries", activeEntry.id), {
+      const docId = activeEntry.baseId || activeEntry.id;
+      await updateDoc(doc(db, "timeEntries", docId), {
         repeat: { ...activeEntry.repeat, end: { type: "UNTIL", until } },
       });
     } catch (e: any) {
@@ -1035,7 +1164,8 @@ export default function TeamCalendarPage() {
     if (!activeEntry) return;
     setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, "timeEntries", activeEntry.id));
+      const docId = activeEntry.baseId || activeEntry.id;
+      await deleteDoc(doc(db, "timeEntries", docId));
     } catch (e: any) {
       console.error("Delete recurring all failed:", e);
       alert("削除に失敗しました: " + (e.message || "エラーが発生しました"));
@@ -1273,6 +1403,23 @@ export default function TeamCalendarPage() {
       setMiniCalendarDate(new Date(year, month + 1, 1));
     };
 
+    // 表示範囲の年の祝日を取得
+    const holidayYears = new Set(days.filter(Boolean).map(d => d!.getFullYear()));
+    const allHolidays = new Map<string, string>();
+    for (const y of holidayYears) {
+      for (const [k, v] of getJapaneseHolidays(y)) allHolidays.set(k, v);
+    }
+
+    const DAY_HEADERS = [
+      { label: "日", cls: "text-red-400" },
+      { label: "月", cls: "text-slate-400" },
+      { label: "火", cls: "text-slate-400" },
+      { label: "水", cls: "text-slate-400" },
+      { label: "木", cls: "text-slate-400" },
+      { label: "金", cls: "text-slate-400" },
+      { label: "土", cls: "text-blue-400" },
+    ];
+
     return (
       <div className="mb-6 px-2">
         <div className="mb-4 flex items-center justify-between px-1">
@@ -1299,30 +1446,52 @@ export default function TeamCalendarPage() {
           </div>
         </div>
         <div className="grid grid-cols-7 gap-y-1">
-          {["日", "月", "火", "水", "木", "金", "土"].map((d) => (
-            <div key={d} className="text-center text-[10px] font-bold text-slate-400 py-1">
-              {d}
+          {DAY_HEADERS.map((d) => (
+            <div key={d.label} className={`text-center text-[10px] font-bold py-1 ${d.cls}`}>
+              {d.label}
             </div>
           ))}
           {days.map((date, idx) => {
             if (!date) return <div key={idx} />;
             const isCurrentMonth = date.getMonth() === month;
-            const isSelected = 
+            const isSelected =
               date.getDate() === currentDate.getDate() &&
               date.getMonth() === currentDate.getMonth() &&
               date.getFullYear() === currentDate.getFullYear();
-            const isToday = 
+            const isToday =
               date.getDate() === now.getDate() &&
               date.getMonth() === now.getMonth() &&
               date.getFullYear() === now.getFullYear();
+            const dow = date.getDay();
+            const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            const holidayName = allHolidays.get(dateKey);
+            const isSunday = dow === 0;
+            const isSaturday = dow === 6;
+            const isHoliday = !!holidayName;
+
+            // 色の優先度: 選択 > 今日 > 祝日/日曜 > 土曜 > 通常
+            let colorCls = "text-slate-600 hover:bg-slate-100";
+            if (!isCurrentMonth) {
+              colorCls = isSunday || isHoliday ? "text-red-200" : isSaturday ? "text-blue-200" : "text-slate-300";
+            } else if (isSelected) {
+              colorCls = "bg-blue-600 text-white";
+            } else if (isToday) {
+              colorCls = "text-blue-600 bg-blue-50";
+            } else if (isSunday || isHoliday) {
+              colorCls = "text-red-500 hover:bg-red-50";
+            } else if (isSaturday) {
+              colorCls = "text-blue-500 hover:bg-blue-50";
+            }
 
             return (
               <button
                 key={idx}
                 onClick={() => setCurrentDate(new Date(date))}
+                title={holidayName || undefined}
                 className={clsx(
                   "flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold transition-all mx-auto",
-                  !isCurrentMonth ? "text-slate-300" : isSelected ? "bg-blue-600 text-white" : isToday ? "text-blue-600 bg-blue-50" : "text-slate-600 hover:bg-slate-100"
+                  colorCls,
+                  isHoliday && isCurrentMonth && !isSelected && !isToday && "underline decoration-red-300 underline-offset-2"
                 )}
               >
                 {date.getDate()}
@@ -1382,11 +1551,58 @@ export default function TeamCalendarPage() {
               )}
               {filteredEmployees
                 .filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase()))
-                .map((emp) => (
+                .map((emp, idx) => (
                 <label
                   key={emp.id}
-                  className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-50 cursor-pointer transition-colors group"
+                  draggable={!memberSearch}
+                  onDragStart={(e) => {
+                    setMemberDragIdx(idx);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setMemberDragOverIdx(idx);
+                  }}
+                  onDragLeave={() => setMemberDragOverIdx(null)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (memberDragIdx === null || memberDragIdx === idx) {
+                      setMemberDragIdx(null);
+                      setMemberDragOverIdx(null);
+                      return;
+                    }
+                    const displayed = filteredEmployees.filter(emp2 => emp2.name.toLowerCase().includes(memberSearch.toLowerCase()));
+                    const draggedId = displayed[memberDragIdx]?.id;
+                    const targetId = displayed[idx]?.id;
+                    if (!draggedId || !targetId) return;
+                    const newOrder = [...memberOrder];
+                    const fromIdx = newOrder.indexOf(draggedId);
+                    const toIdx = newOrder.indexOf(targetId);
+                    if (fromIdx !== -1 && toIdx !== -1) {
+                      newOrder.splice(fromIdx, 1);
+                      newOrder.splice(toIdx, 0, draggedId);
+                      setMemberOrder(newOrder);
+                      document.cookie = `cal_member_order=${encodeURIComponent(newOrder.join(","))};path=/;max-age=${60*60*24*30}`;
+                    }
+                    setMemberDragIdx(null);
+                    setMemberDragOverIdx(null);
+                  }}
+                  onDragEnd={() => { setMemberDragIdx(null); setMemberDragOverIdx(null); }}
+                  className={clsx(
+                    "flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50 cursor-pointer transition-colors group",
+                    memberDragIdx === idx && "opacity-40",
+                    memberDragOverIdx === idx && memberDragIdx !== idx && "ring-2 ring-orange-400 bg-orange-50/50",
+                  )}
                 >
+                  {/* ドラッグハンドル */}
+                  {!memberSearch && (
+                    <svg className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 cursor-grab active:cursor-grabbing" viewBox="0 0 16 16" fill="currentColor">
+                      <circle cx="5" cy="3" r="1.2" /><circle cx="11" cy="3" r="1.2" />
+                      <circle cx="5" cy="8" r="1.2" /><circle cx="11" cy="8" r="1.2" />
+                      <circle cx="5" cy="13" r="1.2" /><circle cx="11" cy="13" r="1.2" />
+                    </svg>
+                  )}
                   <div className="relative flex items-center">
                     <input
                       type="checkbox"
@@ -1397,6 +1613,10 @@ export default function TeamCalendarPage() {
                         if (e.target.checked) newSet.add(emp.authUid);
                         else newSet.delete(emp.authUid);
                         setSelectedEmployeeIds(newSet);
+                        // クッキーに非選択メンバーを保存（30日間）
+                        const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                        const unchecked = allIds.filter(id => !newSet.has(id));
+                        document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
                       }}
                       className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-300 checked:border-orange-500 checked:bg-orange-500 focus:ring-2 focus:ring-orange-100 transition-all"
                     />
@@ -1554,7 +1774,7 @@ export default function TeamCalendarPage() {
                             const top = (startHour + startMinute / 60) * HOUR_PX;
                             const height = Math.max((endHour + endMinute / 60 - (startHour + startMinute / 60)) * HOUR_PX, 24);
 
-                            const empColors = getEmployeeColors(emp.color || "#3B82F6");
+                            const empColors = getEmployeeColors(entry.color || emp.color || "#3B82F6");
                             const isDraggingThis = dragPreview?.entryId === entry.id;
 
                             return (
@@ -1564,8 +1784,10 @@ export default function TeamCalendarPage() {
                                   "absolute left-1 right-1 z-10 overflow-hidden rounded-md border-l-4 px-2 py-1.5 shadow-sm transition hover:shadow-md hover:brightness-95 active:scale-[0.98]",
                                   isDraggingThis && "opacity-30 grayscale-[0.5] scale-[0.98] shadow-none pointer-events-none"
                                 )}
-                                title={`${entryTitle(entry)}\n${formatTime(entry.start)} - ${formatTime(entry.end)}\n${entry.summary || ""}`}
+                                onMouseEnter={(ev) => showTooltip(ev, entry, emp.name)}
+                                onMouseLeave={hideTooltip}
                                 onPointerDown={(ev) => {
+                                  hideTooltip();
                                   if (!canDragEntry(entry)) return;
                                   ev.stopPropagation();
                                   const rect = ev.currentTarget.getBoundingClientRect();
@@ -1588,6 +1810,7 @@ export default function TeamCalendarPage() {
                                 }}
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  hideTooltip();
                                   if (suppressNextClickRef.current) return;
                                   openEntryDetail(entry);
                                 }}
@@ -1777,7 +2000,7 @@ export default function TeamCalendarPage() {
                         const height = Math.max((endHour + endMinute / 60 - (startHour + startMinute / 60)) * HOUR_PX, 24);
 
                         const emp = employees.find((e) => e.authUid === entry.uid);
-                        const empColors = getEmployeeColors(emp?.color || "#3B82F6");
+                        const empColors = getEmployeeColors(entry.color || emp?.color || "#3B82F6");
                         const isDraggingThis = dragPreview?.entryId === entry.id;
 
                         return (
@@ -1794,8 +2017,10 @@ export default function TeamCalendarPage() {
                               borderLeftColor: empColors.border,
                               cursor: canDragEntry(entry) ? "grab" : "pointer",
                             }}
-                            title={`${emp?.name || "不明"} - ${entryTitle(entry)}\n${formatTime(entry.start)} - ${formatTime(entry.end)}`}
+                            onMouseEnter={(ev) => showTooltip(ev, entry, emp?.name || "不明")}
+                            onMouseLeave={hideTooltip}
                             onPointerDown={(ev) => {
+                              hideTooltip();
                               if (!canDragEntry(entry)) return;
                               ev.stopPropagation();
                               const rect = ev.currentTarget.getBoundingClientRect();
@@ -1818,6 +2043,7 @@ export default function TeamCalendarPage() {
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
+                              hideTooltip();
                               if (suppressNextClickRef.current) return;
                               openEntryDetail(entry);
                             }}
@@ -1942,7 +2168,7 @@ export default function TeamCalendarPage() {
                 <div className="space-y-0.5">
                   {dayEntries.slice(0, 5).map((entry) => {
                     const emp = employees.find((e) => e.authUid === entry.uid);
-                    const empColors = getEmployeeColors(emp?.color || "#3B82F6");
+                    const empColors = getEmployeeColors(entry.color || emp?.color || "#3B82F6");
                     return (
                       <div
                         key={entry.id}
@@ -1951,9 +2177,11 @@ export default function TeamCalendarPage() {
                           backgroundColor: empColors.light,
                           borderLeft: `2px solid ${empColors.border}`,
                         }}
-                        title={`${emp?.name || "?"}: ${entryTitle(entry)}`}
+                        onMouseEnter={(ev) => showTooltip(ev, entry, emp?.name || "?")}
+                        onMouseLeave={hideTooltip}
                         onClick={(e) => {
                           e.stopPropagation();
+                          hideTooltip();
                           openEntryDetail(entry);
                         }}
                       >
@@ -1996,7 +2224,7 @@ export default function TeamCalendarPage() {
   console.log("employees:", employees);
   console.log("showSidebar:", showSidebar);
 
-  const canCreateNewEntry = !!newCustomerId && !!newDealId;
+  const canCreateNewEntry = isBreakMode || (!!newCustomerId && !!newDealId);
 
   return (
     <AppShell title="カレンダー" subtitle={getDateRangeText()} initialSidebarCollapsed>
@@ -2104,12 +2332,51 @@ export default function TeamCalendarPage() {
 
             {/* スクロール可能なコンテンツ */}
             <div className="flex-1 overflow-y-auto px-5">
+              {/* 休憩ボタン */}
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isBreakMode;
+                    setIsBreakMode(next);
+                    if (next) {
+                      setNewProject("休憩");
+                      setNewCustomerId("");
+                      setNewDealId("");
+                      setNewSummary("");
+                      // 開始時間から60分後を終了時間にセット
+                      const [h, m] = newStartTime.split(":").map(Number);
+                      const endTotal = h * 60 + m + 60;
+                      const endH = Math.floor(endTotal / 60) % 24;
+                      const endM = endTotal % 60;
+                      setNewEndTime(`${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`);
+                    } else {
+                      setNewProject("");
+                    }
+                  }}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all border",
+                    isBreakMode
+                      ? "bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm"
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  休憩
+                </button>
+                {isBreakMode && (
+                  <span className="text-[10px] font-bold text-emerald-600">60分の休憩を登録します</span>
+                )}
+              </div>
+
               {!canCreateNewEntry ? (
-                <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
+                <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
                   顧客と案件を選択すると登録できます。
                 </div>
               ) : (
-                <div className="mt-4" />
+                <div className="mt-3" />
               )}
 
               <div className="grid grid-cols-1 gap-3">
@@ -2220,6 +2487,8 @@ export default function TeamCalendarPage() {
                 </div>
               </div>
 
+              {!isBreakMode && (
+              <>
               <div>
                 <div className="text-xs font-extrabold text-slate-500">
                   顧客 <span className="text-rose-600">*</span>
@@ -2283,6 +2552,8 @@ export default function TeamCalendarPage() {
                   </div>
                 )}
               </div>
+              </>
+              )}
 
               <div>
                 <div className="text-xs font-extrabold text-slate-500">案件/作業名</div>
@@ -2302,6 +2573,58 @@ export default function TeamCalendarPage() {
                   placeholder="例）議事録作成、対応内容など"
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
                 />
+              </div>
+
+              <div>
+                <div className="text-xs font-extrabold text-slate-500 mb-1.5">背景色（任意）</div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* リセット */}
+                  <button
+                    type="button"
+                    onClick={() => setNewColor("")}
+                    className={clsx(
+                      "h-6 w-6 rounded-full border-2 transition-all flex items-center justify-center text-[10px]",
+                      !newColor ? "border-slate-400 ring-2 ring-slate-300" : "border-slate-200 hover:border-slate-300"
+                    )}
+                    title="デフォルト（社員カラー）"
+                  >
+                    <svg className="h-3 w-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                  </button>
+                  {["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setNewColor(c)}
+                      className={clsx(
+                        "h-6 w-6 rounded-full border-2 transition-all",
+                        newColor === c ? "border-slate-600 ring-2 ring-slate-300 scale-110" : "border-transparent hover:scale-110"
+                      )}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                  <label className="relative cursor-pointer" title="カスタム色">
+                    <div className={clsx(
+                      "h-6 w-6 rounded-full border-2 border-dashed flex items-center justify-center transition-all",
+                      newColor && !["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].includes(newColor)
+                        ? "border-slate-600 ring-2 ring-slate-300"
+                        : "border-slate-300 hover:border-slate-400"
+                    )} style={newColor && !["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].includes(newColor) ? { backgroundColor: newColor } : {}}>
+                      {(!newColor || ["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].includes(newColor)) && (
+                        <svg className="h-3 w-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      )}
+                    </div>
+                    <input
+                      type="color"
+                      value={newColor || "#3B82F6"}
+                      onChange={(e) => setNewColor(e.target.value)}
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -2512,13 +2835,13 @@ export default function TeamCalendarPage() {
               setActiveEntry(null);
             }}
           />
-          <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-slate-900 p-6 text-white shadow-2xl">
+          <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-2xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-slate-900 p-6 text-white shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-3">
                   <div
                     className="h-4 w-4 rounded"
-                    style={{ backgroundColor: getEmployeeColors(employees.find((e) => e.authUid === activeEntry.uid)?.color || "#3B82F6").base }}
+                    style={{ backgroundColor: getEmployeeColors(activeEntry.color || employees.find((e) => e.authUid === activeEntry.uid)?.color || "#3B82F6").base }}
                   />
                   <div className="truncate text-2xl font-extrabold">{entryTitle(activeEntry)}</div>
                 </div>
@@ -2722,6 +3045,57 @@ export default function TeamCalendarPage() {
                         onChange={(e) => setEditSummary(e.target.value)}
                         className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
                       />
+                    </div>
+
+                    <div>
+                      <div className="text-xs font-extrabold text-slate-500 mb-1.5">背景色（任意）</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setEditColor("")}
+                          className={clsx(
+                            "h-6 w-6 rounded-full border-2 transition-all flex items-center justify-center",
+                            !editColor ? "border-slate-400 ring-2 ring-slate-300" : "border-slate-200 hover:border-slate-300"
+                          )}
+                          title="デフォルト（社員カラー）"
+                        >
+                          <svg className="h-3 w-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                          </svg>
+                        </button>
+                        {["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].map(c => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setEditColor(c)}
+                            className={clsx(
+                              "h-6 w-6 rounded-full border-2 transition-all",
+                              editColor === c ? "border-slate-600 ring-2 ring-slate-300 scale-110" : "border-transparent hover:scale-110"
+                            )}
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                        <label className="relative cursor-pointer" title="カスタム色">
+                          <div className={clsx(
+                            "h-6 w-6 rounded-full border-2 border-dashed flex items-center justify-center transition-all",
+                            editColor && !["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].includes(editColor)
+                              ? "border-slate-600 ring-2 ring-slate-300"
+                              : "border-slate-300 hover:border-slate-400"
+                          )} style={editColor && !["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].includes(editColor) ? { backgroundColor: editColor } : {}}>
+                            {(!editColor || ["#3B82F6","#10B981","#F59E0B","#EF4444","#8B5CF6","#EC4899","#06B6D4","#84CC16","#F97316","#6366F1","#14B8A6","#A855F7"].includes(editColor)) && (
+                              <svg className="h-3 w-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                              </svg>
+                            )}
+                          </div>
+                          <input
+                            type="color"
+                            value={editColor || "#3B82F6"}
+                            onChange={(e) => setEditColor(e.target.value)}
+                            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                          />
+                        </label>
+                      </div>
                     </div>
 
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -3008,6 +3382,26 @@ export default function TeamCalendarPage() {
         </div>
       )}
       </div>
+
+      {/* カスタムツールチップ */}
+      {hoverTooltip && (
+        <div
+          className="pointer-events-none fixed z-[100] max-w-xs rounded-lg bg-slate-900 px-3 py-2.5 text-white shadow-2xl"
+          style={{
+            left: `${Math.min(hoverTooltip.x + 12, window.innerWidth - 320)}px`,
+            top: `${Math.min(hoverTooltip.y + 12, window.innerHeight - 120)}px`,
+          }}
+        >
+          {hoverTooltip.emp && (
+            <div className="text-[10px] font-bold text-white/60 mb-1">{hoverTooltip.emp}</div>
+          )}
+          <div className="text-xs font-extrabold leading-snug break-words">{hoverTooltip.title}</div>
+          <div className="text-[10px] font-bold text-white/70 mt-1">{hoverTooltip.time}</div>
+          {hoverTooltip.summary && (
+            <div className="text-[10px] text-white/60 mt-1.5 leading-relaxed break-words whitespace-pre-wrap">{hoverTooltip.summary}</div>
+          )}
+        </div>
+      )}
     </AppShell>
   );
 }
