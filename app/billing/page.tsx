@@ -2,130 +2,67 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, where, setDoc, Timestamp } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where, Timestamp } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "../AppShell";
 import { auth, db } from "../../lib/firebase";
 import { ensureProfile } from "../../lib/ensureProfile";
+import { resolveVisibleUids, parseDataVisibility } from "../../lib/visibilityPermissions";
+import type { InvoiceData } from "../../lib/pdf/generateInvoice";
+import {
+  type MemberProfile,
+  type Customer,
+  type BillingRecord,
+  type BillingStatus,
+  type Employee,
+  type IssuerProfile,
+  clsx,
+  statusLabel,
+  statusColor,
+  yen,
+  ymKey,
+  parseYM,
+  addMonths,
+  makeBillingKey,
+  getCustomerAssignees,
+  STATUS_OPTIONS,
+} from "../../lib/billing";
 
-type MemberProfile = { uid: string; companyCode: string; displayName?: string };
-
-type Customer = {
-  id: string;
-  name: string;
-  isActive?: boolean | null;
-  inactivatedAt?: Timestamp | null; // 停止した日時
+/** 表示行: 顧客×担当者 (billing有無に関わらず生成) */
+type DisplayRow = {
+  customer: Customer;
+  assigneeUid: string;
+  assigneeName: string;
+  billing: BillingRecord | undefined;
 };
 
-type BillingStatus = "none" | "created" | "confirmed" | "sent" | "no_invoice";
-
-type BillingRecord = {
-  id: string; // companyCode_customerId_month
-  companyCode: string;
-  customerId: string;
-  month: string; // YYYY-MM
-  status: BillingStatus;
-  amount?: number | null;
-  notes?: string | null;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
-  updatedBy?: string;
-};
-
-function clsx(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
-}
-
-function ymKey(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
-}
-
-function parseYM(key: string) {
-  const [y, m] = key.split("-").map((v) => Number(v));
-  return { y: y || new Date().getFullYear(), m: m || new Date().getMonth() + 1 };
-}
-
-function addMonths(key: string, delta: number) {
-  const { y, m } = parseYM(key);
-  const d = new Date(y, (m - 1) + delta, 1);
-  return ymKey(d);
-}
-
-function labelYM(key: string) {
-  const { y, m } = parseYM(key);
-  return `${y}/${m}`;
-}
-
-function yen(n: number) {
-  const nf = new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 });
-  return nf.format(isFinite(n) ? n : 0);
-}
-
-function statusLabel(s: BillingStatus): string {
-  switch (s) {
-    case "created": return "作成済";
-    case "confirmed": return "確認済";
-    case "sent": return "送付済";
-    case "no_invoice": return "請求なし";
-    default: return "未着手";
-  }
-}
-
-function statusColor(s: BillingStatus): string {
-  switch (s) {
-    case "created": return "bg-amber-100 text-amber-800";
-    case "confirmed": return "bg-blue-100 text-blue-800";
-    case "sent": return "bg-emerald-100 text-emerald-800";
-    case "no_invoice": return "bg-slate-100 text-slate-600";
-    default: return "bg-slate-50 text-slate-400";
-  }
-}
-
-const STATUS_OPTIONS: BillingStatus[] = ["none", "created", "confirmed", "sent", "no_invoice"];
-
-export default function BillingPage() {
+export default function BillingListPage() {
   const router = useRouter();
-  const [month, setMonth] = useState(() => ymKey(new Date()));
-  const [editMode, setEditMode] = useState(false);
 
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [billings, setBillings] = useState<Map<string, BillingRecord>>(new Map());
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [uidNameMap, setUidNameMap] = useState<Map<string, string>>(new Map());
+  const [isOwner, setIsOwner] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
+  const [visibleUids, setVisibleUids] = useState<Set<string>>(new Set());
+  const [issuerProfiles, setIssuerProfiles] = useState<IssuerProfile[]>([]);
+  const [downloadingPdfKey, setDownloadingPdfKey] = useState<string | null>(null);
 
-  // フィルター
-  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
-  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
-  const customerDropdownRef = useRef<HTMLDivElement>(null);
+  // Filters
+  const [month, setMonth] = useState(() => ymKey(new Date()));
+  const [customerFilter, setCustomerFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<BillingStatus | "ALL">("ALL");
-  const [isConfirmed, setIsConfirmed] = useState(false);
 
-  // 月変更時に確定状態をlocalStorageから復元
-  useEffect(() => {
-    if (!profile?.companyCode) return;
-    const key = `billing:confirmed:${profile.companyCode}:${month}`;
-    try {
-      setIsConfirmed(localStorage.getItem(key) === "true");
-    } catch { setIsConfirmed(false); }
-  }, [month, profile?.companyCode]);
+  // Customer dropdown
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
 
-  const toggleConfirm = () => {
-    if (!profile?.companyCode) return;
-    const key = `billing:confirmed:${profile.companyCode}:${month}`;
-    const next = !isConfirmed;
-    setIsConfirmed(next);
-    setEditMode(false);
-    try { localStorage.setItem(key, String(next)); } catch {}
-  };
-
-  // ドロップダウン外クリックで閉じる
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
@@ -138,38 +75,77 @@ export default function BillingPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [customerDropdownOpen]);
 
-  const toggleCustomer = (id: string) => {
-    setSelectedCustomers((prev) =>
-      prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]
-    );
-  };
-
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      if (!u) {
-        setLoading(false);
-        return;
-      }
+      if (!u) { setLoading(false); return; }
       try {
         setError("");
         const prof = (await ensureProfile(u)) as unknown as MemberProfile | null;
         if (!prof?.companyCode) {
           setProfile(null);
-          setCustomers([]);
           setError("会社コードが未設定です（設定 > 会社 で設定してください）");
           return;
         }
         setProfile(prof);
 
-        // 顧客一覧取得
+        const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
+        const owner = compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid;
+        setIsOwner(owner);
+
+        let billingPerms = { canEdit: false };
+        let resolvedUids = new Set<string>();
+        if (owner) {
+          billingPerms = { canEdit: true };
+        } else {
+          try {
+            const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
+            if (msSnap.exists()) {
+              const msData = msSnap.data() as any;
+              const bp = msData.billingPermissions || {};
+              billingPerms.canEdit = bp.canEdit === true;
+              const vis = parseDataVisibility(msData, "billingPermissions");
+              resolvedUids = await resolveVisibleUids(u.uid, prof.companyCode, vis);
+            } else {
+              resolvedUids = new Set([u.uid]);
+            }
+          } catch {
+            resolvedUids = new Set([u.uid]);
+          }
+        }
+        setCanEdit(billingPerms.canEdit);
+        setVisibleUids(resolvedUids);
+
+        // Load customers
         const custSnap = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
-        const custItems = custSnap.docs
+        const custs = custSnap.docs
           .map((d) => ({ id: d.id, ...d.data() } as Customer))
           .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setCustomers(custItems);
+        setCustomers(custs);
 
-        // 請求データ取得
+        // Load employees
+        try {
+          const empSnap = await getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)));
+          const nameMap = new Map<string, string>();
+          for (const d of empSnap.docs) {
+            const emp = d.data() as Employee;
+            if (emp.authUid) nameMap.set(emp.authUid, emp.name || "");
+          }
+          setUidNameMap(nameMap);
+        } catch {}
+
+        // Load issuer profiles
+        try {
+          const bsSnap = await getDoc(doc(db, "billingSettings", prof.companyCode));
+          if (bsSnap.exists()) {
+            const bsData = bsSnap.data() as any;
+            if (Array.isArray(bsData.profiles)) {
+              setIssuerProfiles(bsData.profiles);
+            }
+          }
+        } catch {}
+
+        // Load billings
         const billingSnap = await getDocs(query(collection(db, "billings"), where("companyCode", "==", prof.companyCode)));
         const billingMap = new Map<string, BillingRecord>();
         for (const d of billingSnap.docs) {
@@ -188,153 +164,169 @@ export default function BillingPage() {
     return () => unsub();
   }, []);
 
-  // 現在月のデータを取得・更新
-  const getBillingKey = (customerId: string, m: string) => `${profile?.companyCode}_${customerId}_${m}`;
-
-  const getBilling = (customerId: string, m: string): BillingRecord | undefined => {
-    const key = getBillingKey(customerId, m);
-    return billings.get(key);
-  };
-
-  const setStatus = async (customerId: string, status: BillingStatus) => {
-    if (!profile?.companyCode || !user) return;
-    const key = getBillingKey(customerId, month);
-    const existing = billings.get(key);
-
-    const record: BillingRecord = {
-      id: key,
-      companyCode: profile.companyCode,
-      customerId,
-      month,
-      status,
-      amount: existing?.amount ?? null,
-      notes: existing?.notes ?? null,
-      createdAt: existing?.createdAt ?? Timestamp.now(),
-      updatedAt: Timestamp.now(),
-      updatedBy: user.uid,
-    };
-
-    setSaving(true);
-    try {
-      await setDoc(doc(db, "billings", key), record);
-      setBillings((prev) => {
-        const next = new Map(prev);
-        next.set(key, record);
-        return next;
-      });
-    } catch (e: any) {
-      console.error("保存失敗:", e);
-      setError("保存に失敗しました: " + (e?.message || ""));
-    } finally {
-      setSaving(false);
+  // Billing lookup helper
+  const getBilling = (customerId: string, assigneeUid: string): BillingRecord | undefined => {
+    if (!profile?.companyCode) return undefined;
+    if (assigneeUid) {
+      const key = makeBillingKey(profile.companyCode, customerId, assigneeUid, month);
+      const found = billings.get(key);
+      if (found) return found;
     }
+    const legacyKey = makeBillingKey(profile.companyCode, customerId, "", month);
+    return billings.get(legacyKey);
   };
 
-  const setAmount = async (customerId: string, amount: number | null) => {
-    if (!profile?.companyCode || !user) return;
-    const key = getBillingKey(customerId, month);
-    const existing = billings.get(key);
-
-    const record: BillingRecord = {
-      id: key,
-      companyCode: profile.companyCode,
-      customerId,
-      month,
-      status: existing?.status ?? "none",
-      amount,
-      notes: existing?.notes ?? null,
-      createdAt: existing?.createdAt ?? Timestamp.now(),
-      updatedAt: Timestamp.now(),
-      updatedBy: user.uid,
-    };
-
-    setSaving(true);
-    try {
-      await setDoc(doc(db, "billings", key), record);
-      setBillings((prev) => {
-        const next = new Map(prev);
-        next.set(key, record);
-        return next;
-      });
-    } catch (e: any) {
-      console.error("保存失敗:", e);
-      setError("保存に失敗しました: " + (e?.message || ""));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Timestamp → YYYY-MM 変換
+  // Timestamp → YYYY-MM
   const tsToYM = (ts: Timestamp | null | undefined): string | null => {
     if (!ts || typeof ts.toDate !== "function") return null;
     return ymKey(ts.toDate());
   };
 
-  // 表示する顧客（稼働中 or 停止月まで表示 + フィルター適用）
-  const rows = useMemo(() => {
-    return customers.filter((c) => {
-      // 稼働中判定: isActive が false 以外（true/undefined/null）なら稼働中扱い
-      if (c.isActive !== false) {
-        // 稼働中 → 表示
-      } else {
-        // 停止中の顧客
+  // PDF download handler
+  const handleDownloadPdf = async (row: DisplayRow) => {
+    const b = row.billing;
+    if (!b || !b.amount) return;
+    const key = `${row.customer.id}_${row.assigneeUid || "_"}`;
+    setDownloadingPdfKey(key);
+    try {
+      const ip = issuerProfiles.find((p) => p.id === b.issuerProfileId) || issuerProfiles.find((p) => p.isDefault) || issuerProfiles[0];
+      if (!ip) { alert("発行元プロファイルが設定されていません"); return; }
+      const { m: billingM } = parseYM(b.month);
+      const pdfData: InvoiceData = {
+        issuerCompanyName: ip.companyName,
+        issuerCorporateNumber: ip.corporateNumber,
+        issuerPostalCode: ip.postalCode,
+        issuerAddress: ip.address,
+        issuerTel: ip.tel,
+        bankName: ip.bankName,
+        branchName: ip.branchName,
+        accountType: ip.accountType,
+        accountNumber: ip.accountNumber,
+        accountHolder: ip.accountHolder,
+        recipientName: row.customer.name,
+        recipientContactName: row.customer.contactName || undefined,
+        recipientAddress: row.customer.address || undefined,
+        invoiceNumber: b.invoiceNumber || b.id,
+        issueDate: b.issueDate || "",
+        billingMonth: `${billingM}月度`,
+        amount: b.amount,
+        taxType: b.taxType || "included",
+      };
+      const { generateInvoice } = await import("../../lib/pdf/generateInvoice");
+      const result = await generateInvoice(pdfData);
+      const a = document.createElement("a");
+      a.href = result.blobUrl;
+      a.download = result.fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      console.error("PDF生成エラー:", e);
+      alert("PDFの生成に失敗しました");
+    } finally {
+      setDownloadingPdfKey(null);
+    }
+  };
+
+  // Build display rows from customers (shows all customers, not just ones with billing records)
+  const displayRows = useMemo(() => {
+    const result: DisplayRow[] = [];
+
+    for (const c of customers) {
+      // Active check
+      if (c.isActive === false) {
         const inactMonth = tsToYM(c.inactivatedAt);
-        if (!inactMonth) {
-          // inactivatedAt が無い停止顧客 → 表示しない
-          return false;
+        if (!inactMonth || month > inactMonth) continue;
+      }
+      // Customer filter
+      if (customerFilter && c.id !== customerFilter) continue;
+
+      const allAssignees = getCustomerAssignees(c);
+
+      // Visibility filter
+      let relevantAssignees: string[];
+      if (visibleUids.size > 0) {
+        relevantAssignees = allAssignees.filter((uid) => visibleUids.has(uid));
+        if (relevantAssignees.length === 0) continue;
+      } else {
+        relevantAssignees = allAssignees;
+      }
+
+      if (relevantAssignees.length === 0) {
+        const b = getBilling(c.id, "");
+        result.push({ customer: c, assigneeUid: "", assigneeName: "", billing: b });
+      } else {
+        for (const uid of relevantAssignees) {
+          const b = getBilling(c.id, uid);
+          result.push({
+            customer: c,
+            assigneeUid: uid,
+            assigneeName: uidNameMap.get(uid) || "",
+            billing: b,
+          });
         }
-        // 停止月までは表示（例: 1/10停止 → 1月度は表示、2月度以降は非表示）
-        if (month > inactMonth) return false;
       }
+    }
 
-      // 顧客フィルター
-      if (selectedCustomers.length > 0 && !selectedCustomers.includes(c.id)) {
-        return false;
-      }
-      // ステータスフィルター
-      if (statusFilter !== "ALL") {
-        const b = getBilling(c.id, month);
-        const s = b?.status ?? "none";
-        if (s !== statusFilter) return false;
-      }
-      return true;
-    });
-  }, [customers, month, selectedCustomers, statusFilter, billings, profile]);
+    // Status filter
+    if (statusFilter !== "ALL") {
+      return result.filter((r) => (r.billing?.status ?? "none") === statusFilter);
+    }
+    return result;
+  }, [customers, month, customerFilter, statusFilter, billings, profile, visibleUids, uidNameMap]);
 
-  // 合計金額
+  // Total amount
   const totalAmount = useMemo(() => {
-    return rows.reduce((sum, c) => {
-      const b = getBilling(c.id, month);
-      if (b?.status === "no_invoice") return sum;
-      const amount = b?.amount ?? 0;
-      return sum + amount;
+    return displayRows.reduce((sum, r) => {
+      if ((r.billing?.status ?? "none") === "no_invoice") return sum;
+      return sum + (r.billing?.amount ?? 0);
     }, 0);
-  }, [rows, month, billings, profile]);
+  }, [displayRows]);
+
+  const invoiceRowCount = useMemo(() => {
+    return displayRows.filter((r) => (r.billing?.status ?? "none") !== "no_invoice").length;
+  }, [displayRows]);
+
+  const formatMonthLabel = (m: string) => {
+    const { y, m: mo } = parseYM(m);
+    return `${y}年${mo}月`;
+  };
 
   return (
     <AppShell
       title="請求管理"
-      subtitle="顧客ごとの月次 請求"
+      subtitle="請求書の一覧・作成・管理"
+      headerRight={
+        canEdit ? (
+          <Link
+            href="/billing/new"
+            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-sky-700 transition"
+          >
+            ＋ 請求書を作成
+          </Link>
+        ) : undefined
+      }
     >
       <div className="space-y-3">
-        {/* テーブル + ツールバー */}
-        <div className="rounded-lg border border-slate-200 bg-white overflow-visible">
-          <div className="flex flex-wrap items-center justify-between bg-sky-50 px-3 py-2 rounded-t-lg gap-2">
-            <div className="flex items-center gap-2">
+        {/* Filters */}
+        <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Month navigation */}
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setMonth((m) => addMonths(m, -1))}
-                className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
-                aria-label="前月"
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
               >
                 ←
               </button>
-              <div className="text-sm font-extrabold text-slate-900 tracking-tight">{labelYM(month)}</div>
+              <div className="text-sm font-extrabold text-slate-900 tracking-tight">
+                {formatMonthLabel(month)}
+              </div>
               <button
                 type="button"
                 onClick={() => setMonth((m) => addMonths(m, 1))}
-                className="rounded-md border border-sky-200 bg-white px-2 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
-                aria-label="翌月"
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-extrabold text-sky-700 hover:bg-sky-50"
               >
                 →
               </button>
@@ -343,217 +335,178 @@ export default function BillingPage() {
                 onClick={() => setMonth(ymKey(new Date()))}
                 className={clsx(
                   "rounded-md px-2 py-1 text-[11px] font-extrabold transition",
-                  month === ymKey(new Date())
-                    ? "bg-sky-600 text-white"
-                    : "border border-sky-200 bg-white text-sky-700 hover:bg-sky-50",
+                  month === ymKey(new Date()) ? "bg-sky-600 text-white" : "border border-slate-200 bg-white text-sky-700 hover:bg-sky-50",
                 )}
               >
                 今月
               </button>
-              {isConfirmed && (
-                <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-extrabold text-white">確定済</span>
+            </div>
+
+            {/* Customer select */}
+            <div className="relative" ref={customerDropdownRef}>
+              <button
+                onClick={() => setCustomerDropdownOpen((v) => !v)}
+                className={clsx(
+                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
+                  customerFilter ? "bg-sky-600 text-white" : "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50",
+                )}
+              >
+                {customerFilter ? (customers.find((c) => c.id === customerFilter)?.name || "顧客") : "顧客"}
+              </button>
+              {customerDropdownOpen && (
+                <div className="absolute left-0 top-full mt-1 z-[100] w-56 rounded-lg border border-slate-200 bg-white shadow-lg">
+                  <div className="p-2 border-b border-slate-100">
+                    <div className="text-[10px] font-bold text-slate-500">顧客を選択</div>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto p-1">
+                    <button
+                      onClick={() => { setCustomerFilter(""); setCustomerDropdownOpen(false); }}
+                      className={clsx(
+                        "w-full text-left px-2 py-1.5 rounded-md text-xs font-bold",
+                        !customerFilter ? "bg-sky-50 text-sky-700" : "text-slate-700 hover:bg-slate-50",
+                      )}
+                    >
+                      すべて
+                    </button>
+                    {customers.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => { setCustomerFilter(c.id); setCustomerDropdownOpen(false); }}
+                        className={clsx(
+                          "w-full text-left px-2 py-1.5 rounded-md text-xs font-bold truncate",
+                          customerFilter === c.id ? "bg-sky-50 text-sky-700" : "text-slate-700 hover:bg-slate-50",
+                        )}
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
-              <span className="text-xs font-extrabold text-slate-600 ml-1">
-                請求対象: <span className="text-slate-900">{rows.filter((c) => getBilling(c.id, month)?.status !== "no_invoice").length}件</span>
+            </div>
+
+            {/* Status select */}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as BillingStatus | "ALL")}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-extrabold text-slate-700"
+            >
+              <option value="ALL">すべてのステータス</option>
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{statusLabel(opt)}</option>
+              ))}
+            </select>
+
+            {/* Summary */}
+            <div className="ml-auto flex items-center gap-3">
+              <span className="text-xs font-extrabold text-slate-600">
+                請求対象: {invoiceRowCount}件
               </span>
               <span className="text-xs font-extrabold text-slate-600">
                 合計: <span className="text-sky-700">{yen(totalAmount)}</span>
               </span>
             </div>
-
-            <div className="flex items-center gap-2">
-              {saving && <span className="text-xs font-bold text-slate-500">保存中...</span>}
-              {isConfirmed ? (
-                <button
-                  type="button"
-                  onClick={toggleConfirm}
-                  className="rounded-md bg-slate-500 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-slate-600 shadow-sm transition"
-                >
-                  確定解除
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={toggleConfirm}
-                  disabled={loading}
-                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-700 shadow-sm transition disabled:opacity-50"
-                >
-                  確定
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setEditMode((v) => !v)}
-                disabled={loading || isConfirmed}
-                className={clsx(
-                  "rounded-md px-3 py-1.5 text-xs font-extrabold transition",
-                  editMode
-                    ? "bg-orange-600 text-white hover:bg-orange-700"
-                    : "border border-sky-200 bg-white text-slate-700 hover:bg-sky-50 disabled:opacity-50",
-                )}
-              >
-                {editMode ? "完了" : "編集"}
-              </button>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as BillingStatus | "ALL")}
-                className="rounded-md border border-sky-200 bg-white px-2 py-1.5 text-xs font-extrabold text-slate-700"
-              >
-                <option value="ALL">すべて</option>
-                <option value="none">未着手</option>
-                <option value="created">作成済</option>
-                <option value="confirmed">確認済</option>
-                <option value="sent">送付済</option>
-                <option value="no_invoice">請求なし</option>
-              </select>
-
-              {/* 顧客別ショートカット */}
-              <div className="relative" ref={customerDropdownRef}>
-                <button
-                  onClick={() => setCustomerDropdownOpen((v) => !v)}
-                  className={clsx(
-                    "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
-                    selectedCustomers.length > 0
-                      ? "bg-sky-600 text-white"
-                      : "bg-white border border-sky-200 text-slate-700 hover:bg-sky-50",
-                  )}
-                >
-                  顧客別
-                  {selectedCustomers.length > 0 && (
-                    <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{selectedCustomers.length}</span>
-                  )}
-                </button>
-
-                {customerDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-[100] w-56 rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
-                    <div className="p-2 border-b border-slate-100">
-                      <div className="text-[10px] font-bold text-slate-500">顧客を選択</div>
-                    </div>
-                    <div className="max-h-64 overflow-y-auto p-1">
-                      {customers.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-slate-500">顧客データを読み込み中...</div>
-                      ) : (
-                        customers.map((c) => (
-                          <label
-                            key={c.id}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedCustomers.includes(c.id)}
-                              onChange={() => toggleCustomer(c.id)}
-                              className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
-                            />
-                            <span className="text-xs font-bold text-slate-700 truncate">{c.name}</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                    {selectedCustomers.length > 0 && (
-                      <div className="p-2 border-t border-slate-100">
-                        <button
-                          onClick={() => {
-                            setSelectedCustomers([]);
-                            setCustomerDropdownOpen(false);
-                          }}
-                          className="w-full rounded-md bg-slate-100 px-2 py-1.5 text-[10px] font-bold text-slate-600 hover:bg-slate-200"
-                        >
-                          クリア
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
         </div>
 
-        {error ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
 
-        <div className="overflow-x-auto">
-          <table className="min-w-[700px] w-full text-[12px] font-bold border-separate border-spacing-0">
+        {/* Table */}
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <table className="min-w-[800px] w-full text-[12px] font-bold border-collapse">
             <thead className="bg-sky-50 text-[11px] font-extrabold text-slate-900 sticky top-0 z-10">
-              <tr className="border-b border-slate-200">
-                <th className="sticky left-0 z-20 w-[280px] px-3 py-2 text-left whitespace-nowrap border-b border-r border-slate-200 bg-sky-50">顧客</th>
-                <th className="w-[160px] px-3 py-2 text-center whitespace-nowrap border-b border-r border-slate-200 bg-sky-50">ステータス</th>
-                <th className="w-[200px] px-3 py-2 text-center whitespace-nowrap border-b border-slate-200 bg-sky-50">請求金額</th>
+              <tr>
+                <th className="px-3 py-2 text-left whitespace-nowrap border-b border-slate-200">顧客</th>
+                <th className="px-3 py-2 text-left whitespace-nowrap border-b border-slate-200">担当者</th>
+                <th className="px-3 py-2 text-center whitespace-nowrap border-b border-slate-200">ステータス</th>
+                <th className="px-3 py-2 text-right whitespace-nowrap border-b border-slate-200">金額</th>
+                <th className="px-3 py-2 text-center whitespace-nowrap border-b border-slate-200">PDF</th>
+                {canEdit && (
+                  <th className="px-3 py-2 text-center whitespace-nowrap border-b border-slate-200">操作</th>
+                )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody>
               {loading ? (
-                <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
-                    読み込み中...
-                  </td>
-                </tr>
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
-                    該当する顧客がありません
-                  </td>
-                </tr>
+                <tr><td colSpan={canEdit ? 6 : 5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">読み込み中...</td></tr>
+              ) : displayRows.length === 0 ? (
+                <tr><td colSpan={canEdit ? 6 : 5} className="px-4 py-10 text-center text-sm font-bold text-slate-500">該当する顧客がありません</td></tr>
               ) : (
-                rows.map((c, idx) => {
-                  const b = getBilling(c.id, month);
+                displayRows.map((row, idx) => {
+                  const b = row.billing;
                   const status = b?.status ?? "none";
                   const amount = b?.amount ?? 0;
+                  const hasPdf = !!b?.pdfGeneratedAt;
+
                   return (
-                    <tr key={c.id} className={idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"}>
-                      <td className="sticky left-0 z-10 px-3 py-3 text-left font-extrabold text-slate-900 whitespace-nowrap border-r border-slate-200 bg-inherit">
-                        <div className="truncate max-w-[260px]" title={c.name || "-"}>
-                          <Link href={`/customers/${c.id}`} className="hover:underline">
-                            {c.name}
-                          </Link>
+                    <tr
+                      key={`${row.customer.id}_${row.assigneeUid || "_"}`}
+                      onClick={() => b ? router.push(`/billing/${b.id}`) : undefined}
+                      className={clsx(
+                        "border-b border-slate-100 transition",
+                        b ? "cursor-pointer hover:bg-sky-50/50" : "",
+                        idx % 2 === 0 ? "bg-white" : "bg-slate-50/40",
+                      )}
+                    >
+                      <td className="px-3 py-2.5 text-left font-extrabold text-slate-900 whitespace-nowrap">
+                        <div className="truncate max-w-[200px]" title={row.customer.name}>{row.customer.name}</div>
+                      </td>
+                      <td className="px-3 py-2.5 text-left text-slate-600">
+                        <div className="truncate max-w-[120px]" title={row.assigneeName}>
+                          {row.assigneeName || <span className="text-slate-300">—</span>}
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-center border-r border-slate-200">
-                        {editMode ? (
-                          <select
-                            value={status}
-                            onChange={(e) => setStatus(c.id, e.target.value as BillingStatus)}
-                            className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-extrabold text-slate-700 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={clsx("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold", statusColor(status))}>
+                          {statusLabel(status)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-slate-900 whitespace-nowrap">
+                        {status === "no_invoice" ? <span className="text-slate-400">—</span> : amount > 0 ? yen(amount) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {hasPdf ? (
+                          <button
+                            onClick={() => handleDownloadPdf(row)}
+                            disabled={downloadingPdfKey === `${row.customer.id}_${row.assigneeUid || "_"}`}
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-extrabold text-emerald-700 hover:bg-emerald-200 transition"
                           >
-                            {STATUS_OPTIONS.map((opt) => (
-                              <option key={opt} value={opt}>{statusLabel(opt)}</option>
-                            ))}
-                          </select>
+                            {downloadingPdfKey === `${row.customer.id}_${row.assigneeUid || "_"}` ? (
+                              <>生成中...</>
+                            ) : (
+                              <>
+                                <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                                PDF
+                              </>
+                            )}
+                          </button>
                         ) : (
-                          <span className={clsx("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold", statusColor(status))}>
-                            {statusLabel(status)}
-                          </span>
+                          <span className="text-slate-300">—</span>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-center">
-                        {editMode && status !== "no_invoice" ? (
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            min={0}
-                            value={String(amount)}
-                            onChange={(e) => {
-                              const v = e.target.value.trim();
-                              const n = v === "" ? 0 : Number(v);
-                              if (Number.isFinite(n)) setAmount(c.id, Math.max(0, n));
+                      {canEdit && (
+                        <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={() => {
+                              const params = new URLSearchParams();
+                              params.set("customerId", row.customer.id);
+                              if (row.assigneeUid) params.set("assigneeUid", row.assigneeUid);
+                              params.set("month", month);
+                              if (amount > 0) params.set("amount", String(amount));
+                              router.push(`/billing/new?${params.toString()}`);
                             }}
-                            className="w-36 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-right text-[12px] font-extrabold text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-                          />
-                        ) : status === "no_invoice" ? (
-                          <span className="text-slate-400">—</span>
-                        ) : (
-                          <span className="text-slate-900">{yen(amount)}</span>
-                        )}
-                      </td>
+                            className="rounded-md bg-sky-600 px-3 py-1 text-[11px] font-extrabold text-white hover:bg-sky-700 transition"
+                          >
+                            発行
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })
               )}
             </tbody>
           </table>
-        </div>
-
-        <div className="text-[11px] font-bold text-slate-500">
-          ※ ステータスと金額を「編集」で入力すると、Firestoreに保存されます。
         </div>
       </div>
     </AppShell>

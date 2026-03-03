@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
   collection,
@@ -52,6 +52,113 @@ function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+/* ── 検索付きドロップダウン ── */
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+  allowClear,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  options: { id: string; label: string; sub?: string }[];
+  placeholder: string;
+  disabled?: boolean;
+  allowClear?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q) || (o.sub && o.sub.toLowerCase().includes(q)));
+  }, [options, search]);
+
+  const selectedLabel = options.find((o) => o.id === value)?.label || "";
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const handleOpen = useCallback(() => {
+    if (disabled) return;
+    setSearch("");
+    setOpen(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [disabled]);
+
+  const handleSelect = useCallback((id: string) => {
+    onChange(id);
+    setOpen(false);
+    setSearch("");
+  }, [onChange]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={handleOpen}
+        disabled={disabled}
+        className={clsx(
+          "w-full rounded-md border bg-white px-3 py-2 text-left text-sm font-bold outline-none transition pr-14",
+          disabled ? "border-slate-200 text-slate-400 cursor-not-allowed" : "border-slate-200 text-slate-900 hover:border-orange-400 focus:ring-1 focus:ring-orange-500",
+        )}
+      >
+        {selectedLabel || <span className="text-slate-400">{placeholder}</span>}
+        <span className="absolute inset-y-0 right-3 flex items-center gap-1">
+          {allowClear && value && !disabled && (
+            <span role="button" className="text-slate-400 hover:text-slate-600 cursor-pointer" onClick={(e) => { e.stopPropagation(); onChange(""); }}>
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </span>
+          )}
+          <span className="pointer-events-none text-slate-400">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="p-2">
+            <input
+              ref={inputRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="検索..."
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-500"
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-3 text-center text-xs font-bold text-slate-400">該当なし</div>
+            ) : (
+              filtered.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => handleSelect(o.id)}
+                  className={clsx("w-full px-3 py-2 text-left text-sm font-bold transition hover:bg-orange-50", o.id === value ? "bg-orange-50 text-orange-700" : "text-slate-800")}
+                >
+                  {o.label}
+                  {o.sub && <span className="ml-2 text-[10px] text-slate-400">{o.sub}</span>}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GlobalIssueEditPage() {
   const router = useRouter();
   const params = useParams<{ issueId: string }>();
@@ -81,16 +188,10 @@ export default function GlobalIssueEditPage() {
   const [editLabelsText, setEditLabelsText] = useState("");
   const [editProjectId, setEditProjectId] = useState("");
   const [editCustomerId, setEditCustomerId] = useState("");
-  const [projectSearch, setProjectSearch] = useState("");
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [isSelfCompany, setIsSelfCompany] = useState(false);
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
   const [categoryProperty, setCategoryProperty] = useState<Property | null>(null);
   const [statusOptions, setStatusOptions] = useState<{ value: string; label: string }[]>(ISSUE_STATUSES);
-
-  const projectDropdownRef = useRef<HTMLDivElement>(null);
-  const customerDropdownRef = useRef<HTMLDivElement>(null);
 
   const descRef = useRef<HTMLTextAreaElement | null>(null);
   const [showPreview, setShowPreview] = useState(false);
@@ -105,42 +206,6 @@ export default function GlobalIssueEditPage() {
     const list = editCategory ? [editCategory, ...rest] : rest;
     return Array.from(new Set(list)).slice(0, 20);
   }, [editCategory, editLabelsText]);
-
-  const filteredProjects = useMemo(() => {
-    const q = projectSearch.trim().toLowerCase();
-    if (!q) return allProjects;
-    return allProjects.filter((p) => p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q));
-  }, [allProjects, projectSearch]);
-
-  const filteredCustomers = useMemo(() => {
-    const q = customerSearch.trim().toLowerCase();
-    if (!q) return allCustomers;
-    return allCustomers.filter((c) => c.name.toLowerCase().includes(q));
-  }, [allCustomers, customerSearch]);
-
-  const selectedProjectName = useMemo(() => {
-    if (!editProjectId) return "";
-    return allProjects.find((p) => p.id === editProjectId)?.name || project?.name || "";
-  }, [editProjectId, allProjects, project]);
-
-  const selectedCustomerName = useMemo(() => {
-    if (!editCustomerId) return "";
-    return allCustomers.find((c) => c.id === editCustomerId)?.name || "";
-  }, [editCustomerId, allCustomers]);
-
-  // 外側クリックでドロップダウンを閉じる
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
-        setShowProjectDropdown(false);
-      }
-      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
-        setShowCustomerDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const categorySelectOptions = useMemo(
     () =>
@@ -191,6 +256,7 @@ export default function GlobalIssueEditPage() {
         setEditLabelsText((i.labels || []).slice(1).join(", "));
         setEditProjectId(i.projectId || "");
         setEditCustomerId(i.customerId || "");
+        setIsSelfCompany(!i.customerId && !i.projectId);
 
         // 2. Fetch Project (Deal)
         const projectId = i.projectId;
@@ -340,8 +406,8 @@ export default function GlobalIssueEditPage() {
         status: editStatus,
         priority: editPriority,
         assigneeUid: nextAssignee,
-        projectId: editProjectId || null,
-        customerId: editCustomerId || null,
+        projectId: isSelfCompany ? null : (editProjectId || null),
+        customerId: isSelfCompany ? null : (editCustomerId || null),
         startDate: editStartDate || null,
         dueDate: editDueDate || null,
         labels: labelList,
@@ -490,134 +556,73 @@ export default function GlobalIssueEditPage() {
 
           <div className="md:col-span-12 border-t border-slate-100 pt-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-              {/* 案件 */}
-              <div className="md:col-span-6">
-                <div className="text-xs font-extrabold text-slate-600">案件</div>
-                <div className="relative mt-1" ref={projectDropdownRef}>
+              {/* 自社ボタン + 顧客・案件 */}
+              <div className="md:col-span-12">
+                <div className="mb-3 flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => { setShowProjectDropdown((v) => !v); setProjectSearch(""); }}
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm font-bold text-slate-900 hover:bg-slate-50"
+                    onClick={() => {
+                      const next = !isSelfCompany;
+                      setIsSelfCompany(next);
+                      if (next) {
+                        setEditCustomerId("");
+                        setEditProjectId("");
+                      }
+                    }}
+                    className={clsx(
+                      "rounded-full px-4 py-1.5 text-xs font-extrabold transition",
+                      isSelfCompany
+                        ? "bg-orange-600 text-white shadow-sm"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+                    )}
                   >
-                    {selectedProjectName || <span className="text-slate-400">未設定</span>}
+                    自社
                   </button>
-                  {showProjectDropdown && (
-                    <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg">
-                      <div className="p-2">
-                        <input
-                          value={projectSearch}
-                          onChange={(e) => setProjectSearch(e.target.value)}
-                          placeholder="案件を検索..."
-                          className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
-                          autoFocus
-                        />
-                      </div>
-                      <div className="max-h-48 overflow-y-auto">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditProjectId("");
-                            setShowProjectDropdown(false);
-                            setProjectSearch("");
-                          }}
-                          className={clsx(
-                            "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
-                            !editProjectId ? "bg-orange-50 text-orange-700" : "text-slate-400",
-                          )}
-                        >
-                          未設定
-                        </button>
-                        {filteredProjects.length === 0 && projectSearch.trim() ? (
-                          <div className="px-3 py-2 text-xs text-slate-400">見つかりません</div>
-                        ) : (
-                          filteredProjects.map((p) => (
-                            <button
-                              key={p.id}
-                              type="button"
-                              onClick={() => {
-                                setEditProjectId(p.id);
-                                if (p.customerId) setEditCustomerId(p.customerId);
-                                setShowProjectDropdown(false);
-                                setProjectSearch("");
-                              }}
-                              className={clsx(
-                                "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
-                                p.id === editProjectId ? "bg-orange-50 text-orange-700" : "text-slate-700",
-                              )}
-                            >
-                              {p.name}
-                              <span className="ml-2 text-[10px] text-slate-400">{p.key}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
+                  {isSelfCompany && (
+                    <span className="text-xs font-bold text-slate-500">顧客・案件なし</span>
                   )}
                 </div>
-              </div>
-
-              {/* 顧客 */}
-              <div className="md:col-span-6">
-                <div className="text-xs font-extrabold text-slate-600">顧客</div>
-                <div className="relative mt-1" ref={customerDropdownRef}>
-                  <button
-                    type="button"
-                    onClick={() => { setShowCustomerDropdown((v) => !v); setCustomerSearch(""); }}
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-sm font-bold text-slate-900 hover:bg-slate-50"
-                  >
-                    {selectedCustomerName || <span className="text-slate-400">未設定</span>}
-                  </button>
-                  {showCustomerDropdown && (
-                    <div className="absolute z-20 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg">
-                      <div className="p-2">
-                        <input
-                          value={customerSearch}
-                          onChange={(e) => setCustomerSearch(e.target.value)}
-                          placeholder="顧客を検索..."
-                          className="w-full rounded border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
-                          autoFocus
+                {!isSelfCompany && (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
+                    <div className="md:col-span-6">
+                      <div className="text-xs font-extrabold text-slate-600">顧客 *</div>
+                      <div className="mt-1">
+                        <SearchableSelect
+                          value={editCustomerId}
+                          onChange={(id) => {
+                            setEditCustomerId(id);
+                            if (editProjectId) {
+                              const cur = allProjects.find((p) => p.id === editProjectId);
+                              if (cur && cur.customerId !== id) setEditProjectId("");
+                            }
+                          }}
+                          options={allCustomers.map((c) => ({ id: c.id, label: c.name }))}
+                          placeholder="顧客を選択"
                         />
                       </div>
-                      <div className="max-h-48 overflow-y-auto">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditCustomerId("");
-                            setShowCustomerDropdown(false);
-                            setCustomerSearch("");
+                    </div>
+                    <div className="md:col-span-6">
+                      <div className="text-xs font-extrabold text-slate-600">案件（任意）</div>
+                      <div className="mt-1">
+                        <SearchableSelect
+                          value={editProjectId}
+                          onChange={(id) => {
+                            setEditProjectId(id);
+                            if (id) {
+                              const p = allProjects.find((x) => x.id === id);
+                              if (p?.customerId) setEditCustomerId(p.customerId);
+                            }
                           }}
-                          className={clsx(
-                            "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
-                            !editCustomerId ? "bg-orange-50 text-orange-700" : "text-slate-400",
-                          )}
-                        >
-                          未設定
-                        </button>
-                        {filteredCustomers.length === 0 && customerSearch.trim() ? (
-                          <div className="px-3 py-2 text-xs text-slate-400">見つかりません</div>
-                        ) : (
-                          filteredCustomers.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => {
-                                setEditCustomerId(c.id);
-                                setShowCustomerDropdown(false);
-                                setCustomerSearch("");
-                              }}
-                              className={clsx(
-                                "w-full px-3 py-2 text-left text-xs font-bold hover:bg-orange-50",
-                                c.id === editCustomerId ? "bg-orange-50 text-orange-700" : "text-slate-700",
-                              )}
-                            >
-                              {c.name}
-                            </button>
-                          ))
-                        )}
+                          options={allProjects
+                            .filter((p) => !editCustomerId || p.customerId === editCustomerId)
+                            .map((p) => ({ id: p.id, label: p.name, sub: p.key }))}
+                          placeholder="案件を選択（任意）"
+                          allowClear
+                        />
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               <div className="md:col-span-6">

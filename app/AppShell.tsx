@@ -16,6 +16,7 @@ type MenuPermissions = {
   customers: boolean;
   files: boolean;
   billing: boolean;
+  invoicing: boolean;
   settings: boolean;
   wiki: boolean;
   effort: boolean;
@@ -30,6 +31,7 @@ const ALL_MENU_PERMISSIONS: MenuPermissions = {
   customers: true,
   files: true,
   billing: true,
+  invoicing: true,
   settings: true,
   wiki: true,
   effort: true,
@@ -44,6 +46,7 @@ const NO_MENU_PERMISSIONS: MenuPermissions = {
   customers: false,
   files: false,
   billing: false,
+  invoicing: false,
   settings: false,
   wiki: false,
   effort: false,
@@ -184,6 +187,7 @@ export function AppShell({ children, headerRight, initialSidebarCollapsed = fals
                   customers: p.customers ?? false,
                   files: p.files ?? false,
                   billing: p.billing ?? false,
+                  invoicing: p.invoicing ?? false,
                   settings: p.settings ?? false,
                   wiki: p.wiki ?? false,
                   effort: p.effort ?? false,

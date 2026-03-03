@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
   collection,
@@ -72,6 +72,134 @@ function generateShortId() {
   return result;
 }
 
+/* ── 検索付きドロップダウン ── */
+function SearchableSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  disabled,
+  allowClear,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  options: { id: string; label: string }[];
+  placeholder: string;
+  disabled?: boolean;
+  allowClear?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, search]);
+
+  const selectedLabel = options.find((o) => o.id === value)?.label || "";
+
+  // 外側クリックで閉じる
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const handleOpen = useCallback(() => {
+    if (disabled) return;
+    setSearch("");
+    setOpen(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [disabled]);
+
+  const handleSelect = useCallback(
+    (id: string) => {
+      onChange(id);
+      setOpen(false);
+      setSearch("");
+    },
+    [onChange],
+  );
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        onClick={handleOpen}
+        disabled={disabled}
+        className={clsx(
+          "w-full rounded-lg border bg-white px-3 py-2 text-left text-sm font-bold outline-none transition pr-14",
+          disabled
+            ? "border-slate-200 text-slate-400 cursor-not-allowed"
+            : "border-slate-300 text-slate-900 hover:border-orange-400 focus:ring-1 focus:ring-orange-500",
+        )}
+      >
+        {selectedLabel || <span className="text-slate-400">{placeholder}</span>}
+        <span className="absolute inset-y-0 right-3 flex items-center gap-1">
+          {allowClear && value && !disabled && (
+            <span
+              role="button"
+              className="text-slate-400 hover:text-slate-600 cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); onChange(""); }}
+            >
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </span>
+          )}
+          <span className="pointer-events-none text-slate-400">
+            <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="p-2">
+            <input
+              ref={inputRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="検索..."
+              className="w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-500"
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-3 text-center text-xs font-bold text-slate-400">
+                該当なし
+              </div>
+            ) : (
+              filtered.map((o) => (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => handleSelect(o.id)}
+                  className={clsx(
+                    "w-full px-3 py-2 text-left text-sm font-bold transition hover:bg-orange-50",
+                    o.id === value ? "bg-orange-50 text-orange-700" : "text-slate-800",
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NewIssueInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -90,6 +218,7 @@ function NewIssueInner() {
   const [projectId, setProjectId] = useState("");
   const [project, setProject] = useState<DealProject | null>(null);
   const [issuesInProject, setIssuesInProject] = useState<Issue[]>([]);
+  const [isSelfCompany, setIsSelfCompany] = useState(false);
 
   // 今日の日付と3日後の日付を YYYY-MM-DD 形式で取得
   const getDefaultDates = () => {
@@ -279,15 +408,11 @@ function NewIssueInner() {
     void loadProjectAndIssues();
   }, [projectId, projects, profile?.companyCode]);
 
-  // 顧客変更で案件を絞る（案件側変更時は顧客も追従）
+  // 顧客変更で案件を絞る（現在選択中の案件が別顧客ならリセット）
   useEffect(() => {
-    if (!customerId) return;
-    if (projectId) {
-      const cur = projects.find((p) => p.id === projectId);
-      if (cur && cur.customerId === customerId) return;
-    }
-    const next = projects.find((p) => p.customerId === customerId);
-    setProjectId(next?.id || "");
+    if (!customerId || !projectId) return;
+    const cur = projects.find((p) => p.id === projectId);
+    if (cur && cur.customerId !== customerId) setProjectId("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, projects]);
 
@@ -316,22 +441,19 @@ function NewIssueInner() {
 
   const handleProjectChange = (id: string) => {
     setProjectId(id);
-    const p = projects.find((x) => x.id === id);
-    if (p?.customerId) setCustomerId(p.customerId);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("projectId", id);
-    if (p?.customerId) params.set("customerId", p.customerId);
-    router.replace(`/issue/new?${params.toString()}`);
+    if (id) {
+      const p = projects.find((x) => x.id === id);
+      if (p?.customerId) setCustomerId(p.customerId);
+    }
   };
 
   const handleCustomerChange = (id: string) => {
     setCustomerId(id);
-    const nextDeal = projects.find((p) => p.customerId === id)?.id || "";
-    setProjectId(nextDeal);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("customerId", id);
-    if (nextDeal) params.set("projectId", nextDeal);
-    router.replace(`/issue/new?${params.toString()}`);
+    // 顧客を変更したら案件をリセット（案件は任意なので自動選択しない）
+    if (projectId) {
+      const cur = projects.find((p) => p.id === projectId);
+      if (cur && cur.customerId !== id) setProjectId("");
+    }
   };
 
   const handleSubmit = async () => {
@@ -343,19 +465,15 @@ function NewIssueInner() {
       setError("会社情報の読み込みに失敗しました。ページを再読み込みしてください。");
       return;
     }
-    if (!customerId) {
+    if (!isSelfCompany && !customerId) {
       setError("顧客を選択してください");
-      return;
-    }
-    if (!projectId) {
-      setError("案件を選択してください");
       return;
     }
     if (!t) {
       setError("件名を入力してください");
       return;
     }
-    if (!project?.key) {
+    if (projectId && !project?.key) {
       setError("プロジェクトキーが未設定です（プロジェクト設定を確認してください）");
       return;
     }
@@ -364,24 +482,54 @@ function NewIssueInner() {
     try {
       // 8文字のランダムなIDを生成
       const shortIssueId = generateShortId();
-      
-      // deals コレクションから案件を取得して issueSeq を更新
-      const dealRef = doc(db, "deals", projectId);
-      const result = await runTransaction(db, async (tx) => {
-        const snap = await tx.get(dealRef);
-        if (!snap.exists()) throw new Error("案件が見つかりません");
-        const data = snap.data();
-        const nextSeq = (data.issueSeq || 0) + 1;
-        const dealKey = data.key || data.title?.slice(0, 5)?.toUpperCase() || "DEAL";
-        tx.update(dealRef, { issueSeq: nextSeq, key: dealKey });
-        const issueKey = `${normalizeProjectKey(dealKey)}-${nextSeq}`;
-        // 8文字のカスタムIDを使用
+
+      let result: { issueId: string; issueKey: string };
+
+      if (projectId && project?.key) {
+        // 案件あり: deals コレクションから案件を取得して issueSeq を更新
+        const dealRef = doc(db, "deals", projectId);
+        result = await runTransaction(db, async (tx) => {
+          const snap = await tx.get(dealRef);
+          if (!snap.exists()) throw new Error("案件が見つかりません");
+          const data = snap.data();
+          const nextSeq = (data.issueSeq || 0) + 1;
+          const dealKey = data.key || data.title?.slice(0, 5)?.toUpperCase() || "DEAL";
+          tx.update(dealRef, { issueSeq: nextSeq, key: dealKey });
+          const issueKey = `${normalizeProjectKey(dealKey)}-${nextSeq}`;
+          const issueRef = doc(db, "issues", shortIssueId);
+          tx.set(issueRef, {
+            id: shortIssueId,
+            companyCode,
+            customerId: isSelfCompany ? null : (customerId || null),
+            projectId,
+            issueKey,
+            title: t,
+            description: description.trim() || "",
+            status,
+            priority,
+            assigneeUids: assigneeUids.length > 0 ? assigneeUids : null,
+            assigneeUid: assigneeUids[0] || null,
+            reporterUid: user.uid,
+            labels: labelList,
+            propertyValues: { category: category || "" },
+            startDate: startDate || null,
+            dueDate: dueDate || null,
+            estimateMinutes: fromHoursText(estimateHours) || null,
+            parentIssueId: parentIssueId || null,
+            createdAt: Timestamp.now(),
+            updatedAt: Timestamp.now(),
+          });
+          return { issueId: shortIssueId, issueKey };
+        });
+      } else {
+        // 案件なし: issueKeyはIDベースで生成
+        const issueKey = `TASK-${shortIssueId.slice(0, 4).toUpperCase()}`;
         const issueRef = doc(db, "issues", shortIssueId);
-        tx.set(issueRef, {
+        await setDoc(issueRef, {
           id: shortIssueId,
           companyCode,
-          customerId,
-          projectId,
+          customerId: isSelfCompany ? null : (customerId || null),
+          projectId: null,
           issueKey,
           title: t,
           description: description.trim() || "",
@@ -399,14 +547,14 @@ function NewIssueInner() {
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         });
-        return { issueId: shortIssueId, issueKey };
-      });
+        result = { issueId: shortIssueId, issueKey };
+      }
 
       await logActivity({
         companyCode,
         actorUid: user.uid,
         type: "ISSUE_CREATED",
-        projectId,
+        projectId: projectId || undefined,
         issueId: result.issueId,
         entityId: result.issueId,
         message: `課題を作成: ${result.issueKey} ${t}`,
@@ -483,41 +631,55 @@ function NewIssueInner() {
 
       {/* Customer / Deal Selector */}
       <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-          <div className="md:col-span-6">
-            <div className="text-xs font-bold text-slate-600 mb-2">顧客 *</div>
-            <select
-              value={customerId}
-              onChange={(e) => handleCustomerChange(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
-            >
-              <option value="">顧客を選択してください</option>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-6">
-            <div className="text-xs font-bold text-slate-600 mb-2">案件 *</div>
-            <select
-              value={projectId}
-              onChange={(e) => handleProjectChange(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
-              disabled={!customerId}
-            >
-              {!customerId ? <option value="">先に顧客を選択してください</option> : <option value="">案件を選択してください</option>}
-              {projects
-                .filter((p) => !customerId || p.customerId === customerId)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-          </div>
+        <div className="mb-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              const next = !isSelfCompany;
+              setIsSelfCompany(next);
+              if (next) {
+                setCustomerId("");
+                setProjectId("");
+              }
+            }}
+            className={clsx(
+              "rounded-full px-4 py-1.5 text-xs font-extrabold transition",
+              isSelfCompany
+                ? "bg-orange-600 text-white shadow-sm"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200",
+            )}
+          >
+            自社
+          </button>
+          {isSelfCompany && (
+            <span className="text-xs font-bold text-slate-500">顧客・案件なしで課題を作成します</span>
+          )}
         </div>
+        {!isSelfCompany && (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+            <div className="md:col-span-6">
+              <div className="text-xs font-bold text-slate-600 mb-2">顧客 *</div>
+              <SearchableSelect
+                value={customerId}
+                onChange={handleCustomerChange}
+                options={customers.map((c) => ({ id: c.id, label: c.name }))}
+                placeholder="顧客を選択してください"
+              />
+            </div>
+            <div className="md:col-span-6">
+              <div className="text-xs font-bold text-slate-600 mb-2">案件（任意）</div>
+              <SearchableSelect
+                value={projectId}
+                onChange={handleProjectChange}
+                options={projects
+                  .filter((p) => !customerId || p.customerId === customerId)
+                  .map((p) => ({ id: p.id, label: p.name }))}
+                placeholder="案件を選択（任意）"
+                allowClear
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (

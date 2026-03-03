@@ -47,6 +47,7 @@ export type Issue = {
   estimateMinutes?: number;
   parentIssueId?: string | null;
   propertyValues?: Record<string, string>;
+  manualOrder?: number; // 手動並べ替え順（小さいほど上位）
   archivedAt?: Timestamp | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;

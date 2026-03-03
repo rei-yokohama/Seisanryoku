@@ -28,7 +28,8 @@ type Permissions = {
   issues: boolean;    // イシュー管理（課題）
   customers: boolean; // 顧客管理
   files: boolean;     // ファイル管理（ドライブ）
-  billing: boolean;   // 請求・売上管理（収支）
+  billing: boolean;   // 収支管理
+  invoicing: boolean; // 請求管理
   settings: boolean;  // ワークスペース設定
   wiki: boolean;      // Wiki
   effort: boolean;    // 工数
@@ -43,6 +44,7 @@ const DEFAULT_PERMISSIONS: Permissions = {
   customers: false,
   files: true,
   billing: false,
+  invoicing: false,
   settings: false,
   wiki: true,
   effort: true,
@@ -56,6 +58,7 @@ const PERMISSION_LABELS: Record<keyof Permissions, string> = {
   customers: "顧客",
   projects: "案件",
   billing: "収支",
+  invoicing: "請求",
   effort: "工数",
   files: "ドライブ",
   calendar: "カレンダー",
@@ -195,6 +198,7 @@ export default function MemberEditPage() {
               customers: p.customers ?? DEFAULT_PERMISSIONS.customers,
               files: p.files ?? DEFAULT_PERMISSIONS.files,
               billing: p.billing ?? DEFAULT_PERMISSIONS.billing,
+              invoicing: p.invoicing ?? DEFAULT_PERMISSIONS.invoicing,
               settings: p.settings ?? DEFAULT_PERMISSIONS.settings,
               wiki: p.wiki ?? DEFAULT_PERMISSIONS.wiki,
               effort: p.effort ?? DEFAULT_PERMISSIONS.effort,
@@ -552,6 +556,15 @@ export default function MemberEditPage() {
                       >
                         <span>→</span>
                         <span>課題権限をさらに制御する</span>
+                      </Link>
+                    )}
+                    {key === "invoicing" && permissions[key] && (
+                      <Link
+                        href={`/settings/members/${memberId}/permissions/billing`}
+                        className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                      >
+                        <span>→</span>
+                        <span>請求権限をさらに制御する</span>
                       </Link>
                     )}
                   </div>

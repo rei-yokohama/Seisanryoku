@@ -34,23 +34,33 @@ type Company = {
 };
 
 type Permissions = {
+  dashboard: boolean;
   members: boolean;
   projects: boolean;
   issues: boolean;
   customers: boolean;
   files: boolean;
   billing: boolean;
+  invoicing: boolean;
   settings: boolean;
+  wiki: boolean;
+  effort: boolean;
+  calendar: boolean;
 };
 
 const PERMISSION_LABELS: Record<keyof Permissions, string> = {
-  members: "メンバー管理",
-  projects: "プロジェクト管理",
-  issues: "イシュー管理",
-  customers: "顧客管理",
-  files: "ファイル管理",
-  billing: "請求・売上管理",
-  settings: "ワークスペース設定",
+  dashboard: "ホーム",
+  issues: "課題",
+  wiki: "Wiki",
+  customers: "顧客",
+  projects: "案件",
+  billing: "収支",
+  invoicing: "請求",
+  effort: "工数",
+  files: "ドライブ",
+  calendar: "カレンダー",
+  members: "メンバー",
+  settings: "設定",
 };
 
 type WorkspaceMembership = {

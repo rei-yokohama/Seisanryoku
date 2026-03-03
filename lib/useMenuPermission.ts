@@ -15,6 +15,7 @@ type MenuPermissions = {
   customers: boolean;
   files: boolean;
   billing: boolean;
+  invoicing: boolean;
   settings: boolean;
   wiki: boolean;
   effort: boolean;
@@ -29,6 +30,7 @@ const DEFAULT_MENU_PERMISSIONS: MenuPermissions = {
   customers: true,
   files: true,
   billing: true,
+  invoicing: true,
   settings: true,
   wiki: true,
   effort: true,

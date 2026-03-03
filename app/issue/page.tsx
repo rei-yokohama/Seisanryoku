@@ -112,6 +112,25 @@ export default function IssueHomePage() {
   const [deleting, setDeleting] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
+  // ソート
+  type SortKey = "manualOrder" | "title" | "project" | "customer" | "assignee" | "status" | "priority" | "dueDate" | "updatedAt";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey>("updatedAt");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "updatedAt" || key === "dueDate" ? "desc" : "asc");
+    }
+  };
+
+  // ユンセンド: 行のドラッグ並べ替え
+  const [draggingRowId, setDraggingRowId] = useState<string | null>(null);
+  const [dragOverRowId, setDragOverRowId] = useState<string | null>(null);
+
   // 表示モード
   type ViewMode = "list" | "kanban" | "gantt";
   const [viewMode, setViewMode] = useState<ViewMode>("list");
@@ -396,21 +415,120 @@ export default function IssueHomePage() {
       }
       return true;
     });
-    // 更新日時があれば新しい順、なければキー順
+    // ソート
+    const priorityOrder: Record<string, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
     out.sort((a, b) => {
-      const am = (a.updatedAt as any)?.toMillis?.() || (a.createdAt as any)?.toMillis?.() || 0;
-      const bm = (b.updatedAt as any)?.toMillis?.() || (b.createdAt as any)?.toMillis?.() || 0;
-      if (am !== bm) return bm - am;
-      return (a.issueKey || "").localeCompare(b.issueKey || "");
+      let cmp = 0;
+      switch (sortKey) {
+        case "manualOrder":
+          cmp = (a.manualOrder ?? 999999) - (b.manualOrder ?? 999999);
+          break;
+        case "title":
+          cmp = (a.title || "").localeCompare(b.title || "");
+          break;
+        case "project": {
+          const pa = projectsById[a.projectId]?.name || "";
+          const pb = projectsById[b.projectId]?.name || "";
+          cmp = pa.localeCompare(pb);
+          break;
+        }
+        case "customer": {
+          const ca = a.customerId ? customersById[a.customerId]?.name || "" : "";
+          const cb = b.customerId ? customersById[b.customerId]?.name || "" : "";
+          cmp = ca.localeCompare(cb);
+          break;
+        }
+        case "assignee": {
+          const na = assigneeName(a.assigneeUid) || "";
+          const nb = assigneeName(b.assigneeUid) || "";
+          cmp = na.localeCompare(nb);
+          break;
+        }
+        case "status":
+          cmp = (a.status || "").localeCompare(b.status || "");
+          break;
+        case "priority":
+          cmp = (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9);
+          break;
+        case "dueDate":
+          cmp = (a.dueDate || "9999").localeCompare(b.dueDate || "9999");
+          break;
+        case "updatedAt":
+        default: {
+          const am = (a.updatedAt as any)?.toMillis?.() || (a.createdAt as any)?.toMillis?.() || 0;
+          const bm = (b.updatedAt as any)?.toMillis?.() || (b.createdAt as any)?.toMillis?.() || 0;
+          cmp = am - bm;
+          break;
+        }
+      }
+      if (cmp === 0) {
+        return (a.issueKey || "").localeCompare(b.issueKey || "");
+      }
+      return sortDir === "asc" ? cmp : -cmp;
     });
     return out;
-  }, [visibleIssues, keyword, projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, projectsById, showArchived, selectedAssignees]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleIssues, keyword, projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, projectsById, customersById, showArchived, selectedAssignees, sortKey, sortDir, employees, user, profile]);
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const pageStart = (pageSafe - 1) * pageSize;
   const pageItems = filtered.slice(pageStart, pageStart + pageSize);
+
+  // ユンセンド: 並べ替え関数（filtered 定義後に配置）
+  const swapManualOrder = useCallback(async (issueA: Issue, issueB: Issue) => {
+    const orderA = issueA.manualOrder ?? 999999;
+    const orderB = issueB.manualOrder ?? 999999;
+    // 同じ値の場合は連番を振り直す
+    const aIdx = filtered.findIndex(x => x.id === issueA.id);
+    const bIdx = filtered.findIndex(x => x.id === issueB.id);
+    const realA = orderA === orderB ? aIdx + 1 : orderA;
+    const realB = orderA === orderB ? bIdx + 1 : orderB;
+    setIssues(prev => prev.map(i => {
+      if (i.id === issueA.id) return { ...i, manualOrder: realB };
+      if (i.id === issueB.id) return { ...i, manualOrder: realA };
+      return i;
+    }));
+    try {
+      await Promise.all([
+        updateDoc(doc(db, "issues", issueA.id), { manualOrder: realB }),
+        updateDoc(doc(db, "issues", issueB.id), { manualOrder: realA }),
+      ]);
+    } catch { /* silent */ }
+  }, [filtered]);
+
+  const moveIssue = useCallback(async (fromId: string, toId: string) => {
+    if (fromId === toId) return;
+    const fromIdx = filtered.findIndex(i => i.id === fromId);
+    const toIdx = filtered.findIndex(i => i.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+
+    const items = [...filtered];
+    const [moved] = items.splice(fromIdx, 1);
+    items.splice(toIdx, 0, moved);
+
+    const updates: { id: string; order: number }[] = [];
+    const orderMap = new Map<string, number>();
+    items.forEach((item, idx) => {
+      const newOrder = idx + 1;
+      orderMap.set(item.id, newOrder);
+      if ((item.manualOrder ?? 999999) !== newOrder) {
+        updates.push({ id: item.id, order: newOrder });
+      }
+    });
+
+    setIssues(prev => prev.map(i => {
+      const o = orderMap.get(i.id);
+      return o !== undefined ? { ...i, manualOrder: o } : i;
+    }));
+
+    try {
+      await Promise.all(
+        updates.map(u => updateDoc(doc(db, "issues", u.id), { manualOrder: u.order }))
+      );
+    } catch { /* silent */ }
+  }, [filtered]);
 
   useEffect(() => {
     setPage(1);
@@ -877,7 +995,7 @@ export default function IssueHomePage() {
 
             <div className="mt-3 overflow-hidden rounded-lg border border-slate-200 bg-white">
               <div className="overflow-x-auto">
-                <table className="min-w-[1000px] w-full text-sm">
+                <table className="min-w-[1100px] w-full text-sm">
                   <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                     <tr>
                       {editMode && (
@@ -891,26 +1009,45 @@ export default function IssueHomePage() {
                           />
                         </th>
                       )}
-                      <th className="px-4 py-3 text-left whitespace-nowrap">件名</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">案件</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">顧客</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">担当</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">状態</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">優先度</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">期限日</th>
-                      <th className="px-4 py-3 text-left whitespace-nowrap">更新日</th>
+                      {([
+                        { key: "manualOrder" as SortKey, label: "ユンセンド" },
+                        { key: "title" as SortKey, label: "件名" },
+                        { key: "project" as SortKey, label: "案件" },
+                        { key: "customer" as SortKey, label: "顧客" },
+                        { key: "assignee" as SortKey, label: "担当" },
+                        { key: "status" as SortKey, label: "状態" },
+                        { key: "priority" as SortKey, label: "優先度" },
+                        { key: "dueDate" as SortKey, label: "期限日" },
+                        { key: "updatedAt" as SortKey, label: "更新日" },
+                      ]).map((col) => (
+                        <th
+                          key={col.key}
+                          className="px-4 py-3 text-left whitespace-nowrap cursor-pointer select-none hover:bg-slate-100 transition-colors"
+                          onClick={() => handleSort(col.key)}
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            {col.label}
+                            {sortKey === col.key ? (
+                              <span className="text-orange-600">{sortDir === "asc" ? "▲" : "▼"}</span>
+                            ) : (
+                              <span className="text-slate-300">⇅</span>
+                            )}
+                          </span>
+                        </th>
+                      ))}
                       <th className="px-4 py-3 text-left whitespace-nowrap">共有</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {pageItems.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                        <td colSpan={12} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                           該当する課題がありません
                         </td>
                       </tr>
                     ) : (
-                      pageItems.map((i) => {
+                      pageItems.map((i, rowIdx) => {
+                        const globalIdx = pageStart + rowIdx;
                         const p = projectsById[i.projectId];
                         const cust = i.customerId ? customersById[i.customerId] : undefined;
                         const st = statusToLabel(i.status);
@@ -928,8 +1065,23 @@ export default function IssueHomePage() {
                         const overdue = isOverdue(i);
 
                         const isSelected = selectedIssueIds.has(i.id);
+                        const isDragSorted = sortKey === "manualOrder";
                         return (
-                          <tr key={i.id} className={clsx("hover:bg-slate-50", overdue && "bg-red-50", editMode && isSelected && "bg-orange-50")}>
+                          <tr
+                            key={i.id}
+                            draggable={isDragSorted}
+                            onDragStart={isDragSorted ? () => setDraggingRowId(i.id) : undefined}
+                            onDragEnd={isDragSorted ? () => { setDraggingRowId(null); setDragOverRowId(null); } : undefined}
+                            onDragOver={isDragSorted ? (e) => { e.preventDefault(); setDragOverRowId(i.id); } : undefined}
+                            onDrop={isDragSorted ? () => { if (draggingRowId) moveIssue(draggingRowId, i.id); setDraggingRowId(null); setDragOverRowId(null); } : undefined}
+                            className={clsx(
+                              "hover:bg-slate-50 transition-colors",
+                              overdue && "bg-red-50",
+                              editMode && isSelected && "bg-orange-50",
+                              isDragSorted && draggingRowId === i.id && "opacity-40",
+                              isDragSorted && dragOverRowId === i.id && draggingRowId !== i.id && "border-t-2 border-orange-400",
+                            )}
+                          >
                             {editMode && (
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <input
@@ -940,6 +1092,43 @@ export default function IssueHomePage() {
                                 />
                               </td>
                             )}
+                            {/* ユンセンド列 */}
+                            <td className="px-2 py-2 whitespace-nowrap text-center">
+                              <div className="flex items-center justify-center gap-0.5">
+                                {isDragSorted && (
+                                  <button
+                                    type="button"
+                                    disabled={globalIdx === 0}
+                                    onClick={() => {
+                                      if (globalIdx > 0) swapManualOrder(i, filtered[globalIdx - 1]);
+                                    }}
+                                    className="p-0.5 text-slate-400 hover:text-orange-600 disabled:opacity-20"
+                                    title="上へ"
+                                  >
+                                    <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5"/></svg>
+                                  </button>
+                                )}
+                                <span className={clsx(
+                                  "inline-flex h-6 min-w-[24px] items-center justify-center rounded-full text-xs font-extrabold",
+                                  isDragSorted ? "bg-orange-100 text-orange-700 cursor-grab" : "bg-slate-100 text-slate-500",
+                                )}>
+                                  {globalIdx + 1}
+                                </span>
+                                {isDragSorted && (
+                                  <button
+                                    type="button"
+                                    disabled={globalIdx >= filtered.length - 1}
+                                    onClick={() => {
+                                      if (globalIdx < filtered.length - 1) swapManualOrder(i, filtered[globalIdx + 1]);
+                                    }}
+                                    className="p-0.5 text-slate-400 hover:text-orange-600 disabled:opacity-20"
+                                    title="下へ"
+                                  >
+                                    <svg className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                             <td className="px-4 py-3 font-bold whitespace-nowrap">
                               <Link href={href} className={clsx("hover:underline block max-w-[200px] truncate", overdue ? "text-red-700" : "text-slate-900")} title={i.title}>
                                 {overdue && <span className="mr-1">⚠️</span>}

@@ -287,6 +287,15 @@ service cloud.firestore {
     }
 
     // ============================================
+    // 請求設定（発行元・振込先）
+    // ============================================
+    match /billingSettings/{companyCode} {
+      allow read: if isSignedIn() && isInMyCompany(companyCode);
+      allow create, update: if isSignedIn() && isCompanyOwner(companyCode);
+      allow delete: if isSignedIn() && isCompanyOwner(companyCode);
+    }
+
+    // ============================================
     // アクティビティ / お知らせ（通知）
     // ============================================
     match /activity/{activityId} {

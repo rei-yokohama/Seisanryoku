@@ -21,7 +21,9 @@ export type ActivityType =
   | "DEAL_UPDATED"
   | "DEAL_STATUS_CHANGED"
   | "CALENDAR_EVENT_CREATED"
-  | "OUTPUT_ADDED";
+  | "OUTPUT_ADDED"
+  | "BILLING_CREATED"
+  | "BILLING_UPDATED";
 
 export type Activity = {
   companyCode: string;
