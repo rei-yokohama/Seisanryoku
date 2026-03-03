@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, where } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -22,7 +22,7 @@ import {
   formatDate,
 } from "../../../lib/billing";
 
-export default function BillingNewPage() {
+function BillingNewInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -456,5 +456,13 @@ export default function BillingNewPage() {
         </button>
       </div>
     </AppShell>
+  );
+}
+
+export default function BillingNewPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="text-lg font-bold text-slate-600">読み込み中...</div></div>}>
+      <BillingNewInner />
+    </Suspense>
   );
 }
