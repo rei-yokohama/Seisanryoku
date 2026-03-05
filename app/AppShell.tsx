@@ -39,7 +39,7 @@ const ALL_MENU_PERMISSIONS: MenuPermissions = {
 };
 
 const NO_MENU_PERMISSIONS: MenuPermissions = {
-  dashboard: false,
+  dashboard: true,
   members: false,
   projects: false,
   issues: false,
@@ -144,7 +144,7 @@ export function AppShell({ children, headerRight, initialSidebarCollapsed = fals
         setUserDisplayName("未ログイン");
         setUnreadNotifications(0);
         setIsOwner(false);
-        setMenuPermissions(null);
+        setMenuPermissions(NO_MENU_PERMISSIONS);
         return;
       }
       try {
@@ -157,59 +157,65 @@ export function AppShell({ children, headerRight, initialSidebarCollapsed = fals
         if (!code) {
           setCompanyDisplayName(fallback);
           setIsOwner(false);
-          setMenuPermissions(null);
+          setMenuPermissions(ALL_MENU_PERMISSIONS);
           return;
         }
 
-        const compSnap = await getDoc(doc(db, "companies", code));
-        if (compSnap.exists()) {
-          const c = compSnap.data() as any;
-          setCompanyDisplayName((c.companyName as string | undefined) || fallback);
-          const ownerUid = c.ownerUid || "";
-          const owner = ownerUid === u.uid;
-          setIsOwner(owner);
-
-          if (owner) {
-            // オーナーは全権限
-            setMenuPermissions(ALL_MENU_PERMISSIONS);
+        // companies 読み取りが失敗しても workspaceMemberships の権限読み取りは必ず行う
+        let isOwnerUser = false;
+        try {
+          const compSnap = await getDoc(doc(db, "companies", code));
+          if (compSnap.exists()) {
+            const c = compSnap.data() as any;
+            setCompanyDisplayName((c.companyName as string | undefined) || fallback);
+            const ownerUid = c.ownerUid || "";
+            isOwnerUser = ownerUid === u.uid;
+            setIsOwner(isOwnerUser);
           } else {
-            // 非オーナー: workspaceMemberships から権限取得（デフォルト全OFF）
-            try {
-              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${code}_${u.uid}`));
-              if (msSnap.exists()) {
-                const msData = msSnap.data() as any;
-                const p = (msData.permissions || {}) as Partial<MenuPermissions>;
-                setMenuPermissions({
-                  dashboard: p.dashboard ?? false,
-                  members: p.members ?? false,
-                  projects: p.projects ?? false,
-                  issues: p.issues ?? false,
-                  customers: p.customers ?? false,
-                  files: p.files ?? false,
-                  billing: p.billing ?? false,
-                  invoicing: p.invoicing ?? false,
-                  settings: p.settings ?? false,
-                  wiki: p.wiki ?? false,
-                  effort: p.effort ?? false,
-                  calendar: p.calendar ?? false,
-                });
-              } else {
-                setMenuPermissions(NO_MENU_PERMISSIONS);
-              }
-            } catch {
-              setMenuPermissions(NO_MENU_PERMISSIONS);
-            }
+            setCompanyDisplayName(fallback);
+            setIsOwner(false);
           }
-        } else {
+        } catch {
           setCompanyDisplayName(fallback);
           setIsOwner(false);
+        }
+
+        if (isOwnerUser) {
+          setMenuPermissions(ALL_MENU_PERMISSIONS);
+          return;
+        }
+
+        // 非オーナー: workspaceMemberships から権限取得
+        try {
+          const msSnap = await getDoc(doc(db, "workspaceMemberships", `${code}_${u.uid}`));
+          if (msSnap.exists()) {
+            const msData = msSnap.data() as any;
+            const p = (msData.permissions || {}) as Partial<MenuPermissions>;
+            setMenuPermissions({
+              dashboard: true,
+              members: p.members ?? false,
+              projects: p.projects ?? false,
+              issues: p.issues ?? false,
+              customers: p.customers ?? false,
+              files: p.files ?? false,
+              billing: p.billing ?? false,
+              invoicing: p.invoicing ?? false,
+              settings: p.settings ?? false,
+              wiki: p.wiki ?? false,
+              effort: p.effort ?? false,
+              calendar: p.calendar ?? false,
+            });
+          } else {
+            setMenuPermissions(NO_MENU_PERMISSIONS);
+          }
+        } catch {
           setMenuPermissions(NO_MENU_PERMISSIONS);
         }
       } catch {
         setCompanyDisplayName("会社未設定");
         setUserDisplayName("未ログイン");
         setIsOwner(false);
-        setMenuPermissions(null);
+        setMenuPermissions(NO_MENU_PERMISSIONS);
       }
     });
     return () => unsub();
@@ -249,6 +255,9 @@ export function AppShell({ children, headerRight, initialSidebarCollapsed = fals
     if (!menuPermissions) return false;
     return menuPermissions[it.permissionKey];
   });
+
+  /* menuPermissions が null（未取得）でも最低限ダッシュボードは表示するため、
+     sidebar / mobile drawer のダッシュボードリンクは常に表示される（後述）。 */
 
   /* ── Bell icon (shared) ── */
   const bellIcon = (

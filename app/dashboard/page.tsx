@@ -25,7 +25,7 @@ const ALL_PERMISSIONS = {
 };
 
 const NO_PERMISSIONS: Permissions = {
-  dashboard: false,
+  dashboard: true,
   members: false,
   projects: false,
   issues: false,
@@ -86,25 +86,36 @@ function DashboardInner() {
         const p = await ensureProfile(u);
         const companyCode = (p?.companyCode || "").trim();
         if (!companyCode) { setPermissions(ALL_PERMISSIONS); setLoading(false); return; }
-        const compSnap = await getDoc(doc(db, "companies", companyCode));
-        if (compSnap.exists()) {
-          const c = compSnap.data() as any;
-          setCompanyName(c.companyName || "");
-          // オーナーは全権限
-          if (c.ownerUid === u.uid) {
-            setPermissions(ALL_PERMISSIONS);
-            setLoading(false);
-            return;
+
+        // companies 読み取りが失敗しても workspaceMemberships の権限読み取りは必ず行う
+        let isOwnerUser = false;
+        try {
+          const compSnap = await getDoc(doc(db, "companies", companyCode));
+          if (compSnap.exists()) {
+            const c = compSnap.data() as any;
+            setCompanyName(c.companyName || "");
+            if (c.ownerUid === u.uid) {
+              isOwnerUser = true;
+            }
           }
+        } catch {
+          // companies 読み取り失敗は無視して権限取得へ進む
         }
-        // workspaceMemberships からメニュー権限を取得（非オーナーはデフォルト全OFF）
+
+        if (isOwnerUser) {
+          setPermissions(ALL_PERMISSIONS);
+          setLoading(false);
+          return;
+        }
+
+        // workspaceMemberships からメニュー権限を取得
         try {
           const msSnap = await getDoc(doc(db, "workspaceMemberships", `${companyCode}_${u.uid}`));
           if (msSnap.exists()) {
             const msData = msSnap.data() as any;
             const p2 = (msData.permissions || {}) as Partial<Permissions>;
             setPermissions({
-              dashboard: p2.dashboard ?? false,
+              dashboard: true,
               members: p2.members ?? false,
               projects: p2.projects ?? false,
               issues: p2.issues ?? false,
@@ -177,21 +188,28 @@ function DashboardInner() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {visibleServices.map((s) => (
-            <Link
-              key={s.href}
-              href={s.href}
-              className={`group rounded-xl border border-slate-200 bg-white p-5 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 ${s.accent}`}
-            >
-              <div className="mb-3 text-slate-400 group-hover:text-orange-500 transition-colors">{s.icon}</div>
-              <div className="text-sm font-bold text-slate-900 group-hover:text-orange-600 transition-colors">
-                {s.label}
-              </div>
-              <div className="text-[12px] text-slate-400 mt-1 leading-relaxed">{s.description}</div>
-            </Link>
-          ))}
-        </div>
+        {visibleServices.length === 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+            <p className="font-bold mb-1">利用可能な機能がありません</p>
+            <p className="text-amber-600">管理者にメニュー権限の付与をご依頼ください。</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {visibleServices.map((s) => (
+              <Link
+                key={s.href}
+                href={s.href}
+                className={`group rounded-xl border border-slate-200 bg-white p-5 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 ${s.accent}`}
+              >
+                <div className="mb-3 text-slate-400 group-hover:text-orange-500 transition-colors">{s.icon}</div>
+                <div className="text-sm font-bold text-slate-900 group-hover:text-orange-600 transition-colors">
+                  {s.label}
+                </div>
+                <div className="text-[12px] text-slate-400 mt-1 leading-relaxed">{s.description}</div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </AppShell>
   );

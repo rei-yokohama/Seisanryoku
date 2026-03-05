@@ -16,6 +16,7 @@ import {
 type MemberProfile = { uid: string; companyCode: string; displayName?: string | null };
 type Employee = { id: string; name: string; authUid?: string; color?: string; isActive?: boolean | null };
 type Deal = { id: string; title: string; customerId?: string | null; companyCode?: string };
+type Customer = { id: string; name: string; companyCode?: string };
 
 type RepeatRule = {
   freq: "WEEKLY";
@@ -208,6 +209,7 @@ export default function EffortPage() {
   const [visibleUids, setVisibleUids] = useState<Set<string>>(new Set());
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
 
   // 担当者別ショートカット
@@ -219,7 +221,7 @@ export default function EffortPage() {
   const [dealDropdownOpen, setDealDropdownOpen] = useState(false);
   const [dealSearch, setDealSearch] = useState("");
   const dealDropdownRef = useRef<HTMLDivElement>(null);
-  const [viewMode, setViewMode] = useState<"table" | "chart">("table");
+  const [viewMode, setViewMode] = useState<"person" | "customer" | "chart">("person");
 
   const range = useMemo(() => {
     const { y, m } = parseYM(month);
@@ -286,9 +288,10 @@ export default function EffortPage() {
           setVisibleUids(new Set([u.uid]));
         }
 
-        const [empSnap, dealSnap, entrySnap] = await Promise.all([
+        const [empSnap, dealSnap, custSnap, entrySnap] = await Promise.all([
           getDocs(query(collection(db, "employees"), where("companyCode", "==", prof.companyCode))),
           getDocs(query(collection(db, "deals"), where("companyCode", "==", prof.companyCode))),
+          getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode))),
           getDocs(query(collection(db, "timeEntries"), where("companyCode", "==", prof.companyCode))),
         ]);
 
@@ -303,6 +306,9 @@ export default function EffortPage() {
         const dealItems = dealSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Deal));
         dealItems.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
         setDeals(dealItems);
+
+        const custItems = custSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Customer));
+        setCustomers(custItems);
 
         const rawEntries = entrySnap.docs.map((d) => ({ id: d.id, ...d.data() } as TimeEntry));
         // 月の範囲で繰り返し展開し、月内に入る分だけ集計
@@ -339,6 +345,12 @@ export default function EffortPage() {
     for (const d of deals) m[d.id] = d;
     return m;
   }, [deals]);
+
+  const customersById = useMemo(() => {
+    const m: Record<string, Customer> = {};
+    for (const c of customers) m[c.id] = c;
+    return m;
+  }, [customers]);
 
   const rows = useMemo(() => {
     // uid -> dealId -> hours
@@ -396,7 +408,63 @@ export default function EffortPage() {
     return items;
   }, [selectedUids, selectedDealIds, dealsById, employeesByUid, activeUids, entries, range.end, range.start, isOwner, visibleUids]);
 
+  // 顧客別集計行
+  const customerRows = useMemo(() => {
+    const agg: Record<string, Record<string, number>> = {};
+    for (const e of entries) {
+      if (!e.uid) continue;
+      if (!e.dealId) continue;
+      if (!isOwner && visibleUids.size > 0 && !visibleUids.has(e.uid)) continue;
+      if (selectedUids.length > 0 && !selectedUids.includes(e.uid)) continue;
+      if (selectedDealIds.length > 0 && !selectedDealIds.includes(e.dealId)) continue;
+
+      const deal = dealsById[e.dealId];
+      const custId = deal?.customerId || e.customerId || "__none__";
+      const h = overlapHours(e.start, e.end, range.start, range.end);
+      if (h <= 0) continue;
+      (agg[custId] ||= {});
+      agg[custId][e.dealId] = (agg[custId][e.dealId] || 0) + h;
+    }
+
+    const items: Array<{
+      customerId: string;
+      customerName: string;
+      dealId: string;
+      dealTitle: string;
+      hours: number;
+      rowSpan: number;
+      totalHours: number;
+    }> = [];
+
+    const custIds = Object.keys(agg).sort((a, b) => {
+      const an = a === "__none__" ? "zzz" : (customersById[a]?.name || "zzz").toLowerCase();
+      const bn = b === "__none__" ? "zzz" : (customersById[b]?.name || "zzz").toLowerCase();
+      return an.localeCompare(bn);
+    });
+
+    for (const custId of custIds) {
+      const perDeal = agg[custId] || {};
+      const dealIds = Object.keys(perDeal).sort((a, b) => (perDeal[b] || 0) - (perDeal[a] || 0));
+      const total = dealIds.reduce((s, id) => s + (perDeal[id] || 0), 0);
+      if (dealIds.length === 0) continue;
+      dealIds.forEach((did, idx) => {
+        items.push({
+          customerId: custId,
+          customerName: custId === "__none__" ? "（顧客未設定）" : (customersById[custId]?.name || "（不明）"),
+          dealId: did,
+          dealTitle: dealsById[did]?.title || "（案件不明）",
+          hours: perDeal[did] || 0,
+          rowSpan: idx === 0 ? dealIds.length : 0,
+          totalHours: total,
+        });
+      });
+    }
+
+    return items;
+  }, [selectedUids, selectedDealIds, dealsById, customersById, entries, range.end, range.start, isOwner, visibleUids]);
+
   const grandTotal = useMemo(() => rows.reduce((s, r) => s + (r.hours || 0), 0), [rows]);
+  const customerGrandTotal = useMemo(() => customerRows.reduce((s, r) => s + (r.hours || 0), 0), [customerRows]);
 
   // 円グラフ用データ: 担当者別の工数集計
   const chartData = useMemo(() => {
@@ -411,6 +479,21 @@ export default function EffortPage() {
     }
     return Object.values(byPerson).sort((a, b) => b.hours - a.hours);
   }, [rows, employeesByUid, user?.uid]);
+
+  // 円グラフ用データ: 顧客別の工数集計
+  const CUST_COLORS = ["#F97316", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#06B6D4", "#F59E0B", "#EC4899", "#14B8A6", "#6366F1"];
+  const customerChartData = useMemo(() => {
+    const byCust: Record<string, { name: string; hours: number; color: string }> = {};
+    let ci = 0;
+    for (const r of customerRows) {
+      if (!byCust[r.customerId]) {
+        byCust[r.customerId] = { name: r.customerName, hours: 0, color: CUST_COLORS[ci % CUST_COLORS.length] };
+        ci++;
+      }
+      byCust[r.customerId].hours += r.hours;
+    }
+    return Object.values(byCust).sort((a, b) => b.hours - a.hours);
+  }, [customerRows]);
 
   const toggleUid = (uid: string) => {
     setSelectedUids(prev =>
@@ -516,35 +599,42 @@ export default function EffortPage() {
                 <div className="text-right">
                   <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none mb-0.5">合計工数</div>
                   <div className="text-sm font-black text-slate-900 tabular-nums leading-none">
-                    {hoursLabel(grandTotal)}
+                    {hoursLabel(viewMode === "customer" ? customerGrandTotal : grandTotal)}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none mb-0.5">対象人数</div>
+                  <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider leading-none mb-0.5">
+                    {viewMode === "customer" ? "対象顧客" : "対象人数"}
+                  </div>
                   <div className="text-sm font-black text-slate-900 tabular-nums leading-none">
-                    {new Set(rows.map(r => r.uid)).size}<span className="text-[10px] font-bold text-slate-400 ml-0.5">名</span>
+                    {viewMode === "customer"
+                      ? new Set(customerRows.map(r => r.customerId)).size
+                      : new Set(rows.map(r => r.uid)).size}
+                    <span className="text-[10px] font-bold text-slate-400 ml-0.5">
+                      {viewMode === "customer" ? "社" : "名"}
+                    </span>
                   </div>
                 </div>
               </div>
-              <div className="flex items-center rounded-md border border-slate-200 bg-white overflow-hidden">
-                <button
-                  onClick={() => setViewMode("table")}
-                  className={clsx(
-                    "px-3 py-1.5 text-xs font-extrabold transition",
-                    viewMode === "table" ? "bg-orange-600 text-white" : "text-slate-600 hover:bg-slate-50",
-                  )}
-                >
-                  表
-                </button>
-                <button
-                  onClick={() => setViewMode("chart")}
-                  className={clsx(
-                    "px-3 py-1.5 text-xs font-extrabold transition",
-                    viewMode === "chart" ? "bg-orange-600 text-white" : "text-slate-600 hover:bg-slate-50",
-                  )}
-                >
-                  グラフ
-                </button>
+              <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5 gap-0.5">
+                {([
+                  { key: "person" as const, label: "担当者別" },
+                  { key: "customer" as const, label: "顧客別" },
+                  { key: "chart" as const, label: "グラフ" },
+                ]).map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setViewMode(tab.key)}
+                    className={clsx(
+                      "px-3 py-1.5 text-xs font-extrabold rounded-md transition-all",
+                      viewMode === tab.key
+                        ? "bg-orange-600 text-white shadow-sm"
+                        : "text-slate-600 hover:bg-white hover:shadow-sm",
+                    )}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
               <button
                 onClick={() => window.print()}
@@ -688,17 +778,17 @@ export default function EffortPage() {
           </div>
         </div>
 
-        {viewMode === "table" ? (
-          /* 集計テーブル */
+        {/* 担当者別テーブル */}
+        {viewMode === "person" && (
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="bg-slate-50/50 text-[11px] font-black uppercase tracking-widest text-slate-500">
-                    <th className="border-b border-slate-200 px-4 py-2.5 text-center">担当者</th>
+                    <th className="border-b border-slate-200 px-1 py-2.5 text-center w-10">担当者</th>
                     <th className="border-b border-slate-200 px-4 py-2.5">案件</th>
                     <th className="border-b border-slate-200 px-4 py-2.5 text-right">工数</th>
-                    <th className="border-b border-slate-200 px-4 py-2.5 text-center">個人合計</th>
+                    <th className="border-b border-slate-200 px-1 py-2.5 text-center w-14">合計</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -714,16 +804,18 @@ export default function EffortPage() {
                         {r.rowSpan > 0 ? (
                           <td
                             className={clsx(
-                              "px-4 py-2 align-middle border-r border-slate-50",
-                              idx !== 0 && "border-t border-slate-100"
+                              "px-1 py-2 align-middle border-r border-slate-100 w-10",
+                              idx !== 0 && "border-t border-slate-200"
                             )}
                             rowSpan={r.rowSpan}
                           >
-                            <div className="flex items-center justify-center gap-2 text-center">
-                              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-orange-100 text-xs font-black text-orange-600 flex-shrink-0">
+                            <div className="flex flex-col items-center gap-1">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-orange-100 text-[10px] font-black text-orange-600 flex-shrink-0">
                                 {r.name.charAt(0).toUpperCase()}
                               </div>
-                              <div className="text-xs font-black text-slate-900 leading-tight">{r.name}</div>
+                              <div className="text-[10px] font-black text-slate-900 leading-none" style={{ writingMode: "vertical-rl" }}>
+                                {r.name}
+                              </div>
                             </div>
                           </td>
                         ) : null}
@@ -740,8 +832,79 @@ export default function EffortPage() {
                         {r.rowSpan > 0 ? (
                           <td
                             className={clsx(
-                              "px-4 py-2 text-center align-middle border-l border-slate-50",
-                              idx !== 0 && "border-t border-slate-100"
+                              "px-1 py-2 text-center align-middle border-l border-slate-100 w-14",
+                              idx !== 0 && "border-t border-slate-200"
+                            )}
+                            rowSpan={r.rowSpan}
+                          >
+                            <div className="text-xs font-black text-slate-900 tabular-nums">
+                              {hoursLabel(r.totalHours)}
+                            </div>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 顧客別テーブル */}
+        {viewMode === "customer" && (
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left">
+                <thead>
+                  <tr className="bg-slate-50/50 text-[11px] font-black uppercase tracking-widest text-slate-500">
+                    <th className="border-b border-slate-200 px-4 py-2.5">顧客</th>
+                    <th className="border-b border-slate-200 px-4 py-2.5">案件</th>
+                    <th className="border-b border-slate-200 px-4 py-2.5 text-right">工数</th>
+                    <th className="border-b border-slate-200 px-4 py-2.5 text-center w-20">顧客合計</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {customerRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-10 text-center">
+                        <div className="text-sm font-bold text-slate-400">対象期間の工数データが見つかりません</div>
+                      </td>
+                    </tr>
+                  ) : (
+                    customerRows.map((r, idx) => (
+                      <tr key={`${r.customerId}_${r.dealId}_${idx}`} className="group hover:bg-slate-50/50 transition-colors">
+                        {r.rowSpan > 0 ? (
+                          <td
+                            className={clsx(
+                              "px-4 py-2 align-middle border-r border-slate-100",
+                              idx !== 0 && "border-t border-slate-200"
+                            )}
+                            rowSpan={r.rowSpan}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-blue-100 text-[10px] font-black text-blue-600 flex-shrink-0">
+                                {r.customerName.charAt(0)}
+                              </div>
+                              <div className="text-xs font-black text-slate-900 leading-tight truncate max-w-[180px]">{r.customerName}</div>
+                            </div>
+                          </td>
+                        ) : null}
+                        <td className="px-4 py-2">
+                          <div className="text-xs font-bold text-slate-800 group-hover:text-orange-600 transition-colors truncate max-w-[260px]">
+                            {r.dealTitle}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-black text-slate-700 tabular-nums">
+                            {hoursLabel(r.hours)}
+                          </span>
+                        </td>
+                        {r.rowSpan > 0 ? (
+                          <td
+                            className={clsx(
+                              "px-2 py-2 text-center align-middle border-l border-slate-100",
+                              idx !== 0 && "border-t border-slate-200"
                             )}
                             rowSpan={r.rowSpan}
                           >
@@ -757,67 +920,128 @@ export default function EffortPage() {
               </table>
             </div>
           </div>
-        ) : (
-          /* 円グラフ */
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
-            {chartData.length === 0 ? (
-              <div className="text-sm font-bold text-slate-400 text-center py-10">対象期間の工数データが見つかりません</div>
-            ) : (
-              <div className="flex flex-col lg:flex-row items-center justify-center gap-8">
-                <svg viewBox="-1.1 -1.1 2.2 2.2" className="w-64 h-64 lg:w-80 lg:h-80">
-                  {(() => {
-                    const total = chartData.reduce((s, d) => s + d.hours, 0);
-                    if (total <= 0) return null;
-                    let cumAngle = -Math.PI / 2;
-                    return chartData.map((d, i) => {
-                      const angle = (d.hours / total) * 2 * Math.PI;
-                      const startAngle = cumAngle;
-                      cumAngle += angle;
-                      const endAngle = cumAngle;
-                      const x1 = Math.cos(startAngle);
-                      const y1 = Math.sin(startAngle);
-                      const x2 = Math.cos(endAngle);
-                      const y2 = Math.sin(endAngle);
-                      const large = angle > Math.PI ? 1 : 0;
-                      if (chartData.length === 1) {
-                        return (
-                          <circle key={i} cx={0} cy={0} r={1} fill={d.color} />
-                        );
-                      }
-                      const path = `M 0 0 L ${x1} ${y1} A 1 1 0 ${large} 1 ${x2} ${y2} Z`;
+        )}
+
+        {/* 円グラフ: 担当者別 + 顧客別 */}
+        {viewMode === "chart" && (
+          <div className="space-y-6">
+            {/* 担当者別グラフ */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
+              <div className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">担当者別</div>
+              {chartData.length === 0 ? (
+                <div className="text-sm font-bold text-slate-400 text-center py-10">対象期間の工数データが見つかりません</div>
+              ) : (
+                <div className="flex flex-col lg:flex-row items-center justify-center gap-8">
+                  <svg viewBox="-1.1 -1.1 2.2 2.2" className="w-56 h-56 lg:w-72 lg:h-72">
+                    {(() => {
+                      const total = chartData.reduce((s, d) => s + d.hours, 0);
+                      if (total <= 0) return null;
+                      let cumAngle = -Math.PI / 2;
+                      return chartData.map((d, i) => {
+                        const angle = (d.hours / total) * 2 * Math.PI;
+                        const startAngle = cumAngle;
+                        cumAngle += angle;
+                        const endAngle = cumAngle;
+                        const x1 = Math.cos(startAngle);
+                        const y1 = Math.sin(startAngle);
+                        const x2 = Math.cos(endAngle);
+                        const y2 = Math.sin(endAngle);
+                        const large = angle > Math.PI ? 1 : 0;
+                        if (chartData.length === 1) {
+                          return <circle key={i} cx={0} cy={0} r={1} fill={d.color} />;
+                        }
+                        const path = `M 0 0 L ${x1} ${y1} A 1 1 0 ${large} 1 ${x2} ${y2} Z`;
+                        return <path key={i} d={path} fill={d.color} stroke="white" strokeWidth={0.02} />;
+                      });
+                    })()}
+                    <circle cx={0} cy={0} r={0.5} fill="white" />
+                    <text x={0} y={-0.05} textAnchor="middle" className="text-[0.12px] font-black fill-slate-900">{hoursLabel(grandTotal)}</text>
+                    <text x={0} y={0.12} textAnchor="middle" className="text-[0.08px] font-bold fill-slate-400">合計</text>
+                  </svg>
+                  <div className="space-y-2 min-w-[200px]">
+                    {chartData.map((d, i) => {
+                      const pct = grandTotal > 0 ? ((d.hours / grandTotal) * 100).toFixed(1) : "0.0";
                       return (
-                        <path key={i} d={path} fill={d.color} stroke="white" strokeWidth={0.02} />
-                      );
-                    });
-                  })()}
-                  <circle cx={0} cy={0} r={0.5} fill="white" />
-                  <text x={0} y={-0.05} textAnchor="middle" className="text-[0.12px] font-black fill-slate-900">{hoursLabel(grandTotal)}</text>
-                  <text x={0} y={0.12} textAnchor="middle" className="text-[0.08px] font-bold fill-slate-400">合計</text>
-                </svg>
-                <div className="space-y-2 min-w-[200px]">
-                  {chartData.map((d, i) => {
-                    const pct = grandTotal > 0 ? ((d.hours / grandTotal) * 100).toFixed(1) : "0.0";
-                    return (
-                      <div key={i} className="flex items-center gap-3">
-                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-black text-slate-900 truncate">{d.name}</div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                              <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-black text-slate-900 truncate">{d.name}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
+                              </div>
                             </div>
                           </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-xs font-black text-slate-900 tabular-nums">{hoursLabel(d.hours)}</div>
+                            <div className="text-[10px] font-bold text-slate-400 tabular-nums">{pct}%</div>
+                          </div>
                         </div>
-                        <div className="text-right flex-shrink-0">
-                          <div className="text-xs font-black text-slate-900 tabular-nums">{hoursLabel(d.hours)}</div>
-                          <div className="text-[10px] font-bold text-slate-400 tabular-nums">{pct}%</div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* 顧客別グラフ */}
+            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-6">
+              <div className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4">顧客別</div>
+              {customerChartData.length === 0 ? (
+                <div className="text-sm font-bold text-slate-400 text-center py-10">対象期間の工数データが見つかりません</div>
+              ) : (
+                <div className="flex flex-col lg:flex-row items-center justify-center gap-8">
+                  <svg viewBox="-1.1 -1.1 2.2 2.2" className="w-56 h-56 lg:w-72 lg:h-72">
+                    {(() => {
+                      const total = customerChartData.reduce((s, d) => s + d.hours, 0);
+                      if (total <= 0) return null;
+                      let cumAngle = -Math.PI / 2;
+                      return customerChartData.map((d, i) => {
+                        const angle = (d.hours / total) * 2 * Math.PI;
+                        const startAngle = cumAngle;
+                        cumAngle += angle;
+                        const endAngle = cumAngle;
+                        const x1 = Math.cos(startAngle);
+                        const y1 = Math.sin(startAngle);
+                        const x2 = Math.cos(endAngle);
+                        const y2 = Math.sin(endAngle);
+                        const large = angle > Math.PI ? 1 : 0;
+                        if (customerChartData.length === 1) {
+                          return <circle key={i} cx={0} cy={0} r={1} fill={d.color} />;
+                        }
+                        const path = `M 0 0 L ${x1} ${y1} A 1 1 0 ${large} 1 ${x2} ${y2} Z`;
+                        return <path key={i} d={path} fill={d.color} stroke="white" strokeWidth={0.02} />;
+                      });
+                    })()}
+                    <circle cx={0} cy={0} r={0.5} fill="white" />
+                    <text x={0} y={-0.05} textAnchor="middle" className="text-[0.12px] font-black fill-slate-900">{hoursLabel(customerGrandTotal)}</text>
+                    <text x={0} y={0.12} textAnchor="middle" className="text-[0.08px] font-bold fill-slate-400">合計</text>
+                  </svg>
+                  <div className="space-y-2 min-w-[200px]">
+                    {customerChartData.map((d, i) => {
+                      const pct = customerGrandTotal > 0 ? ((d.hours / customerGrandTotal) * 100).toFixed(1) : "0.0";
+                      return (
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-black text-slate-900 truncate">{d.name}</div>
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: d.color }} />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-xs font-black text-slate-900 tabular-nums">{hoursLabel(d.hours)}</div>
+                            <div className="text-[10px] font-bold text-slate-400 tabular-nums">{pct}%</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
