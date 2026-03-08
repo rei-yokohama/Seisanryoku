@@ -41,6 +41,7 @@ type TimeEntry = {
   isOccurrence?: boolean;
   mtgConfirmed?: boolean;
   mtgCandidate?: boolean;
+  shift?: boolean;
 };
 
 function ymKey(d: Date) {

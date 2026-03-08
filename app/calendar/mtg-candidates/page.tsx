@@ -42,6 +42,7 @@ type TimeEntry = {
   isOccurrence?: boolean;
   mtgConfirmed?: boolean;
   mtgCandidate?: boolean;
+  shift?: boolean;
 };
 
 type RepeatRule = {

@@ -88,6 +88,7 @@ export default function MembersPage() {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"table" | "card">("table");
 
   const loadEmployees = async (uid: string, companyCode?: string) => {
     const merged: Employee[] = [];
@@ -359,9 +360,134 @@ export default function MembersPage() {
               <option value="VERIFIED">認証済み</option>
               <option value="UNVERIFIED">未認証</option>
             </select>
+            <div className="ml-auto flex items-center rounded-lg border border-slate-200 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                className={clsx(
+                  "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-extrabold transition-all",
+                  viewMode === "table"
+                    ? "bg-orange-100 text-orange-700 shadow-sm"
+                    : "text-slate-400 hover:text-slate-600"
+                )}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                表
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("card")}
+                className={clsx(
+                  "flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-extrabold transition-all",
+                  viewMode === "card"
+                    ? "bg-orange-100 text-orange-700 shadow-sm"
+                    : "text-slate-400 hover:text-slate-600"
+                )}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-5a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-5a1 1 0 01-1-1v-4z" /></svg>
+                カード
+              </button>
+            </div>
           </div>
         </div>
 
+        {viewMode === "card" ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.length === 0 ? (
+              <div className="col-span-full rounded-lg border border-slate-200 bg-white px-4 py-10 text-center text-sm font-bold text-slate-500">
+                メンバーがいません
+              </div>
+            ) : (
+              filtered.map((e) => {
+                const isAdminRow = e.id.startsWith("__admin__");
+                const uidForRole = e.authUid || "";
+                const role = isAdminRow ? "owner" : uidForRole ? membershipByUid[uidForRole]?.role : undefined;
+                const canSeeRole = isSuperAdmin || uidForRole === user?.uid || isAdminRow;
+                return (
+                  <div
+                    key={e.id}
+                    className={clsx(
+                      "rounded-lg border bg-white p-4 transition-shadow hover:shadow-md",
+                      isAdminRow ? "border-orange-200 bg-orange-50/30" : "border-slate-200"
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-extrabold text-white shadow-sm"
+                        style={{ backgroundColor: e.color || "#3B82F6" }}
+                      >
+                        {e.name.charAt(0)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-extrabold text-slate-900">{e.name}</span>
+                          {e.authUid ? (
+                            <span className="inline-flex flex-shrink-0 rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">認証済み</span>
+                          ) : (
+                            <span className="inline-flex flex-shrink-0 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-700">未認証</span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-slate-500">{e.email}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">{e.employmentType}</span>
+                          {canSeeRole && (
+                            <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-extrabold text-slate-600">{roleLabel(role as any)}</span>
+                          )}
+                          {e.joinDate && (
+                            <span className="text-[10px] font-bold text-slate-400">{e.joinDate}</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-slate-100 pt-3">
+                      {isAdminRow ? (
+                        <Link
+                          href="/settings/account"
+                          className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-extrabold text-slate-700 hover:bg-slate-50"
+                        >
+                          設定
+                        </Link>
+                      ) : (
+                        <>
+                          <Link
+                            href={`/settings/members/${encodeURIComponent(e.id)}`}
+                            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-extrabold text-slate-700 hover:bg-slate-50"
+                          >
+                            詳細
+                          </Link>
+                          {(isSuperAdmin || e.authUid === user.uid) && (
+                            <Link
+                              href={`/settings/members/${encodeURIComponent(e.id)}/edit`}
+                              className="rounded-md border border-orange-200 bg-white px-2.5 py-1 text-[10px] font-extrabold text-orange-700 hover:bg-orange-50"
+                            >
+                              編集
+                            </Link>
+                          )}
+                          <button
+                            onClick={() => handleSendPasswordReset(e.email)}
+                            className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[10px] font-extrabold text-sky-700 hover:bg-sky-50"
+                            type="button"
+                          >
+                            リセット
+                          </button>
+                          {isSuperAdmin && (
+                            <button
+                              onClick={() => handleDelete(e.id)}
+                              className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-[10px] font-extrabold text-rose-700 hover:bg-rose-50"
+                              type="button"
+                            >
+                              削除
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1000px] text-sm">
@@ -535,6 +661,7 @@ export default function MembersPage() {
             </table>
           </div>
         </div>
+        )}
       </div>
     </AppShell>
   );

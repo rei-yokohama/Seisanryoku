@@ -44,6 +44,7 @@ type TimeEntry = {
   guestUids?: string[];
   mtgCandidate?: boolean;
   mtgConfirmed?: boolean;
+  shift?: boolean;
   // クライアント側で展開した「繰り返しの各回」用
   baseId?: string;
   isOccurrence?: boolean;
@@ -57,6 +58,7 @@ type Employee = {
   color?: string; // カレンダー表示用の色
   companyCode?: string;
   companyName?: string;
+  employmentType?: string; // 雇用形態
 };
 
 type ViewMode = "day" | "week" | "month";
@@ -502,6 +504,7 @@ export default function TeamCalendarPage() {
   const [isMtgConfirmMode, setIsMtgConfirmMode] = useState(false);
   const [isInternalMode, setIsInternalMode] = useState(false);
   const [isMtgCandidateMode, setIsMtgCandidateMode] = useState(false);
+  const [isShiftMode, setIsShiftMode] = useState(false);
   const [newDate, setNewDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -517,6 +520,7 @@ export default function TeamCalendarPage() {
   const [newRepeatCount, setNewRepeatCount] = useState(13);
   const [newGuestUids, setNewGuestUids] = useState<string[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
@@ -995,7 +999,7 @@ export default function TeamCalendarPage() {
 
   const createEntry = async () => {
     if (!user) return;
-    if (!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && (!newCustomerId || !newDealId)) {
+    if (!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && !isShiftMode && (!newCustomerId || !newDealId)) {
       alert("顧客と案件は必ず選択してください");
       return;
     }
@@ -1045,6 +1049,9 @@ export default function TeamCalendarPage() {
     if (isMtgCandidateMode) {
       payload.mtgCandidate = true;
     }
+    if (isShiftMode) {
+      payload.shift = true;
+    }
 
     await addDoc(collection(db, "timeEntries"), payload);
 
@@ -1087,6 +1094,7 @@ export default function TeamCalendarPage() {
     setIsMtgConfirmMode(false);
     setIsMtgCandidateMode(false);
     setIsInternalMode(false);
+    setIsShiftMode(false);
     setNewCustomerId("");
     setNewDealId("");
     setNewProject("");
@@ -1684,6 +1692,52 @@ export default function TeamCalendarPage() {
             </div>
           </div>
 
+          {/* 自分 */}
+          {(() => {
+            const me = filteredEmployees.find(emp => emp.authUid === user?.uid);
+            if (!me) return null;
+            return (
+              <div className="mb-4">
+                <h3 className="mb-2 px-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">自分</h3>
+                <label className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50 cursor-pointer transition-colors group">
+                  <div className="relative flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={me.authUid ? selectedEmployeeIds.has(me.authUid) : false}
+                      onChange={(e) => {
+                        if (!me.authUid) return;
+                        const newSet = new Set(selectedEmployeeIds);
+                        if (e.target.checked) newSet.add(me.authUid);
+                        else newSet.delete(me.authUid);
+                        setSelectedEmployeeIds(newSet);
+                        const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                        const unchecked = allIds.filter(id => !newSet.has(id));
+                        document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                      }}
+                      className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-300 checked:border-orange-500 checked:bg-orange-500 focus:ring-2 focus:ring-orange-100 transition-all"
+                    />
+                    <svg
+                      className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100 transition-opacity"
+                      width="10" height="10" viewBox="0 0 12 12" fill="none"
+                    >
+                      <path d="M3.5 6L5 7.5L8.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div
+                      className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold text-white shadow-sm transition group-hover:scale-110"
+                      style={{ backgroundColor: me.color || "#3B82F6" }}
+                    >
+                      {me.name.charAt(0)}
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 truncate group-hover:text-slate-900">{me.name}</span>
+                  </div>
+                </label>
+              </div>
+            );
+          })()}
+
+          {/* チームメンバー */}
           <div className="mb-8">
             <h3 className="mb-3 px-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">
               チームメンバー ({filteredEmployees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase())).length})
@@ -1694,98 +1748,188 @@ export default function TeamCalendarPage() {
                   <p className="text-xs font-bold text-slate-400 italic">メンバーなし</p>
                 </div>
               )}
-              {filteredEmployees
-                .filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase()))
-                .map((emp, idx) => (
-                <label
-                  key={emp.id}
-                  draggable={!memberSearch}
-                  onDragStart={(e) => {
-                    setMemberDragIdx(idx);
-                    e.dataTransfer.effectAllowed = "move";
-                  }}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    setMemberDragOverIdx(idx);
-                  }}
-                  onDragLeave={() => setMemberDragOverIdx(null)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (memberDragIdx === null || memberDragIdx === idx) {
-                      setMemberDragIdx(null);
-                      setMemberDragOverIdx(null);
-                      return;
-                    }
-                    const displayed = filteredEmployees.filter(emp2 => emp2.name.toLowerCase().includes(memberSearch.toLowerCase()));
-                    const draggedId = displayed[memberDragIdx]?.id;
-                    const targetId = displayed[idx]?.id;
-                    if (!draggedId || !targetId) return;
-                    const newOrder = [...memberOrder];
-                    const fromIdx = newOrder.indexOf(draggedId);
-                    const toIdx = newOrder.indexOf(targetId);
-                    if (fromIdx !== -1 && toIdx !== -1) {
-                      newOrder.splice(fromIdx, 1);
-                      newOrder.splice(toIdx, 0, draggedId);
-                      setMemberOrder(newOrder);
-                      document.cookie = `cal_member_order=${encodeURIComponent(newOrder.join(","))};path=/;max-age=${60*60*24*30}`;
-                    }
-                    setMemberDragIdx(null);
-                    setMemberDragOverIdx(null);
-                  }}
-                  onDragEnd={() => { setMemberDragIdx(null); setMemberDragOverIdx(null); }}
-                  className={clsx(
-                    "flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50 cursor-pointer transition-colors group",
-                    memberDragIdx === idx && "opacity-40",
-                    memberDragOverIdx === idx && memberDragIdx !== idx && "ring-2 ring-orange-400 bg-orange-50/50",
-                  )}
-                >
-                  {/* ドラッグハンドル */}
-                  {!memberSearch && (
-                    <svg className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 cursor-grab active:cursor-grabbing" viewBox="0 0 16 16" fill="currentColor">
-                      <circle cx="5" cy="3" r="1.2" /><circle cx="11" cy="3" r="1.2" />
-                      <circle cx="5" cy="8" r="1.2" /><circle cx="11" cy="8" r="1.2" />
-                      <circle cx="5" cy="13" r="1.2" /><circle cx="11" cy="13" r="1.2" />
-                    </svg>
-                  )}
-                  <div className="relative flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={emp.authUid ? selectedEmployeeIds.has(emp.authUid) : false}
-                      onChange={(e) => {
-                        if (!emp.authUid) return;
-                        const newSet = new Set(selectedEmployeeIds);
-                        if (e.target.checked) newSet.add(emp.authUid);
-                        else newSet.delete(emp.authUid);
-                        setSelectedEmployeeIds(newSet);
-                        // クッキーに非選択メンバーを保存（30日間）
-                        const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
-                        const unchecked = allIds.filter(id => !newSet.has(id));
-                        document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
-                      }}
-                      className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-300 checked:border-orange-500 checked:bg-orange-500 focus:ring-2 focus:ring-orange-100 transition-all"
-                    />
-                    <svg
-                      className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100 transition-opacity"
-                      width="10"
-                      height="10"
-                      viewBox="0 0 12 12"
-                      fill="none"
-                    >
-                      <path d="M3.5 6L5 7.5L8.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <div
-                      className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold text-white shadow-sm transition group-hover:scale-110"
-                      style={{ backgroundColor: emp.color || "#3B82F6" }}
-                    >
-                      {emp.name.charAt(0)}
+              {(() => {
+                const searchFiltered = filteredEmployees.filter(emp => emp.name.toLowerCase().includes(memberSearch.toLowerCase()));
+                // 雇用形態でグループ化
+                const typeOrder = ["正社員", "契約社員", "パート", "アルバイト", "業務委託"];
+                const groups = new Map<string, Employee[]>();
+                for (const emp of searchFiltered) {
+                  const type = emp.employmentType || "その他";
+                  if (!groups.has(type)) groups.set(type, []);
+                  groups.get(type)!.push(emp);
+                }
+                // 順序に従ってソート
+                const sortedTypes = Array.from(groups.keys()).sort((a, b) => {
+                  const ai = typeOrder.indexOf(a);
+                  const bi = typeOrder.indexOf(b);
+                  return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+                });
+                // グループが1つだけならグループヘッダなし
+                const showGroups = sortedTypes.length > 1;
+                let globalIdx = 0;
+                return sortedTypes.map((type) => {
+                  const groupMembers = groups.get(type)!;
+                  const groupAuthUids = groupMembers.map(e => e.authUid).filter(Boolean) as string[];
+                  const allChecked = groupAuthUids.length > 0 && groupAuthUids.every(id => selectedEmployeeIds.has(id));
+                  const someChecked = groupAuthUids.some(id => selectedEmployeeIds.has(id));
+                  const isCollapsed = collapsedGroups.has(type);
+                  return (
+                    <div key={type} className={showGroups ? "mb-2" : ""}>
+                      {showGroups && (
+                        <div className="flex items-center gap-1 px-2 py-1.5 group/grp">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCollapsedGroups(prev => {
+                                const next = new Set(prev);
+                                if (next.has(type)) next.delete(type);
+                                else next.add(type);
+                                return next;
+                              });
+                            }}
+                            className="flex items-center justify-center h-4 w-4 flex-shrink-0 rounded hover:bg-slate-100 transition-colors"
+                          >
+                            <svg
+                              className={clsx("h-3 w-3 text-slate-400 transition-transform", isCollapsed ? "" : "rotate-90")}
+                              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                          <div
+                            className="flex items-center gap-2 cursor-pointer flex-1"
+                            onClick={() => {
+                              if (groupAuthUids.length === 0) return;
+                              const newSet = new Set(selectedEmployeeIds);
+                              if (allChecked) {
+                                groupAuthUids.forEach(id => newSet.delete(id));
+                              } else {
+                                groupAuthUids.forEach(id => newSet.add(id));
+                              }
+                              setSelectedEmployeeIds(newSet);
+                              const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                              const unchecked = allIds.filter(id => !newSet.has(id));
+                              document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                            }}
+                          >
+                            <div className="relative flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={allChecked}
+                                readOnly
+                                ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                                className="peer h-3.5 w-3.5 cursor-pointer appearance-none rounded border border-slate-300 checked:border-orange-500 checked:bg-orange-500 indeterminate:border-orange-400 indeterminate:bg-orange-300 focus:ring-2 focus:ring-orange-100 transition-all"
+                              />
+                              <svg
+                                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100 transition-opacity"
+                                width="8" height="8" viewBox="0 0 12 12" fill="none"
+                              >
+                                <path d="M3.5 6L5 7.5L8.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            </div>
+                            <span className="text-[10px] font-extrabold text-slate-500 group-hover/grp:text-slate-700 transition-colors">{type}</span>
+                            <span className="text-[10px] font-bold text-slate-300">{groupMembers.length}</span>
+                          </div>
+                        </div>
+                      )}
+                      {!(showGroups && isCollapsed) && groupMembers.map((emp) => {
+                        const idx = globalIdx++;
+                        return (
+                        <label
+                          key={emp.id}
+                          draggable={!memberSearch}
+                          onDragStart={(e) => {
+                            setMemberDragIdx(idx);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                            setMemberDragOverIdx(idx);
+                          }}
+                          onDragLeave={() => setMemberDragOverIdx(null)}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            if (memberDragIdx === null || memberDragIdx === idx) {
+                              setMemberDragIdx(null);
+                              setMemberDragOverIdx(null);
+                              return;
+                            }
+                            const displayed = filteredEmployees.filter(emp2 => emp2.name.toLowerCase().includes(memberSearch.toLowerCase()));
+                            const draggedId = displayed[memberDragIdx]?.id;
+                            const targetId = displayed[idx]?.id;
+                            if (!draggedId || !targetId) return;
+                            const newOrder = [...memberOrder];
+                            const fromIdx = newOrder.indexOf(draggedId);
+                            const toIdx = newOrder.indexOf(targetId);
+                            if (fromIdx !== -1 && toIdx !== -1) {
+                              newOrder.splice(fromIdx, 1);
+                              newOrder.splice(toIdx, 0, draggedId);
+                              setMemberOrder(newOrder);
+                              document.cookie = `cal_member_order=${encodeURIComponent(newOrder.join(","))};path=/;max-age=${60*60*24*30}`;
+                            }
+                            setMemberDragIdx(null);
+                            setMemberDragOverIdx(null);
+                          }}
+                          onDragEnd={() => { setMemberDragIdx(null); setMemberDragOverIdx(null); }}
+                          className={clsx(
+                            "flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50 cursor-pointer transition-colors group",
+                            showGroups && "pl-7",
+                            memberDragIdx === idx && "opacity-40",
+                            memberDragOverIdx === idx && memberDragIdx !== idx && "ring-2 ring-orange-400 bg-orange-50/50",
+                          )}
+                        >
+                          {/* ドラッグハンドル */}
+                          {!memberSearch && (
+                            <svg className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 cursor-grab active:cursor-grabbing" viewBox="0 0 16 16" fill="currentColor">
+                              <circle cx="5" cy="3" r="1.2" /><circle cx="11" cy="3" r="1.2" />
+                              <circle cx="5" cy="8" r="1.2" /><circle cx="11" cy="8" r="1.2" />
+                              <circle cx="5" cy="13" r="1.2" /><circle cx="11" cy="13" r="1.2" />
+                            </svg>
+                          )}
+                          <div className="relative flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={emp.authUid ? selectedEmployeeIds.has(emp.authUid) : false}
+                              onChange={(e) => {
+                                if (!emp.authUid) return;
+                                const newSet = new Set(selectedEmployeeIds);
+                                if (e.target.checked) newSet.add(emp.authUid);
+                                else newSet.delete(emp.authUid);
+                                setSelectedEmployeeIds(newSet);
+                                // クッキーに非選択メンバーを保存（30日間）
+                                const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                                const unchecked = allIds.filter(id => !newSet.has(id));
+                                document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                              }}
+                              className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-300 checked:border-orange-500 checked:bg-orange-500 focus:ring-2 focus:ring-orange-100 transition-all"
+                            />
+                            <svg
+                              className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100 transition-opacity"
+                              width="10"
+                              height="10"
+                              viewBox="0 0 12 12"
+                              fill="none"
+                            >
+                              <path d="M3.5 6L5 7.5L8.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div
+                              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold text-white shadow-sm transition group-hover:scale-110"
+                              style={{ backgroundColor: emp.color || "#3B82F6" }}
+                            >
+                              {emp.name.charAt(0)}
+                            </div>
+                            <span className="text-xs font-bold text-slate-700 truncate group-hover:text-slate-900">{emp.name}</span>
+                          </div>
+                        </label>
+                        );
+                      })}
                     </div>
-                    <span className="text-xs font-bold text-slate-700 truncate group-hover:text-slate-900">{emp.name}</span>
-                  </div>
-                </label>
-              ))}
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>
@@ -2381,7 +2525,7 @@ export default function TeamCalendarPage() {
   console.log("employees:", employees);
   console.log("showSidebar:", showSidebar);
 
-  const canCreateNewEntry = isBreakMode || isMtgConfirmMode || isMtgCandidateMode || (isInternalMode && !!newDealId) || (!!newCustomerId && !!newDealId);
+  const canCreateNewEntry = isBreakMode || isMtgConfirmMode || isMtgCandidateMode || isShiftMode || (isInternalMode && !!newDealId) || (!!newCustomerId && !!newDealId);
 
   return (
     <AppShell title="カレンダー" subtitle={getDateRangeText()} initialSidebarCollapsed>
@@ -2505,6 +2649,8 @@ export default function TeamCalendarPage() {
                     if (next) {
                       setIsMtgConfirmMode(false);
                       setIsMtgCandidateMode(false);
+                      setIsInternalMode(false);
+                      setIsShiftMode(false);
                       setNewProject("休憩");
                       setNewCustomerId("");
                       setNewDealId("");
@@ -2539,6 +2685,7 @@ export default function TeamCalendarPage() {
                       setIsBreakMode(false);
                       setIsMtgCandidateMode(false);
                       setIsInternalMode(false);
+                      setIsShiftMode(false);
                       setNewCustomerId("");
                       setNewDealId("");
                     }
@@ -2564,6 +2711,7 @@ export default function TeamCalendarPage() {
                       setIsBreakMode(false);
                       setIsMtgConfirmMode(false);
                       setIsInternalMode(false);
+                      setIsShiftMode(false);
                       setNewCustomerId("");
                       setNewDealId("");
                     }
@@ -2589,6 +2737,7 @@ export default function TeamCalendarPage() {
                       setIsBreakMode(false);
                       setIsMtgConfirmMode(false);
                       setIsMtgCandidateMode(false);
+                      setIsShiftMode(false);
                       setNewCustomerId("");
                       setNewDealId("");
                     }
@@ -2605,6 +2754,32 @@ export default function TeamCalendarPage() {
                   </svg>
                   社内
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isShiftMode;
+                    setIsShiftMode(next);
+                    if (next) {
+                      setIsBreakMode(false);
+                      setIsMtgConfirmMode(false);
+                      setIsMtgCandidateMode(false);
+                      setIsInternalMode(false);
+                      setNewCustomerId("");
+                      setNewDealId("");
+                    }
+                  }}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all border",
+                    isShiftMode
+                      ? "bg-cyan-50 border-cyan-300 text-cyan-700 shadow-sm"
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  シフト
+                </button>
                 {isBreakMode && (
                   <span className="text-[10px] font-bold text-emerald-600">60分の休憩を登録します</span>
                 )}
@@ -2616,6 +2791,9 @@ export default function TeamCalendarPage() {
                 )}
                 {isInternalMode && (
                   <span className="text-[10px] font-bold text-amber-600">自社案件のみ表示</span>
+                )}
+                {isShiftMode && (
+                  <span className="text-[10px] font-bold text-cyan-600">シフトとして登録します</span>
                 )}
               </div>
 
@@ -2736,7 +2914,7 @@ export default function TeamCalendarPage() {
               </div>
 
               {/* 通常モード: 顧客+案件 */}
-              {!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && (
+              {!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && !isShiftMode && (
               <>
               <div ref={customerDropdownRef} className="relative">
                 <div className="text-xs font-extrabold text-slate-500">
