@@ -192,6 +192,7 @@ function DealNewInner() {
   const [employees, setEmployees] = useState<Employee[]>([]);
 
   const [customerId, setCustomerId] = useState("");
+  const [isInternal, setIsInternal] = useState(false);
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState("");
   const [genreOptions, setGenreOptions] = useState<string[]>([]);
@@ -274,7 +275,7 @@ function DealNewInner() {
 
   const handleSubmit = async () => {
     if (!user || !profile) return;
-    if (!customerId) {
+    if (!isInternal && !customerId) {
       setError("顧客を選択してください");
       return;
     }
@@ -301,7 +302,8 @@ function DealNewInner() {
       await addDoc(collection(db, "deals"), {
         companyCode: profile.companyCode,
         createdBy: user.uid,
-        customerId,
+        customerId: isInternal ? null : customerId,
+        isInternal: isInternal || false,
         title: t,
         genre: genre.trim() || "",
         description: description.trim() || "",
@@ -315,7 +317,7 @@ function DealNewInner() {
         companyCode: profile.companyCode,
         actorUid: user.uid,
         type: "DEAL_CREATED",
-        message: `案件を作成しました: ${t}（顧客: ${customerName || "未設定"}）`,
+        message: `案件を作成しました: ${t}（${isInternal ? "自社案件" : `顧客: ${customerName || "未設定"}`}）`,
         link: "/projects",
       });
       router.push("/projects");
@@ -354,6 +356,31 @@ function DealNewInner() {
             {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
 
             <div className="grid grid-cols-1 gap-4">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isInternal;
+                    setIsInternal(next);
+                    if (next) setCustomerId("");
+                  }}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all border ${
+                    isInternal
+                      ? "bg-orange-50 border-orange-300 text-orange-700 shadow-sm"
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  自社案件
+                </button>
+                {isInternal && (
+                  <span className="text-[11px] font-bold text-orange-600">顧客なしの自社案件として登録します</span>
+                )}
+              </div>
+
+              {!isInternal && (
               <div>
                 <div className="mb-1 text-sm font-bold text-slate-700">顧客 *</div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -372,6 +399,7 @@ function DealNewInner() {
                   </Link>
                 </div>
               </div>
+              )}
 
               <div>
                 <div className="mb-1 text-sm font-bold text-slate-700">案件名 *</div>
@@ -498,7 +526,7 @@ function DealNewInner() {
               </Link>
               <button
                 onClick={handleSubmit}
-                disabled={saving || customers.length === 0}
+                disabled={saving || (!isInternal && customers.length === 0)}
                 className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-extrabold text-orange-950 hover:bg-orange-600 disabled:bg-orange-300"
               >
                 {saving ? "作成中..." : "作成"}

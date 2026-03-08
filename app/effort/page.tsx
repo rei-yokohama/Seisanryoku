@@ -39,6 +39,8 @@ type TimeEntry = {
   repeat?: RepeatRule | null;
   baseId?: string;
   isOccurrence?: boolean;
+  mtgConfirmed?: boolean;
+  mtgCandidate?: boolean;
 };
 
 function ymKey(d: Date) {
@@ -357,16 +359,20 @@ export default function EffortPage() {
     const agg: Record<string, Record<string, number>> = {};
     for (const e of entries) {
       if (!e.uid) continue;
-      if (!e.dealId) continue; // 工数は案件必須（UI側で必須化済み）
+      // 休憩・MTG確定はdealIdなしでも集計する
+      const isBreak = !e.dealId && !e.mtgConfirmed && !e.customerId;
+      const isMtg = !!e.mtgConfirmed;
+      const key = e.dealId || (isMtg ? "__mtg__" : isBreak ? "__break__" : null);
+      if (!key) continue;
       // 権限によるフィルタ（オーナーでない場合、visibleUids が空でなければフィルタ適用）
       if (!isOwner && visibleUids.size > 0 && !visibleUids.has(e.uid)) continue;
       if (selectedUids.length > 0 && !selectedUids.includes(e.uid)) continue;
-      if (selectedDealIds.length > 0 && !selectedDealIds.includes(e.dealId)) continue;
+      if (selectedDealIds.length > 0 && e.dealId && !selectedDealIds.includes(e.dealId)) continue;
 
       const h = overlapHours(e.start, e.end, range.start, range.end);
       if (h <= 0) continue;
       (agg[e.uid] ||= {});
-      agg[e.uid][e.dealId] = (agg[e.uid][e.dealId] || 0) + h;
+      agg[e.uid][key] = (agg[e.uid][key] || 0) + h;
     }
 
     const items: Array<{
@@ -393,11 +399,12 @@ export default function EffortPage() {
       const total = dealIds.reduce((s, id) => s + (perDeal[id] || 0), 0);
       if (dealIds.length === 0) continue;
       dealIds.forEach((did, idx) => {
+        const dealTitle = did === "__break__" ? "休憩" : did === "__mtg__" ? "MTG実施" : (dealsById[did]?.title || "（案件不明）");
         items.push({
           uid,
           name: employeesByUid[uid]?.name || "(不明)",
           dealId: did,
-          dealTitle: dealsById[did]?.title || "（案件不明）",
+          dealTitle,
           hours: perDeal[did] || 0,
           rowSpan: idx === 0 ? dealIds.length : 0,
           totalHours: total,
@@ -413,17 +420,20 @@ export default function EffortPage() {
     const agg: Record<string, Record<string, number>> = {};
     for (const e of entries) {
       if (!e.uid) continue;
-      if (!e.dealId) continue;
+      const isBreak = !e.dealId && !e.mtgConfirmed && !e.customerId;
+      const isMtg = !!e.mtgConfirmed;
+      const key = e.dealId || (isMtg ? "__mtg__" : isBreak ? "__break__" : null);
+      if (!key) continue;
       if (!isOwner && visibleUids.size > 0 && !visibleUids.has(e.uid)) continue;
       if (selectedUids.length > 0 && !selectedUids.includes(e.uid)) continue;
-      if (selectedDealIds.length > 0 && !selectedDealIds.includes(e.dealId)) continue;
+      if (selectedDealIds.length > 0 && e.dealId && !selectedDealIds.includes(e.dealId)) continue;
 
-      const deal = dealsById[e.dealId];
+      const deal = e.dealId ? dealsById[e.dealId] : null;
       const custId = deal?.customerId || e.customerId || "__none__";
       const h = overlapHours(e.start, e.end, range.start, range.end);
       if (h <= 0) continue;
       (agg[custId] ||= {});
-      agg[custId][e.dealId] = (agg[custId][e.dealId] || 0) + h;
+      agg[custId][key] = (agg[custId][key] || 0) + h;
     }
 
     const items: Array<{
@@ -448,11 +458,12 @@ export default function EffortPage() {
       const total = dealIds.reduce((s, id) => s + (perDeal[id] || 0), 0);
       if (dealIds.length === 0) continue;
       dealIds.forEach((did, idx) => {
+        const dealTitle = did === "__break__" ? "休憩" : did === "__mtg__" ? "MTG実施" : (dealsById[did]?.title || "（案件不明）");
         items.push({
           customerId: custId,
           customerName: custId === "__none__" ? "（顧客未設定）" : (customersById[custId]?.name || "（不明）"),
           dealId: did,
-          dealTitle: dealsById[did]?.title || "（案件不明）",
+          dealTitle,
           hours: perDeal[did] || 0,
           rowSpan: idx === 0 ? dealIds.length : 0,
           totalHours: total,

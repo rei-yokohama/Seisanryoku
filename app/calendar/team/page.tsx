@@ -42,6 +42,8 @@ type TimeEntry = {
   color?: string | null;
   repeat?: RepeatRule | null;
   guestUids?: string[];
+  mtgCandidate?: boolean;
+  mtgConfirmed?: boolean;
   // クライアント側で展開した「繰り返しの各回」用
   baseId?: string;
   isOccurrence?: boolean;
@@ -148,6 +150,7 @@ type Deal = {
   assigneeUids?: string[] | null; // 担当者（複数）
   leaderUid?: string | null; // 旧: 互換用
   subLeaderUid?: string | null; // 旧: 互換用
+  isInternal?: boolean;
 };
 
 const formatTime = (dateString: string) => {
@@ -473,6 +476,20 @@ export default function TeamCalendarPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // ドロップダウン外クリックで閉じる
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (customerDropdownRef.current && !customerDropdownRef.current.contains(e.target as Node)) {
+        setCustomerDropdownOpen(false);
+      }
+      if (dealDropdownRef.current && !dealDropdownRef.current.contains(e.target as Node)) {
+        setDealDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -482,6 +499,9 @@ export default function TeamCalendarPage() {
   const [newSummary, setNewSummary] = useState("");
   const [newColor, setNewColor] = useState("");
   const [isBreakMode, setIsBreakMode] = useState(false);
+  const [isMtgConfirmMode, setIsMtgConfirmMode] = useState(false);
+  const [isInternalMode, setIsInternalMode] = useState(false);
+  const [isMtgCandidateMode, setIsMtgCandidateMode] = useState(false);
   const [newDate, setNewDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -497,6 +517,13 @@ export default function TeamCalendarPage() {
   const [newRepeatCount, setNewRepeatCount] = useState(13);
   const [newGuestUids, setNewGuestUids] = useState<string[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
+
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [dealSearch, setDealSearch] = useState("");
+  const [dealDropdownOpen, setDealDropdownOpen] = useState(false);
+  const customerDropdownRef = useRef<HTMLDivElement>(null);
+  const dealDropdownRef = useRef<HTMLDivElement>(null);
 
   const [hoverTooltip, setHoverTooltip] = useState<{ x: number; y: number; title: string; time: string; summary: string; emp: string } | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -968,8 +995,12 @@ export default function TeamCalendarPage() {
 
   const createEntry = async () => {
     if (!user) return;
-    if (!isBreakMode && (!newCustomerId || !newDealId)) {
+    if (!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && (!newCustomerId || !newDealId)) {
       alert("顧客と案件は必ず選択してください");
+      return;
+    }
+    if (isInternalMode && !newDealId) {
+      alert("自社案件を選択してください");
       return;
     }
     const project = newProject.trim();
@@ -995,7 +1026,7 @@ export default function TeamCalendarPage() {
         }
       : null;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       uid: user.uid,
       companyCode: (profile?.companyCode || "").trim(),
       customerId: newCustomerId || null,
@@ -1008,6 +1039,12 @@ export default function TeamCalendarPage() {
       repeat,
       guestUids: Array.from(new Set(newGuestUids)).filter(Boolean),
     };
+    if (isMtgConfirmMode) {
+      payload.mtgConfirmed = true;
+    }
+    if (isMtgCandidateMode) {
+      payload.mtgCandidate = true;
+    }
 
     await addDoc(collection(db, "timeEntries"), payload);
 
@@ -1047,6 +1084,9 @@ export default function TeamCalendarPage() {
 
     setCreateOpen(false);
     setIsBreakMode(false);
+    setIsMtgConfirmMode(false);
+    setIsMtgCandidateMode(false);
+    setIsInternalMode(false);
     setNewCustomerId("");
     setNewDealId("");
     setNewProject("");
@@ -2341,7 +2381,7 @@ export default function TeamCalendarPage() {
   console.log("employees:", employees);
   console.log("showSidebar:", showSidebar);
 
-  const canCreateNewEntry = isBreakMode || (!!newCustomerId && !!newDealId);
+  const canCreateNewEntry = isBreakMode || isMtgConfirmMode || isMtgCandidateMode || (isInternalMode && !!newDealId) || (!!newCustomerId && !!newDealId);
 
   return (
     <AppShell title="カレンダー" subtitle={getDateRangeText()} initialSidebarCollapsed>
@@ -2400,6 +2440,12 @@ export default function TeamCalendarPage() {
             >
               ＋ 工数登録
             </button>
+            <Link
+              href="/calendar/mtg-candidates"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-extrabold text-slate-500 hover:bg-slate-50 transition-all"
+            >
+              MTG候補
+            </Link>
             <div className="flex rounded-lg border border-slate-200 bg-white shadow-sm p-0.5">
               {[
                 { mode: "day" as const, label: "日" },
@@ -2449,7 +2495,7 @@ export default function TeamCalendarPage() {
 
             {/* スクロール可能なコンテンツ */}
             <div className="flex-1 overflow-y-auto px-5">
-              {/* 休憩ボタン */}
+              {/* 休憩・MTG確定ボタン */}
               <div className="mt-4 flex items-center gap-2">
                 <button
                   type="button"
@@ -2457,11 +2503,12 @@ export default function TeamCalendarPage() {
                     const next = !isBreakMode;
                     setIsBreakMode(next);
                     if (next) {
+                      setIsMtgConfirmMode(false);
+                      setIsMtgCandidateMode(false);
                       setNewProject("休憩");
                       setNewCustomerId("");
                       setNewDealId("");
                       setNewSummary("");
-                      // 開始時間から60分後を終了時間にセット
                       const [h, m] = newStartTime.split(":").map(Number);
                       const endTotal = h * 60 + m + 60;
                       const endH = Math.floor(endTotal / 60) % 24;
@@ -2483,8 +2530,92 @@ export default function TeamCalendarPage() {
                   </svg>
                   休憩
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isMtgConfirmMode;
+                    setIsMtgConfirmMode(next);
+                    if (next) {
+                      setIsBreakMode(false);
+                      setIsMtgCandidateMode(false);
+                      setIsInternalMode(false);
+                      setNewCustomerId("");
+                      setNewDealId("");
+                    }
+                  }}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all border",
+                    isMtgConfirmMode
+                      ? "bg-indigo-50 border-indigo-300 text-indigo-700 shadow-sm"
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  MTG確定
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isMtgCandidateMode;
+                    setIsMtgCandidateMode(next);
+                    if (next) {
+                      setIsBreakMode(false);
+                      setIsMtgConfirmMode(false);
+                      setIsInternalMode(false);
+                      setNewCustomerId("");
+                      setNewDealId("");
+                    }
+                  }}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all border",
+                    isMtgCandidateMode
+                      ? "bg-violet-50 border-violet-300 text-violet-700 shadow-sm"
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  MTG候補
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isInternalMode;
+                    setIsInternalMode(next);
+                    if (next) {
+                      setIsBreakMode(false);
+                      setIsMtgConfirmMode(false);
+                      setIsMtgCandidateMode(false);
+                      setNewCustomerId("");
+                      setNewDealId("");
+                    }
+                  }}
+                  className={clsx(
+                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-extrabold transition-all border",
+                    isInternalMode
+                      ? "bg-amber-50 border-amber-300 text-amber-700 shadow-sm"
+                      : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                  )}
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  社内
+                </button>
                 {isBreakMode && (
                   <span className="text-[10px] font-bold text-emerald-600">60分の休憩を登録します</span>
+                )}
+                {isMtgConfirmMode && (
+                  <span className="text-[10px] font-bold text-indigo-600">顧客・案件なしで登録できます</span>
+                )}
+                {isMtgCandidateMode && (
+                  <span className="text-[10px] font-bold text-violet-600">MTG候補として登録します</span>
+                )}
+                {isInternalMode && (
+                  <span className="text-[10px] font-bold text-amber-600">自社案件のみ表示</span>
                 )}
               </div>
 
@@ -2604,31 +2735,64 @@ export default function TeamCalendarPage() {
                 </div>
               </div>
 
-              {!isBreakMode && (
+              {/* 通常モード: 顧客+案件 */}
+              {!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && (
               <>
-              <div>
+              <div ref={customerDropdownRef} className="relative">
                 <div className="text-xs font-extrabold text-slate-500">
                   顧客 <span className="text-rose-600">*</span>
                 </div>
-                <select
-                  value={newCustomerId}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setNewCustomerId(v);
-                    setNewDealId("");
-                  }}
+                <button
+                  type="button"
+                  onClick={() => { setCustomerDropdownOpen(!customerDropdownOpen); setCustomerSearch(""); }}
                   className={clsx(
-                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm font-bold text-slate-800",
-                    newCustomerId ? "border-slate-200" : "border-rose-200",
+                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-left text-sm font-bold",
+                    newCustomerId ? "border-slate-200 text-slate-800" : "border-rose-200 text-slate-400",
                   )}
                 >
-                  <option value="">（未選択）</option>
-                  {myCustomers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  {newCustomerId ? myCustomers.find((c) => c.id === newCustomerId)?.name || "（未選択）" : "（未選択）"}
+                  <svg className="absolute right-3 top-[50%] h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {customerDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                    <div className="p-2">
+                      <input
+                        type="text"
+                        value={customerSearch}
+                        onChange={(e) => setCustomerSearch(e.target.value)}
+                        placeholder="顧客を検索..."
+                        autoFocus
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-300"
+                      />
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => { setNewCustomerId(""); setNewDealId(""); setCustomerDropdownOpen(false); }}
+                        className="w-full px-3 py-1.5 text-left text-xs font-bold text-slate-400 hover:bg-slate-50"
+                      >
+                        （未選択）
+                      </button>
+                      {myCustomers
+                        .filter((c) => !customerSearch || c.name.toLowerCase().includes(customerSearch.toLowerCase()))
+                        .map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => { setNewCustomerId(c.id); setNewDealId(""); setCustomerDropdownOpen(false); }}
+                            className={clsx(
+                              "w-full px-3 py-1.5 text-left text-xs font-bold hover:bg-slate-50",
+                              newCustomerId === c.id ? "bg-indigo-50 text-indigo-700" : "text-slate-700",
+                            )}
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 {user?.uid !== companyOwnerUid && (
                   <div className="mt-1 text-[10px] font-bold text-slate-500">
                     ※ 自分が担当の案件に関連する顧客のみ表示されます
@@ -2636,33 +2800,65 @@ export default function TeamCalendarPage() {
                 )}
               </div>
 
-              <div>
+              <div ref={dealDropdownRef} className="relative">
                 <div className="text-xs font-extrabold text-slate-500">
                   案件 <span className="text-rose-600">*</span>
                 </div>
-                <select
-                  value={newDealId}
-                  onChange={(e) => setNewDealId(e.target.value)}
+                <button
+                  type="button"
+                  onClick={() => { setDealDropdownOpen(!dealDropdownOpen); setDealSearch(""); }}
                   className={clsx(
-                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-sm font-bold text-slate-800",
-                    newDealId ? "border-slate-200" : "border-rose-200",
+                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-left text-sm font-bold",
+                    newDealId ? "border-slate-200 text-slate-800" : "border-rose-200 text-slate-400",
                   )}
                 >
-                  <option value="">（未選択）</option>
-                  {myDeals
-                    .filter((d) => {
-                      // 顧客フィルタ（顧客が選択されている場合はその顧客の案件のみ）
-                      if (newCustomerId && d.customerId && d.customerId !== newCustomerId) {
-                        return false;
-                      }
-                      return true;
-                    })
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.title}
-                      </option>
-                    ))}
-                </select>
+                  {newDealId ? myDeals.find((d) => d.id === newDealId)?.title || "（未選択）" : "（未選択）"}
+                  <svg className="absolute right-3 top-[50%] h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {dealDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                    <div className="p-2">
+                      <input
+                        type="text"
+                        value={dealSearch}
+                        onChange={(e) => setDealSearch(e.target.value)}
+                        placeholder="案件を検索..."
+                        autoFocus
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-300"
+                      />
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => { setNewDealId(""); setDealDropdownOpen(false); }}
+                        className="w-full px-3 py-1.5 text-left text-xs font-bold text-slate-400 hover:bg-slate-50"
+                      >
+                        （未選択）
+                      </button>
+                      {myDeals
+                        .filter((d) => {
+                          if (newCustomerId && d.customerId && d.customerId !== newCustomerId) return false;
+                          if (dealSearch && !d.title.toLowerCase().includes(dealSearch.toLowerCase())) return false;
+                          return true;
+                        })
+                        .map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => { setNewDealId(d.id); setDealDropdownOpen(false); }}
+                            className={clsx(
+                              "w-full px-3 py-1.5 text-left text-xs font-bold hover:bg-slate-50",
+                              newDealId === d.id ? "bg-indigo-50 text-indigo-700" : "text-slate-700",
+                            )}
+                          >
+                            {d.title}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 {user?.uid !== companyOwnerUid && (
                   <div className="mt-1 text-[10px] font-bold text-slate-500">
                     ※ 自分が担当の案件のみ表示されます
@@ -2672,8 +2868,77 @@ export default function TeamCalendarPage() {
               </>
               )}
 
+              {/* 社内モード: 自社案件のみ */}
+              {isInternalMode && (
+              <div ref={dealDropdownRef} className="relative">
+                <div className="text-xs font-extrabold text-slate-500">
+                  自社案件 <span className="text-rose-600">*</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setDealDropdownOpen(!dealDropdownOpen); setDealSearch(""); }}
+                  className={clsx(
+                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-left text-sm font-bold",
+                    newDealId ? "border-slate-200 text-slate-800" : "border-rose-200 text-slate-400",
+                  )}
+                >
+                  {newDealId ? myDeals.find((d) => d.id === newDealId)?.title || "（未選択）" : "（未選択）"}
+                  <svg className="absolute right-3 top-[50%] h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {dealDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
+                    <div className="p-2">
+                      <input
+                        type="text"
+                        value={dealSearch}
+                        onChange={(e) => setDealSearch(e.target.value)}
+                        placeholder="自社案件を検索..."
+                        autoFocus
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-300"
+                      />
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => { setNewDealId(""); setDealDropdownOpen(false); }}
+                        className="w-full px-3 py-1.5 text-left text-xs font-bold text-slate-400 hover:bg-slate-50"
+                      >
+                        （未選択）
+                      </button>
+                      {myDeals
+                        .filter((d) => {
+                          if (!d.isInternal && d.customerId) return false; // 自社案件のみ
+                          if (dealSearch && !d.title.toLowerCase().includes(dealSearch.toLowerCase())) return false;
+                          return true;
+                        })
+                        .map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            onClick={() => { setNewDealId(d.id); setDealDropdownOpen(false); }}
+                            className={clsx(
+                              "w-full px-3 py-1.5 text-left text-xs font-bold hover:bg-slate-50",
+                              newDealId === d.id ? "bg-indigo-50 text-indigo-700" : "text-slate-700",
+                            )}
+                          >
+                            {d.title}
+                          </button>
+                        ))}
+                      {myDeals.filter((d) => (d.isInternal || !d.customerId) && (!dealSearch || d.title.toLowerCase().includes(dealSearch.toLowerCase()))).length === 0 && (
+                        <div className="px-3 py-2 text-[11px] font-bold text-slate-400">
+                          自社案件がありません。案件一覧から「自社案件」として登録してください。
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              )}
+
               <div>
-                <div className="text-xs font-extrabold text-slate-500">案件/作業名</div>
+                <div className="text-xs font-extrabold text-slate-500">タイトル</div>
                 <input
                   value={newProject}
                   onChange={(e) => setNewProject(e.target.value)}
@@ -2681,14 +2946,15 @@ export default function TeamCalendarPage() {
                   className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
                 />
               </div>
-
               <div>
-                <div className="text-xs font-extrabold text-slate-500">メモ（任意）</div>
-                <input
+                <div className="text-xs font-extrabold text-slate-500">作業内容（任意）</div>
+                <textarea
                   value={newSummary}
                   onChange={(e) => setNewSummary(e.target.value)}
-                  placeholder="例）議事録作成、対応内容など"
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  placeholder="議事録作成、対応内容など"
+                  rows={3}
+                  className="mt-1 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  style={{ minHeight: "4rem" }}
                 />
               </div>
 
@@ -2970,6 +3236,44 @@ export default function TeamCalendarPage() {
                     return `${dateText} ・ ${formatTime(activeEntry.start)}〜${formatTime(activeEntry.end)}`;
                   })()}
                 </div>
+                {/* MTGステータス */}
+                {(activeEntry.mtgCandidate || activeEntry.mtgConfirmed) && (
+                  <div className="mt-2 flex items-center gap-2">
+                    {activeEntry.mtgConfirmed && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-300">
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4" /></svg>
+                        MTG確定
+                      </span>
+                    )}
+                    {activeEntry.mtgCandidate && !activeEntry.mtgConfirmed && (
+                      <>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-violet-300">
+                          <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                          MTG候補
+                        </span>
+                        {(activeEntry.uid === user?.uid || user?.uid === companyOwnerUid) && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const entryId = activeEntry.baseId || activeEntry.id;
+                              await updateDoc(doc(db, "timeEntries", entryId), {
+                                mtgConfirmed: true,
+                                mtgCandidate: false,
+                              });
+                              setActiveEntry({ ...activeEntry, mtgConfirmed: true, mtgCandidate: false });
+                              // 再ロード
+                              const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
+                              await loadEntries(profile?.companyCode || "", employeeUids);
+                            }}
+                            className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-300 hover:bg-emerald-500/30 transition-all"
+                          >
+                            MTG確定にする
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
