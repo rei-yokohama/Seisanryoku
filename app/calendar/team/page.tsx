@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import {
   collection,
@@ -439,7 +439,7 @@ const DEFAULT_CALENDAR_PERMISSIONS: CalendarPermissions = {
   canReceiveInvitations: true,
 };
 
-export default function TeamCalendarPage() {
+function TeamCalendarPageInner() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [companyOwnerUid, setCompanyOwnerUid] = useState<string | null>(null);
@@ -4232,5 +4232,13 @@ export default function TeamCalendarPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+export default function TeamCalendarPage() {
+  return (
+    <Suspense>
+      <TeamCalendarPageInner />
+    </Suspense>
   );
 }
