@@ -9,7 +9,7 @@ import {
   updateProfile,
   User,
 } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
@@ -85,6 +85,30 @@ export default function AccountSettingsPage() {
       await updateProfile(user, { displayName: name });
       // profiles displayName
       await updateDoc(doc(db, "profiles", user.uid), { displayName: name });
+      // employees の name も更新（authUidまたはemailで自分のレコードを探す）
+      try {
+        let found = false;
+        // 1) authUidで検索
+        const empSnap = await getDocs(query(collection(db, "employees"), where("authUid", "==", user.uid)));
+        for (const empDoc of empSnap.docs) {
+          await updateDoc(doc(db, "employees", empDoc.id), { name });
+          found = true;
+        }
+        // 2) authUidで見つからない場合、emailで検索してauthUidも紐づける
+        if (!found && user.email && profile?.companyCode) {
+          const empByEmail = await getDocs(query(
+            collection(db, "employees"),
+            where("companyCode", "==", profile.companyCode),
+            where("email", "==", user.email),
+          ));
+          for (const empDoc of empByEmail.docs) {
+            await updateDoc(doc(db, "employees", empDoc.id), { name, authUid: user.uid });
+            found = true;
+          }
+        }
+      } catch {
+        // employees更新失敗は致命的でないので無視
+      }
       setSuccess("表示名を更新しました");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "更新に失敗しました");

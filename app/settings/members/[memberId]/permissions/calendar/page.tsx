@@ -46,6 +46,11 @@ type CalendarPermissions = {
   editEmploymentTypes: string[];
   deleteEmploymentTypes: string[];
   createEmploymentTypes: string[];
+  viewMemberUids: string[];
+  editMemberUids: string[];
+  deleteMemberUids: string[];
+  sendInvitationMemberUids: string[];
+  receiveInvitationMemberUids: string[];
   canSendInvitations: boolean;
   canReceiveInvitations: boolean;
 };
@@ -63,9 +68,16 @@ const DEFAULT_CALENDAR_PERMISSIONS: CalendarPermissions = {
   editEmploymentTypes: [],
   deleteEmploymentTypes: [],
   createEmploymentTypes: [],
+  viewMemberUids: [],
+  editMemberUids: [],
+  deleteMemberUids: [],
+  sendInvitationMemberUids: [],
+  receiveInvitationMemberUids: [],
   canSendInvitations: true,
   canReceiveInvitations: true,
 };
+
+type MemberUidField = "viewMemberUids" | "editMemberUids" | "deleteMemberUids";
 
 type PermKeyWithEmpType = {
   key: "viewOthersCalendar" | "createEvents" | "editOthersEvents" | "deleteOthersEvents";
@@ -73,6 +85,7 @@ type PermKeyWithEmpType = {
   description: string;
   empTypeField: "viewEmploymentTypes" | "editEmploymentTypes" | "deleteEmploymentTypes" | "createEmploymentTypes";
   empTypeLabel: string;
+  memberUidField?: MemberUidField;
 };
 
 const CALENDAR_PERMISSION_ITEMS: PermKeyWithEmpType[] = [
@@ -82,6 +95,7 @@ const CALENDAR_PERMISSION_ITEMS: PermKeyWithEmpType[] = [
     description: "他のメンバーの予定を見ることができます",
     empTypeField: "viewEmploymentTypes",
     empTypeLabel: "閲覧可能な雇用形態",
+    memberUidField: "viewMemberUids",
   },
   {
     key: "editOthersEvents",
@@ -89,6 +103,7 @@ const CALENDAR_PERMISSION_ITEMS: PermKeyWithEmpType[] = [
     description: "他のメンバーが作成した予定を編集できます",
     empTypeField: "editEmploymentTypes",
     empTypeLabel: "編集可能な雇用形態",
+    memberUidField: "editMemberUids",
   },
   {
     key: "deleteOthersEvents",
@@ -96,6 +111,7 @@ const CALENDAR_PERMISSION_ITEMS: PermKeyWithEmpType[] = [
     description: "他のメンバーが作成した予定を削除できます",
     empTypeField: "deleteEmploymentTypes",
     empTypeLabel: "削除可能な雇用形態",
+    memberUidField: "deleteMemberUids",
   },
   {
     key: "createEvents",
@@ -127,6 +143,10 @@ export default function CalendarPermissionsPage() {
   const [success, setSuccess] = useState("");
 
   const [calendarPermissions, setCalendarPermissions] = useState<CalendarPermissions>(DEFAULT_CALENDAR_PERMISSIONS);
+  const [permMemberSearch, setPermMemberSearch] = useState<Record<string, string>>({});
+  const [inviteMemberSearch, setInviteMemberSearch] = useState<Record<string, string>>({});
+  const [company, setCompany] = useState<Company | null>(null);
+  const [ownerProfile, setOwnerProfile] = useState<{ uid: string; displayName?: string | null; email?: string | null } | null>(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -148,7 +168,20 @@ export default function CalendarPermissionsPage() {
         if (prof.companyCode) {
           const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
           if (compSnap.exists()) {
-            setIsOwner((compSnap.data() as Company).ownerUid === u.uid);
+            const compData = compSnap.data() as Company;
+            setCompany(compData);
+            setIsOwner(compData.ownerUid === u.uid);
+
+            // オーナーのプロフィールを取得
+            if (compData.ownerUid) {
+              try {
+                const ownerProfSnap = await getDoc(doc(db, "profiles", compData.ownerUid));
+                if (ownerProfSnap.exists()) {
+                  const op = ownerProfSnap.data();
+                  setOwnerProfile({ uid: compData.ownerUid, displayName: op.displayName, email: op.email });
+                }
+              } catch {}
+            }
           }
 
           // 社員一覧
@@ -192,6 +225,11 @@ export default function CalendarPermissionsPage() {
                 editEmploymentTypes: Array.isArray(cp.editEmploymentTypes) ? cp.editEmploymentTypes : [],
                 deleteEmploymentTypes: Array.isArray(cp.deleteEmploymentTypes) ? cp.deleteEmploymentTypes : [],
                 createEmploymentTypes: Array.isArray(cp.createEmploymentTypes) ? cp.createEmploymentTypes : [],
+                viewMemberUids: Array.isArray(cp.viewMemberUids) ? cp.viewMemberUids : [],
+                editMemberUids: Array.isArray(cp.editMemberUids) ? cp.editMemberUids : [],
+                deleteMemberUids: Array.isArray(cp.deleteMemberUids) ? cp.deleteMemberUids : [],
+                sendInvitationMemberUids: Array.isArray(cp.sendInvitationMemberUids) ? cp.sendInvitationMemberUids : [],
+                receiveInvitationMemberUids: Array.isArray(cp.receiveInvitationMemberUids) ? cp.receiveInvitationMemberUids : [],
                 canSendInvitations: cp.canSendInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canSendInvitations,
                 canReceiveInvitations: cp.canReceiveInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canReceiveInvitations,
               });
@@ -249,6 +287,15 @@ export default function CalendarPermissionsPage() {
     }));
   };
 
+  const togglePermMemberUid = (field: MemberUidField | "sendInvitationMemberUids" | "receiveInvitationMemberUids", uid: string) => {
+    setCalendarPermissions((prev) => ({
+      ...prev,
+      [field]: (prev[field] as string[]).includes(uid)
+        ? (prev[field] as string[]).filter((u: string) => u !== uid)
+        : [...(prev[field] as string[]), uid],
+    }));
+  };
+
   const toggleGroupId = (id: string) => {
     setCalendarPermissions((prev) => ({
       ...prev,
@@ -257,6 +304,23 @@ export default function CalendarPermissionsPage() {
         : [...prev.allowedGroupIds, id],
     }));
   };
+
+  // オーナーがemployeesに存在しない場合、リストに追加
+  const allEmployees = (() => {
+    if (!company) return employees;
+    const ownerUid = company.ownerUid;
+    const hasOwnerRecord = employees.some((e) => e.authUid === ownerUid);
+    if (hasOwnerRecord) return employees;
+    const ownerRow: EmployeeItem = {
+      id: `__owner__${ownerUid}`,
+      name: ownerProfile?.displayName || ownerProfile?.email?.split("@")[0] || "オーナー",
+      email: ownerProfile?.email || "",
+      authUid: ownerUid,
+      isActive: true,
+      employmentType: undefined,
+    };
+    return [ownerRow, ...employees];
+  })();
 
   if (loading) {
     return (
@@ -348,30 +412,109 @@ export default function CalendarPermissionsPage() {
                     </div>
                   </label>
                   {showEmpTypes && (
-                    <div className="ml-8 rounded-lg border border-slate-100 bg-slate-50 p-3">
-                      <div className="text-[11px] font-extrabold text-slate-500 mb-2">
-                        {item.empTypeLabel}（未選択 = 全雇用形態）
+                    <div className="ml-8 space-y-2">
+                      <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                        <div className="text-[11px] font-extrabold text-slate-500 mb-2">
+                          {item.empTypeLabel}（未選択 = 全雇用形態）
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {EMPLOYMENT_TYPES.map((type) => {
+                            const selected = calendarPermissions[item.empTypeField].includes(type);
+                            return (
+                              <button
+                                key={type}
+                                type="button"
+                                onClick={() => toggleEmploymentType(item.empTypeField, type)}
+                                className={clsx(
+                                  "rounded-md border px-3 py-1.5 text-xs font-bold transition",
+                                  selected
+                                    ? "border-orange-400 bg-orange-100 text-orange-700"
+                                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                                )}
+                              >
+                                {type}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {EMPLOYMENT_TYPES.map((type) => {
-                          const selected = calendarPermissions[item.empTypeField].includes(type);
-                          return (
-                            <button
-                              key={type}
-                              type="button"
-                              onClick={() => toggleEmploymentType(item.empTypeField, type)}
-                              className={clsx(
-                                "rounded-md border px-3 py-1.5 text-xs font-bold transition",
-                                selected
-                                  ? "border-orange-400 bg-orange-100 text-orange-700"
-                                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-                              )}
-                            >
-                              {type}
-                            </button>
-                          );
-                        })}
-                      </div>
+                      {item.memberUidField && (() => {
+                        const field = item.memberUidField!;
+                        const selectedUids = calendarPermissions[field] as string[];
+                        const searchKey = field;
+                        const searchTerm = permMemberSearch[searchKey] || "";
+                        const otherEmployees = allEmployees.filter(
+                          (e) => e.isActive !== false && !!e.authUid && e.authUid !== employee?.authUid
+                        );
+                        const filteredList = searchTerm
+                          ? otherEmployees.filter((e) => e.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                          : otherEmployees;
+                        const selectedMembers = otherEmployees.filter((e) => selectedUids.includes(e.authUid!));
+                        return (
+                          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                            <div className="text-[11px] font-extrabold text-slate-500 mb-2">
+                              個別メンバー指定（未選択 = 制限なし）
+                            </div>
+                            {selectedMembers.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mb-2">
+                                {selectedMembers.map((e) => (
+                                  <span
+                                    key={e.authUid}
+                                    className="inline-flex items-center gap-1 rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-[11px] font-bold text-orange-700"
+                                  >
+                                    {e.name}
+                                    <button
+                                      type="button"
+                                      onClick={() => togglePermMemberUid(field, e.authUid!)}
+                                      className="ml-0.5 text-orange-400 hover:text-orange-600"
+                                    >
+                                      &times;
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <input
+                              type="text"
+                              placeholder="メンバーを検索..."
+                              value={searchTerm}
+                              onChange={(e) => setPermMemberSearch((prev) => ({ ...prev, [searchKey]: e.target.value }))}
+                              className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-200 mb-1.5"
+                            />
+                            <div className="max-h-32 overflow-y-auto space-y-0.5">
+                              {filteredList.length === 0 ? (
+                                <div className="px-2 py-1.5 text-[11px] text-slate-400 italic">該当なし</div>
+                              ) : (
+                                filteredList.map((e) => {
+                                  const isSelected = selectedUids.includes(e.authUid!);
+                                  return (
+                                    <label
+                                      key={e.authUid}
+                                      className={clsx(
+                                        "flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer transition text-xs",
+                                        isSelected
+                                          ? "bg-orange-50 text-orange-700 font-bold"
+                                          : "hover:bg-white text-slate-700"
+                                      )}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => togglePermMemberUid(field, e.authUid!)}
+                                        className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                                      />
+                                      <span>{e.name}</span>
+                                      {e.employmentType && (
+                                        <span className="text-[10px] text-slate-400 ml-auto">{e.employmentType}</span>
+                                      )}
+                                    </label>
+                                    );
+                                  })
+                                )}
+                              </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -413,7 +556,7 @@ export default function CalendarPermissionsPage() {
               <div>
                 <div className="text-xs font-extrabold text-slate-500 mb-2">閲覧可能なメンバー</div>
                 <div className="max-h-48 overflow-y-auto space-y-1">
-                  {employees
+                  {allEmployees
                     .filter((e) => e.isActive !== false && !!e.authUid && e.authUid !== employee?.authUid)
                     .map((e) => (
                       <label
@@ -513,52 +656,112 @@ export default function CalendarPermissionsPage() {
             カレンダーの閲覧権限がなくても、招待の送受信は独立して制御できます
           </div>
           <div className="space-y-3">
-            <label
-              className={clsx(
-                "flex items-start gap-3 rounded-lg border p-4 transition cursor-pointer",
-                calendarPermissions.canSendInvitations
-                  ? "border-orange-200 bg-orange-50"
-                  : "border-slate-200 bg-white hover:bg-slate-50",
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={calendarPermissions.canSendInvitations}
-                onChange={(e) =>
-                  setCalendarPermissions((prev) => ({ ...prev, canSendInvitations: e.target.checked }))
-                }
-                className="mt-1 h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-              />
-              <div className="flex-1">
-                <div className="text-sm font-bold text-slate-800">他メンバーへの招待送信</div>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  予定にゲストとして他のメンバーを招待できます
+            {([
+              { key: "canSendInvitations" as const, label: "他メンバーへの招待送信", desc: "予定にゲストとして他のメンバーを招待できます", memberField: "sendInvitationMemberUids" as const },
+              { key: "canReceiveInvitations" as const, label: "他メンバーからの招待受信", desc: "他のメンバーが作成した予定のゲストとして表示されます", memberField: "receiveInvitationMemberUids" as const },
+            ]).map((inv) => {
+              const isOn = calendarPermissions[inv.key];
+              const field = inv.memberField;
+              const selectedUids = calendarPermissions[field] as string[];
+              const searchKey = field;
+              const searchTerm = inviteMemberSearch[searchKey] || "";
+              const otherEmployees = allEmployees.filter(
+                (e) => e.isActive !== false && !!e.authUid && e.authUid !== employee?.authUid
+              );
+              const filteredList = searchTerm
+                ? otherEmployees.filter((e) => e.name.toLowerCase().includes(searchTerm.toLowerCase()))
+                : otherEmployees;
+              const selectedMembers = otherEmployees.filter((e) => selectedUids.includes(e.authUid!));
+              return (
+                <div key={inv.key} className="space-y-2">
+                  <label
+                    className={clsx(
+                      "flex items-start gap-3 rounded-lg border p-4 transition cursor-pointer",
+                      isOn
+                        ? "border-orange-200 bg-orange-50"
+                        : "border-slate-200 bg-white hover:bg-slate-50",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isOn}
+                      onChange={(e) =>
+                        setCalendarPermissions((prev) => ({ ...prev, [inv.key]: e.target.checked }))
+                      }
+                      className="mt-1 h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-slate-800">{inv.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{inv.desc}</div>
+                    </div>
+                  </label>
+                  {isOn && (
+                    <div className="ml-8 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                      <div className="text-[11px] font-extrabold text-slate-500 mb-2">
+                        個別メンバー指定（未選択 = 制限なし）
+                      </div>
+                      {selectedMembers.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {selectedMembers.map((e) => (
+                            <span
+                              key={e.authUid}
+                              className="inline-flex items-center gap-1 rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-[11px] font-bold text-orange-700"
+                            >
+                              {e.name}
+                              <button
+                                type="button"
+                                onClick={() => togglePermMemberUid(field, e.authUid!)}
+                                className="ml-0.5 text-orange-400 hover:text-orange-600"
+                              >
+                                &times;
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <input
+                        type="text"
+                        placeholder="メンバーを検索..."
+                        value={searchTerm}
+                        onChange={(e) => setInviteMemberSearch((prev) => ({ ...prev, [searchKey]: e.target.value }))}
+                        className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 placeholder:text-slate-400 focus:border-orange-400 focus:outline-none focus:ring-1 focus:ring-orange-200 mb-1.5"
+                      />
+                      <div className="max-h-32 overflow-y-auto space-y-0.5">
+                        {filteredList.length === 0 ? (
+                          <div className="px-2 py-1.5 text-[11px] text-slate-400 italic">該当なし</div>
+                        ) : (
+                          filteredList.map((e) => {
+                            const isSelected = selectedUids.includes(e.authUid!);
+                            return (
+                              <label
+                                key={e.authUid}
+                                className={clsx(
+                                  "flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer transition text-xs",
+                                  isSelected
+                                    ? "bg-orange-50 text-orange-700 font-bold"
+                                    : "hover:bg-white text-slate-700"
+                                )}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => togglePermMemberUid(field, e.authUid!)}
+                                  className="h-3.5 w-3.5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                                />
+                                <span>{e.name}</span>
+                                {e.employmentType && (
+                                  <span className="text-[10px] text-slate-400 ml-auto">{e.employmentType}</span>
+                                )}
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            </label>
-            <label
-              className={clsx(
-                "flex items-start gap-3 rounded-lg border p-4 transition cursor-pointer",
-                calendarPermissions.canReceiveInvitations
-                  ? "border-orange-200 bg-orange-50"
-                  : "border-slate-200 bg-white hover:bg-slate-50",
-              )}
-            >
-              <input
-                type="checkbox"
-                checked={calendarPermissions.canReceiveInvitations}
-                onChange={(e) =>
-                  setCalendarPermissions((prev) => ({ ...prev, canReceiveInvitations: e.target.checked }))
-                }
-                className="mt-1 h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-              />
-              <div className="flex-1">
-                <div className="text-sm font-bold text-slate-800">他メンバーからの招待受信</div>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  他のメンバーが作成した予定のゲストとして表示されます
-                </div>
-              </div>
-            </label>
+              );
+            })}
           </div>
         </div>
 

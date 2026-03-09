@@ -418,6 +418,11 @@ type CalendarPermissions = {
   editEmploymentTypes: string[];
   deleteEmploymentTypes: string[];
   createEmploymentTypes: string[];
+  viewMemberUids: string[];
+  editMemberUids: string[];
+  deleteMemberUids: string[];
+  sendInvitationMemberUids: string[];
+  receiveInvitationMemberUids: string[];
   canSendInvitations: boolean;
   canReceiveInvitations: boolean;
 };
@@ -435,6 +440,11 @@ const DEFAULT_CALENDAR_PERMISSIONS: CalendarPermissions = {
   editEmploymentTypes: [],
   deleteEmploymentTypes: [],
   createEmploymentTypes: [],
+  viewMemberUids: [],
+  editMemberUids: [],
+  deleteMemberUids: [],
+  sendInvitationMemberUids: [],
+  receiveInvitationMemberUids: [],
   canSendInvitations: true,
   canReceiveInvitations: true,
 };
@@ -582,30 +592,47 @@ function TeamCalendarPageInner() {
   }, [deals]);
 
   // 権限に基づいてエントリをフィルタ（招待済みイベントは常に表示）
-  // 雇用形態フィルタ（viewEmploymentTypes）を適用するヘルパー
-  const passesEmploymentTypeFilter = useCallback((uid: string): boolean => {
-    if (calendarPermissions.viewEmploymentTypes.length === 0) return true;
-    const emp = employees.find(e => e.authUid === uid);
-    const empType = (emp as any)?.employmentType;
-    return empType ? calendarPermissions.viewEmploymentTypes.includes(empType) : false;
-  }, [calendarPermissions.viewEmploymentTypes, employees]);
+  // 閲覧権限チェック: 雇用形態 + 個別メンバー指定
+  const passesViewFilter = useCallback((uid: string): boolean => {
+    const hasEmpTypeRestriction = calendarPermissions.viewEmploymentTypes.length > 0;
+    const hasMemberRestriction = calendarPermissions.viewMemberUids.length > 0;
+    // 両方未設定 = 制限なし
+    if (!hasEmpTypeRestriction && !hasMemberRestriction) return true;
+    // 個別メンバーに含まれていればOK
+    if (hasMemberRestriction && calendarPermissions.viewMemberUids.includes(uid)) return true;
+    // 雇用形態に含まれていればOK
+    if (hasEmpTypeRestriction) {
+      const emp = employees.find(e => e.authUid === uid);
+      const empType = (emp as any)?.employmentType;
+      if (empType && calendarPermissions.viewEmploymentTypes.includes(empType)) return true;
+    }
+    return false;
+  }, [calendarPermissions.viewEmploymentTypes, calendarPermissions.viewMemberUids, employees]);
 
   const filteredEntries = useMemo(() => {
     return entries.filter((e) => {
       // 自分の予定は常に表示
       if (e.uid === user?.uid) return true;
-      // ゲストとして招待されている場合は表示
-      if (user && (e.guestUids || []).includes(user.uid)) return true;
+      // ゲストとして招待されている場合
+      if (user && (e.guestUids || []).includes(user.uid)) {
+        // 招待受信が無効なら表示しない（オーナー以外）
+        if (user.uid !== companyOwnerUid && !calendarPermissions.canReceiveInvitations) return false;
+        // receiveInvitationMemberUids が設定されている場合、招待元が許可リストに含まれるか確認
+        if (user.uid !== companyOwnerUid && calendarPermissions.receiveInvitationMemberUids.length > 0) {
+          if (!calendarPermissions.receiveInvitationMemberUids.includes(e.uid)) return false;
+        }
+        return true;
+      }
       // オーナーはUID制限なし
       if (user?.uid !== companyOwnerUid) {
         // calendarVisibleUids が空 = フィルタなし（全員閲覧可）、それ以外はUID制限
         if (calendarVisibleUids.size > 0 && !calendarVisibleUids.has(e.uid)) return false;
       }
-      // viewEmploymentTypes による雇用形態フィルタ（オーナー以外）
-      if (user?.uid !== companyOwnerUid && !passesEmploymentTypeFilter(e.uid)) return false;
+      // 閲覧フィルタ（雇用形態 + 個別メンバー）（オーナー以外）
+      if (user?.uid !== companyOwnerUid && !passesViewFilter(e.uid)) return false;
       return true;
     });
-  }, [entries, calendarVisibleUids, user, companyOwnerUid, passesEmploymentTypeFilter]);
+  }, [entries, calendarVisibleUids, user, companyOwnerUid, passesViewFilter, calendarPermissions.canReceiveInvitations, calendarPermissions.receiveInvitationMemberUids]);
 
   // シフト/稼働フィルタ適用
   const displayEntries = useMemo(() => {
@@ -624,18 +651,30 @@ function TeamCalendarPageInner() {
     if (entry.uid === user?.uid) return true;
     if (user?.uid === companyOwnerUid) return true;
     if (!calendarPermissions.editOthersEvents) return false;
-    if (calendarPermissions.editEmploymentTypes.length === 0) return true;
-    const empType = getEmployeeEmploymentType(entry.uid);
-    return empType ? calendarPermissions.editEmploymentTypes.includes(empType) : false;
+    const hasEmpTypeRestriction = calendarPermissions.editEmploymentTypes.length > 0;
+    const hasMemberRestriction = calendarPermissions.editMemberUids.length > 0;
+    if (!hasEmpTypeRestriction && !hasMemberRestriction) return true;
+    if (hasMemberRestriction && calendarPermissions.editMemberUids.includes(entry.uid)) return true;
+    if (hasEmpTypeRestriction) {
+      const empType = getEmployeeEmploymentType(entry.uid);
+      if (empType && calendarPermissions.editEmploymentTypes.includes(empType)) return true;
+    }
+    return false;
   }, [user, companyOwnerUid, calendarPermissions, getEmployeeEmploymentType]);
 
   const canDeleteEntry = useCallback((entry: TimeEntry): boolean => {
     if (entry.uid === user?.uid) return true;
     if (user?.uid === companyOwnerUid) return true;
     if (!calendarPermissions.deleteOthersEvents) return false;
-    if (calendarPermissions.deleteEmploymentTypes.length === 0) return true;
-    const empType = getEmployeeEmploymentType(entry.uid);
-    return empType ? calendarPermissions.deleteEmploymentTypes.includes(empType) : false;
+    const hasEmpTypeRestriction = calendarPermissions.deleteEmploymentTypes.length > 0;
+    const hasMemberRestriction = calendarPermissions.deleteMemberUids.length > 0;
+    if (!hasEmpTypeRestriction && !hasMemberRestriction) return true;
+    if (hasMemberRestriction && calendarPermissions.deleteMemberUids.includes(entry.uid)) return true;
+    if (hasEmpTypeRestriction) {
+      const empType = getEmployeeEmploymentType(entry.uid);
+      if (empType && calendarPermissions.deleteEmploymentTypes.includes(empType)) return true;
+    }
+    return false;
   }, [user, companyOwnerUid, calendarPermissions, getEmployeeEmploymentType]);
 
   // 権限に基づいて社員リストをフィルタ（サイドバー用）
@@ -648,16 +687,22 @@ function TeamCalendarPageInner() {
         return e.authUid ? calendarVisibleUids.has(e.authUid) : false;
       });
     }
-    // viewEmploymentTypes制限（オーナー以外）
-    if (user?.uid !== companyOwnerUid && calendarPermissions.viewEmploymentTypes.length > 0) {
+    // 閲覧フィルタ（雇用形態 + 個別メンバー）（オーナー以外）
+    const hasEmpTypeRestriction = calendarPermissions.viewEmploymentTypes.length > 0;
+    const hasMemberRestriction = calendarPermissions.viewMemberUids.length > 0;
+    if (user?.uid !== companyOwnerUid && (hasEmpTypeRestriction || hasMemberRestriction)) {
       result = result.filter((e) => {
         if (e.authUid === user?.uid) return true;
-        const empType = (e as any)?.employmentType;
-        return empType ? calendarPermissions.viewEmploymentTypes.includes(empType) : false;
+        if (hasMemberRestriction && e.authUid && calendarPermissions.viewMemberUids.includes(e.authUid)) return true;
+        if (hasEmpTypeRestriction) {
+          const empType = (e as any)?.employmentType;
+          if (empType && calendarPermissions.viewEmploymentTypes.includes(empType)) return true;
+        }
+        return false;
       });
     }
     return result;
-  }, [employees, calendarVisibleUids, user, companyOwnerUid, calendarPermissions.viewEmploymentTypes]);
+  }, [employees, calendarVisibleUids, user, companyOwnerUid, calendarPermissions.viewEmploymentTypes, calendarPermissions.viewMemberUids]);
 
   // メンバー並び順を適用
   const filteredEmployees = useMemo(() => {
@@ -742,6 +787,8 @@ function TeamCalendarPageInner() {
   // 社員一覧を読み込む
   const loadEmployees = useCallback(async (companyCode: string, uid: string) => {
     const merged: Employee[] = [];
+    // Firestoreの生データ（emailなど型にないフィールドも保持）
+    const rawDataMap = new Map<string, any>();
 
     // まず companyCode で検索（通常ルート）
     if (companyCode) {
@@ -749,11 +796,12 @@ function TeamCalendarPageInner() {
       const snapByCompany = await getDocs(
         query(collection(db, "employees"), where("companyCode", "==", companyCode)),
       );
-      merged.push(...snapByCompany.docs.map(d => ({ id: d.id, ...d.data() } as Employee)));
+      for (const d of snapByCompany.docs) {
+        const data = d.data();
+        rawDataMap.set(d.id, data);
+        merged.push({ id: d.id, ...data } as Employee);
+      }
     }
-
-    // companyCode がない状態で employees を引くと Firestore ルール上 deny になりやすいので、
-    // ここではフォールバック取得は行わない（companyCode は profiles/workspaceMemberships から復元する）
 
     // id で重複排除
     const byId = new Map<string, Employee>();
@@ -765,7 +813,16 @@ function TeamCalendarPageInner() {
       items.push({ id: "__me__", name: profile?.displayName || user?.email?.split("@")[0] || "ユーザー", authUid: uid, color: "#10B981" });
     }
 
-    // カレンダー権限がないユーザーをフィルタ
+    // カレンダー権限がないユーザーをフィルタ（オーナーは除外しない）
+    let ownerUid: string | null = null;
+    if (companyCode) {
+      try {
+        const compDoc = await getDoc(doc(db, "companies", companyCode));
+        if (compDoc.exists()) {
+          ownerUid = (compDoc.data() as any).ownerUid || null;
+        }
+      } catch {}
+    }
     try {
       const msSnap = await getDocs(query(collection(db, "workspaceMemberships"), where("companyCode", "==", companyCode)));
       const noCalendarUids = new Set<string>();
@@ -775,9 +832,145 @@ function TeamCalendarPageInner() {
           noCalendarUids.add(msData.uid);
         }
       }
+      // オーナーは権限フィルタから除外
+      if (ownerUid) noCalendarUids.delete(ownerUid);
       items = items.filter(e => !e.authUid || e.authUid === uid || !noCalendarUids.has(e.authUid));
     } catch (e) {
       console.warn("calendar permission filter failed:", e);
+    }
+
+    // オーナーが employees リストに居ない場合（authUid未設定 or レコード無し）
+    // uid フィールドもチェック（authUid と uid の両方を確認）
+    if (ownerUid && !items.some((e) => e.authUid === ownerUid || e.uid === ownerUid)) {
+      let ownerName = "";
+      let ownerColor = "#EA580C";
+      let ownerEmploymentType: string | undefined;
+      let matched = false;
+
+      // 1) rawDataMap（employeesの生データ、権限不要）からauthUid/uidで探す
+      for (const [docId, raw] of rawDataMap.entries()) {
+        if (raw.authUid === ownerUid || raw.uid === ownerUid) {
+          const match = items.find((e) => e.id === docId);
+          if (match) {
+            match.authUid = ownerUid;
+            ownerName = match.name;
+            ownerColor = match.color || ownerColor;
+            ownerEmploymentType = match.employmentType || raw.employmentType;
+          } else {
+            ownerName = raw.name || "";
+            ownerColor = raw.color || ownerColor;
+            ownerEmploymentType = raw.employmentType;
+          }
+          matched = true;
+          break;
+        }
+      }
+
+      // 2) profilesからオーナーのメールを取得し、employeesのメールとマッチ
+      if (!matched) {
+        let ownerEmail: string | null = null;
+        let profDisplayName = "";
+        try {
+          const ownerProfSnap = await getDoc(doc(db, "profiles", ownerUid));
+          if (ownerProfSnap.exists()) {
+            const pd = ownerProfSnap.data();
+            ownerEmail = pd?.email || null;
+            profDisplayName = pd?.displayName || "";
+          }
+        } catch {
+          // 社員アカウントではprofilesの他人ドキュメントを読めないことがある
+        }
+
+        // メールでemployeesの生データを検索
+        if (ownerEmail) {
+          for (const [docId, raw] of rawDataMap.entries()) {
+            if (raw.email === ownerEmail) {
+              const match = items.find((e) => e.id === docId);
+              if (match) {
+                match.authUid = ownerUid;
+                ownerName = match.name;
+                ownerColor = match.color || ownerColor;
+                ownerEmploymentType = match.employmentType || raw.employmentType;
+              } else {
+                ownerName = raw.name || "";
+                ownerColor = raw.color || ownerColor;
+                ownerEmploymentType = raw.employmentType;
+              }
+              matched = true;
+              break;
+            }
+          }
+        }
+
+        // displayNameでemployeeレコードを探す
+        if (!matched && profDisplayName) {
+          const nameMatch = items.find((e) => e.name === profDisplayName && !e.authUid);
+          if (nameMatch) {
+            nameMatch.authUid = ownerUid;
+            ownerName = nameMatch.name;
+            ownerColor = nameMatch.color || ownerColor;
+            ownerEmploymentType = nameMatch.employmentType;
+            matched = true;
+          } else {
+            ownerName = profDisplayName;
+          }
+        }
+
+        // profilesから取れたdisplayNameをフォールバック名として使用
+        if (!ownerName && profDisplayName) {
+          ownerName = profDisplayName;
+        }
+        if (!ownerName && ownerEmail) {
+          ownerName = ownerEmail.split("@")[0] || "";
+        }
+      }
+
+      // 3) profiles読み取り失敗時フォールバック:
+      //    workspaceMembershipsのdoc ID = companyCode_ownerUid でオーナーのemailを取得し、
+      //    それでemployeesを検索する
+      if (!matched && !ownerName && companyCode) {
+        try {
+          const ownerMsDoc = await getDoc(doc(db, "workspaceMemberships", `${companyCode}_${ownerUid}`));
+          if (ownerMsDoc.exists()) {
+            const msData = ownerMsDoc.data() as any;
+            const msEmail = msData.email || "";
+            if (msEmail) {
+              for (const [docId, raw] of rawDataMap.entries()) {
+                if (raw.email === msEmail) {
+                  const match = items.find((e) => e.id === docId);
+                  if (match) {
+                    match.authUid = ownerUid;
+                    ownerName = match.name;
+                    ownerColor = match.color || ownerColor;
+                    ownerEmploymentType = match.employmentType || raw.employmentType;
+                    matched = true;
+                  }
+                  break;
+                }
+              }
+            }
+            if (!ownerName) {
+              ownerName = msData.displayName || msEmail?.split("@")[0] || "";
+            }
+          }
+        } catch { /* noop */ }
+      }
+
+      // 4) 最終フォールバック
+      if (!ownerName) {
+        ownerName = "オーナー";
+      }
+
+      // 既存レコードに紐付けた場合は追加不要
+      if (!items.some((e) => e.authUid === ownerUid)) {
+        items.push({
+          id: `__owner__${ownerUid}`,
+          name: ownerName,
+          authUid: ownerUid,
+          color: ownerColor,
+          employmentType: ownerEmploymentType,
+        });
+      }
     }
 
     console.log("チームカレンダー: 読み込んだ社員数:", items.length);
@@ -970,6 +1163,11 @@ function TeamCalendarPageInner() {
                     editEmploymentTypes: Array.isArray(cp.editEmploymentTypes) ? cp.editEmploymentTypes : [],
                     deleteEmploymentTypes: Array.isArray(cp.deleteEmploymentTypes) ? cp.deleteEmploymentTypes : [],
                     createEmploymentTypes: Array.isArray(cp.createEmploymentTypes) ? cp.createEmploymentTypes : [],
+                    viewMemberUids: Array.isArray(cp.viewMemberUids) ? cp.viewMemberUids : [],
+                    editMemberUids: Array.isArray(cp.editMemberUids) ? cp.editMemberUids : [],
+                    deleteMemberUids: Array.isArray(cp.deleteMemberUids) ? cp.deleteMemberUids : [],
+                    sendInvitationMemberUids: Array.isArray(cp.sendInvitationMemberUids) ? cp.sendInvitationMemberUids : [],
+                    receiveInvitationMemberUids: Array.isArray(cp.receiveInvitationMemberUids) ? cp.receiveInvitationMemberUids : [],
                     canSendInvitations: cp.canSendInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canSendInvitations,
                     canReceiveInvitations: cp.canReceiveInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canReceiveInvitations,
                   };
@@ -1856,16 +2054,29 @@ function TeamCalendarPageInner() {
                   <div className="relative flex items-center">
                     <input
                       type="checkbox"
-                      checked={me.authUid ? selectedEmployeeIds.has(me.authUid) : false}
+                      checked={soloMode}
                       onChange={(e) => {
                         if (!me.authUid) return;
-                        const newSet = new Set(selectedEmployeeIds);
-                        if (e.target.checked) newSet.add(me.authUid);
-                        else newSet.delete(me.authUid);
-                        setSelectedEmployeeIds(newSet);
-                        const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
-                        const unchecked = allIds.filter(id => !newSet.has(id));
-                        document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                        if (e.target.checked) {
+                          // ソロモードON: 現在の選択を保存して自分だけにする
+                          setSavedSelectionBeforeSolo(new Set(selectedEmployeeIds));
+                          const soloSet = new Set([me.authUid]);
+                          setSelectedEmployeeIds(soloSet);
+                          const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                          const unchecked = allIds.filter(id => !soloSet.has(id));
+                          document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                          setSoloMode(true);
+                        } else {
+                          // ソロモードOFF: 元の選択に戻す
+                          if (savedSelectionBeforeSolo) {
+                            setSelectedEmployeeIds(savedSelectionBeforeSolo);
+                            const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                            const unchecked = allIds.filter(id => !savedSelectionBeforeSolo.has(id));
+                            document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                          }
+                          setSavedSelectionBeforeSolo(null);
+                          setSoloMode(false);
+                        }
                       }}
                       className="peer h-4 w-4 cursor-pointer appearance-none rounded border border-slate-300 checked:border-orange-500 checked:bg-orange-500 focus:ring-2 focus:ring-orange-100 transition-all"
                     />
@@ -3524,6 +3735,7 @@ function TeamCalendarPageInner() {
                   <div className="mt-2 grid grid-cols-1 gap-1">
                     {filteredEmployees
                       .filter((e) => !!e.authUid && e.authUid !== user?.uid)
+                      .filter((e) => user?.uid === companyOwnerUid || calendarPermissions.sendInvitationMemberUids.length === 0 || calendarPermissions.sendInvitationMemberUids.includes(e.authUid!))
                       .map((emp) => {
                         const uid = emp.authUid as string;
                         const checked = newGuestUids.includes(uid);
@@ -4058,6 +4270,7 @@ function TeamCalendarPageInner() {
                         <div className="mt-2 grid grid-cols-1 gap-1">
                           {filteredEmployees
                             .filter((e) => !!e.authUid && e.authUid !== activeEntry.uid)
+                            .filter((e) => user?.uid === companyOwnerUid || calendarPermissions.sendInvitationMemberUids.length === 0 || calendarPermissions.sendInvitationMemberUids.includes(e.authUid!))
                             .map((emp) => {
                               const uid = emp.authUid as string;
                               const checked = editGuestUids.includes(uid);

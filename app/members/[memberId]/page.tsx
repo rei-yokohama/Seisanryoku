@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "firebase/firestore";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../lib/firebase";
@@ -86,6 +86,7 @@ export default function MemberDetailPage() {
   const [loading, setLoading] = useState(true);
   const [isOwner, setIsOwner] = useState(false);
   const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -105,7 +106,21 @@ export default function MemberDetailPage() {
         const prof = profSnap.data() as MemberProfile;
         setProfile(prof);
 
-        const empSnap = await getDoc(doc(db, "employees", memberId));
+        let empSnap = await getDoc(doc(db, "employees", memberId));
+        // __admin__ID の場合、authUidで検索
+        if (!empSnap.exists() && memberId.startsWith("__admin__")) {
+          const ownerAuthUid = memberId.replace("__admin__", "");
+          if (ownerAuthUid && prof.companyCode) {
+            const empQuery = await getDocs(query(
+              collection(db, "employees"),
+              where("companyCode", "==", prof.companyCode),
+              where("authUid", "==", ownerAuthUid),
+            ));
+            if (!empQuery.empty) {
+              empSnap = empQuery.docs[0] as any;
+            }
+          }
+        }
         if (!empSnap.exists()) {
           setEmployee(null);
           setLoading(false);
@@ -179,7 +194,6 @@ export default function MemberDetailPage() {
 
   const roleLabel = membership?.role === "owner" ? "オーナー" : (membership?.role === "admin" || membership?.role === "member") ? "メンバー" : "未設定";
 
-  const [showPassword, setShowPassword] = useState(false);
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);

@@ -63,20 +63,69 @@ export default function MembersPage() {
   const [canCreateMembers, setCanCreateMembers] = useState(false);
   const [canEditMembers, setCanEditMembers] = useState(false);
   const [allowedViewEmploymentTypes, setAllowedViewEmploymentTypes] = useState<string[]>([]);
+  const [companyOwnerUid, setCompanyOwnerUid] = useState<string | null>(null);
+  const [ownerDisplayName, setOwnerDisplayName] = useState("");
+  const [ownerDisplayEmail, setOwnerDisplayEmail] = useState("");
 
-  const loadEmployees = async (uid: string, companyCode?: string) => {
+  const loadEmployees = async (uid: string, companyCode?: string, ownerUid?: string) => {
     const merged: Employee[] = [];
+    const rawMap = new Map<string, any>();
     if (companyCode) {
       const snapByCompany = await getDocs(query(collection(db, "employees"), where("companyCode", "==", companyCode)));
-      merged.push(...snapByCompany.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+      for (const d of snapByCompany.docs) {
+        rawMap.set(d.id, d.data());
+        merged.push({ id: d.id, ...d.data() } as Employee);
+      }
     }
     if (!companyCode) {
       const snapByCreator = await getDocs(query(collection(db, "employees"), where("createdBy", "==", uid)));
-      merged.push(...snapByCreator.docs.map((d) => ({ id: d.id, ...d.data() } as Employee)));
+      for (const d of snapByCreator.docs) {
+        rawMap.set(d.id, d.data());
+        merged.push({ id: d.id, ...d.data() } as Employee);
+      }
     }
     const byId = new Map<string, Employee>();
     for (const e of merged) byId.set(e.id, e);
-    const items = Array.from(byId.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    let items = Array.from(byId.values());
+
+    // オーナーのemployeeレコードにauthUidを紐づける
+    if (ownerUid && !items.some((e) => e.authUid === ownerUid)) {
+      // rawMapからauthUid/uid/emailでオーナーを探す
+      let ownerEmail: string | null = null;
+      try {
+        const ownerProfSnap = await getDoc(doc(db, "profiles", ownerUid));
+        if (ownerProfSnap.exists()) {
+          const pd = ownerProfSnap.data();
+          ownerEmail = pd?.email || null;
+          setOwnerDisplayName(pd?.displayName || pd?.email?.split("@")[0] || "");
+          setOwnerDisplayEmail(pd?.email || "");
+        }
+      } catch {
+        // 権限不足 — employeesデータだけで対応
+      }
+
+      let matched = false;
+      // rawMapからuid/authUidフィールドで探す
+      for (const [docId, raw] of rawMap.entries()) {
+        if (raw.uid === ownerUid) {
+          const emp = items.find((e) => e.id === docId);
+          if (emp) { emp.authUid = ownerUid; matched = true; }
+          break;
+        }
+      }
+      // emailで探す
+      if (!matched && ownerEmail) {
+        for (const [docId, raw] of rawMap.entries()) {
+          if (raw.email === ownerEmail && !raw.authUid) {
+            const emp = items.find((e) => e.id === docId);
+            if (emp) { emp.authUid = ownerUid; matched = true; }
+            break;
+          }
+        }
+      }
+    }
+
+    items.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     setEmployees(items);
   };
 
@@ -112,38 +161,40 @@ export default function MembersPage() {
         const p = (await ensureProfile(u)) as unknown as MemberProfile | null;
         if (p) {
           setProfile(p);
-          await loadEmployees(u.uid, p.companyCode);
 
           if (p.companyCode) {
+            // 先にcompaniesを読んでownerUidを取得
+            let ownerUid = "";
             try {
               const compSnap = await getDoc(doc(db, "companies", p.companyCode));
-              const ownerUid = compSnap.exists() ? String((compSnap.data() as any).ownerUid || "") : "";
-              const ownerFlag = !!ownerUid && ownerUid === u.uid;
-              setIsOwner(ownerFlag);
+              ownerUid = compSnap.exists() ? String((compSnap.data() as any).ownerUid || "") : "";
+            } catch {}
+            const ownerFlag = !!ownerUid && ownerUid === u.uid;
+            setIsOwner(ownerFlag);
+            setCompanyOwnerUid(ownerUid || null);
 
-              await loadMemberships(u.uid, p.companyCode, ownerFlag);
+            // ownerUidを渡してemployeesを読み込み（オーナーのauthUid紐づけも行う）
+            await loadEmployees(u.uid, p.companyCode, ownerUid || undefined);
+            await loadMemberships(u.uid, p.companyCode, ownerFlag);
 
-              // メンバー権限を読み込み
-              if (!ownerFlag) {
-                try {
-                  const msSnap = await getDoc(doc(db, "workspaceMemberships", `${p.companyCode}_${u.uid}`));
-                  if (msSnap.exists()) {
-                    const msData = msSnap.data() as any;
-                    const mp = msData.memberPermissions || {};
-                    setCanCreateMembers(mp.canCreateMembers ?? true);
-                    setCanEditMembers(mp.canEditMembers ?? true);
-                    setAllowedViewEmploymentTypes(Array.isArray(mp.allowedViewEmploymentTypes) ? mp.allowedViewEmploymentTypes : []);
-                  }
-                } catch {}
-              } else {
-                setCanCreateMembers(true);
-                setCanEditMembers(true);
-              }
-            } catch {
-              setIsOwner(false);
-              await loadMemberships(u.uid, p.companyCode, false);
+            // メンバー権限を読み込み
+            if (!ownerFlag) {
+              try {
+                const msSnap = await getDoc(doc(db, "workspaceMemberships", `${p.companyCode}_${u.uid}`));
+                if (msSnap.exists()) {
+                  const msData = msSnap.data() as any;
+                  const mp = msData.memberPermissions || {};
+                  setCanCreateMembers(mp.canCreateMembers ?? true);
+                  setCanEditMembers(mp.canEditMembers ?? true);
+                  setAllowedViewEmploymentTypes(Array.isArray(mp.allowedViewEmploymentTypes) ? mp.allowedViewEmploymentTypes : []);
+                }
+              } catch {}
+            } else {
+              setCanCreateMembers(true);
+              setCanEditMembers(true);
             }
           } else {
+            await loadEmployees(u.uid);
             setIsOwner(false);
           }
         } else {
@@ -165,24 +216,31 @@ export default function MembersPage() {
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
 
-    // オーナーがemployeesに存在しない場合のみadminRowを追加
-    const hasEmployeeRecord = user ? employees.some((e) => e.authUid === user.uid) : false;
-    const adminRow: Employee[] =
-      user && isOwner && !hasEmployeeRecord
-        ? [
-            {
-              id: `__admin__${user.uid}`,
-              name: profile?.displayName || user.email?.split("@")[0] || "管理者",
-              email: user.email || "-",
-              employmentType: "管理者",
-              joinDate: "",
-              authUid: user.uid,
-              color: "#EA580C",
-              createdBy: user.uid,
-              companyCode: profile?.companyCode || "",
-            },
-          ]
-        : [];
+    // オーナーがemployeesに存在しない場合、オーナー行を追加
+    const ownerHasEmployeeRecord = companyOwnerUid
+      ? employees.some((e) => e.authUid === companyOwnerUid)
+      : false;
+    const adminRow: Employee[] = [];
+    if (companyOwnerUid && !ownerHasEmployeeRecord) {
+      // オーナーのemployeeレコードが存在しない（authUid紐づけ後も見つからない）
+      const name = isOwner
+        ? (profile?.displayName || user?.email?.split("@")[0] || "オーナー")
+        : (ownerDisplayName || "オーナー");
+      const email = isOwner
+        ? (user?.email || "-")
+        : (ownerDisplayEmail || "-");
+      adminRow.push({
+        id: `__admin__${companyOwnerUid}`,
+        name,
+        email,
+        employmentType: "管理者",
+        joinDate: "",
+        authUid: companyOwnerUid,
+        color: "#EA580C",
+        createdBy: companyOwnerUid,
+        companyCode: profile?.companyCode || "",
+      });
+    }
 
     const list = [...adminRow, ...employees];
     const seen = new Set<string>();
@@ -194,6 +252,8 @@ export default function MembersPage() {
 
     return uniq
       .filter((e) => {
+        // 停止中のメンバーを非表示
+        if (e.isActive === false) return false;
         if (typeFilter !== "ALL" && e.employmentType !== typeFilter) return false;
         // 雇用形態別の閲覧制限（自分とオーナーは除外）
         if (!isOwner && allowedViewEmploymentTypes.length > 0 && !e.id.startsWith("__admin__") && e.authUid !== user?.uid) {
@@ -204,7 +264,7 @@ export default function MembersPage() {
         return hay.includes(qq);
       })
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [employees, q, typeFilter, isOwner, user, profile, allowedViewEmploymentTypes]);
+  }, [employees, q, typeFilter, isOwner, user, profile, allowedViewEmploymentTypes, companyOwnerUid, ownerDisplayName, ownerDisplayEmail]);
 
   if (loading) {
     return (
@@ -280,7 +340,7 @@ export default function MembersPage() {
               return (
                 <Link
                   key={e.id}
-                  href={isAdminRow ? "/settings/account" : `/members/${encodeURIComponent(e.id)}`}
+                  href={isAdminRow && isOwner ? "/settings/account" : `/members/${encodeURIComponent(e.id)}`}
                   className={clsx(
                     "block rounded-lg border border-slate-200 bg-white p-4 transition hover:border-orange-300 hover:shadow-md",
                     isAdminRow && "border-orange-200 bg-orange-50/30"
