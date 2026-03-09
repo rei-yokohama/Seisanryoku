@@ -726,7 +726,20 @@ export default function MtgCandidatesPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className={labelClass}>開始日</label>
+                      <div className="flex items-center gap-2">
+                        <label className={labelClass}>開始日</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 2);
+                            setRegStartDate(toDateKey(d));
+                          }}
+                          className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all"
+                        >
+                          明後日
+                        </button>
+                      </div>
                       <input type="date" value={regStartDate} onChange={(e) => setRegStartDate(e.target.value)} className={inputClass} />
                     </div>
                     <div>
@@ -798,15 +811,29 @@ export default function MtgCandidatesPage() {
                   </div>
                 </div>
 
-                <div className="mt-6 flex items-center gap-3">
-                  <button
-                    onClick={handleRegister}
-                    disabled={regProcessing || !regStartDate || !regEndDate || !regTitle.trim()}
-                    className="flex items-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-extrabold text-white hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-md"
-                  >
-                    {regProcessing && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                    候補を登録
-                  </button>
+                <div className="mt-6 flex flex-col gap-2">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleRegister}
+                      disabled={regProcessing || !regStartDate || !regEndDate || !regTitle.trim()}
+                      className="flex items-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-extrabold text-white hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-md"
+                    >
+                      {regProcessing && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                      候補を登録
+                    </button>
+                  </div>
+                  {(regProcessing || !regStartDate || !regEndDate || !regTitle.trim()) && !regProcessing && (
+                    <div className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-[11px] font-bold text-amber-700 w-fit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      {!regTitle.trim() ? "タイトルを入力してください" : !regStartDate ? "開始日を設定してください" : "終了日を設定してください"}
+                    </div>
+                  )}
+                  {regProcessing && (
+                    <div className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-3 py-1.5 text-[11px] font-bold text-blue-700 w-fit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      処理中です…
+                    </div>
+                  )}
                 </div>
 
                 {regResult && (
@@ -863,7 +890,20 @@ export default function MtgCandidatesPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className={labelClass}>開始日</label>
+                      <div className="flex items-center gap-2">
+                        <label className={labelClass}>開始日</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 2);
+                            setDelStartDate(toDateKey(d));
+                          }}
+                          className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all"
+                        >
+                          明後日
+                        </button>
+                      </div>
                       <input type="date" value={delStartDate} onChange={(e) => setDelStartDate(e.target.value)} className={inputClass} />
                     </div>
                     <div>
@@ -884,23 +924,37 @@ export default function MtgCandidatesPage() {
                   </div>
                 </div>
 
-                <div className="mt-6 flex items-center gap-3">
-                  <button
-                    onClick={handleDeletePreview}
-                    disabled={!delKeyword.trim()}
-                    className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-all"
-                  >
-                    検索
-                  </button>
-                  {delPreview && delPreview.length > 0 && (
+                <div className="mt-6 flex flex-col gap-2">
+                  <div className="flex items-center gap-3">
                     <button
-                      onClick={handleDeleteExecute}
-                      disabled={delProcessing}
-                      className="flex items-center gap-2 rounded-lg bg-rose-600 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-rose-700 disabled:opacity-50 transition-all shadow-md"
+                      onClick={handleDeletePreview}
+                      disabled={!delKeyword.trim()}
+                      className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-extrabold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-all"
                     >
-                      {delProcessing && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                      {delPreview.length}件を削除
+                      検索
                     </button>
+                    {delPreview && delPreview.length > 0 && (
+                      <button
+                        onClick={handleDeleteExecute}
+                        disabled={delProcessing}
+                        className="flex items-center gap-2 rounded-lg bg-rose-600 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-rose-700 disabled:opacity-50 transition-all shadow-md"
+                      >
+                        {delProcessing && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                        {delPreview.length}件を削除
+                      </button>
+                    )}
+                  </div>
+                  {!delKeyword.trim() && (
+                    <div className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-[11px] font-bold text-amber-700 w-fit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      削除キーワードを入力してください
+                    </div>
+                  )}
+                  {delProcessing && (
+                    <div className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-3 py-1.5 text-[11px] font-bold text-blue-700 w-fit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      削除処理中です…
+                    </div>
                   )}
                 </div>
 
@@ -992,7 +1046,20 @@ export default function MtgCandidatesPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className={labelClass}>検索範囲 開始日</label>
+                      <div className="flex items-center gap-2">
+                        <label className={labelClass}>検索範囲 開始日</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d = new Date();
+                            d.setDate(d.getDate() + 2);
+                            setConfStartDate(toDateKey(d));
+                          }}
+                          className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all"
+                        >
+                          明後日
+                        </button>
+                      </div>
                       <input type="date" value={confStartDate} onChange={(e) => setConfStartDate(e.target.value)} className={inputClass} />
                     </div>
                     <div>
@@ -1013,22 +1080,36 @@ export default function MtgCandidatesPage() {
                   </div>
                 </div>
 
-                <div className="mt-6 flex items-center gap-3">
-                  <button
-                    onClick={handleConfirmPreview}
-                    className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition-all"
-                  >
-                    候補を検索
-                  </button>
-                  {confSelectedId && (
+                <div className="mt-6 flex flex-col gap-2">
+                  <div className="flex items-center gap-3">
                     <button
-                      onClick={handleConfirmExecute}
-                      disabled={confProcessing || !confCompanyName.trim()}
-                      className="flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-md"
+                      onClick={handleConfirmPreview}
+                      className="rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition-all"
                     >
-                      {confProcessing && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                      確定する
+                      候補を検索
                     </button>
+                    {confSelectedId && (
+                      <button
+                        onClick={handleConfirmExecute}
+                        disabled={confProcessing || !confCompanyName.trim()}
+                        className="flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-extrabold text-white hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-md"
+                      >
+                        {confProcessing && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                        確定する
+                      </button>
+                    )}
+                  </div>
+                  {confSelectedId && !confCompanyName.trim() && !confProcessing && (
+                    <div className="flex items-center gap-1.5 rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-[11px] font-bold text-amber-700 w-fit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      商談社名を入力してください
+                    </div>
+                  )}
+                  {confProcessing && (
+                    <div className="flex items-center gap-1.5 rounded-md bg-blue-50 border border-blue-200 px-3 py-1.5 text-[11px] font-bold text-blue-700 w-fit">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                      処理中です…
+                    </div>
                   )}
                 </div>
 

@@ -442,6 +442,8 @@ export default function TeamCalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
+  const [soloMode, setSoloMode] = useState(false);
+  const [savedSelectionBeforeSolo, setSavedSelectionBeforeSolo] = useState<Set<string> | null>(null);
   const [memberOrder, setMemberOrder] = useState<string[]>([]);
   const [memberDragIdx, setMemberDragIdx] = useState<number | null>(null);
   const [memberDragOverIdx, setMemberDragOverIdx] = useState<number | null>(null);
@@ -1733,6 +1735,45 @@ export default function TeamCalendarPage() {
                     <span className="text-xs font-bold text-slate-700 truncate group-hover:text-slate-900">{me.name}</span>
                   </div>
                 </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!me.authUid) return;
+                    if (soloMode) {
+                      // 元の状態に戻す
+                      if (savedSelectionBeforeSolo) {
+                        setSelectedEmployeeIds(savedSelectionBeforeSolo);
+                        // cookieも復元
+                        const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                        const unchecked = allIds.filter(id => !savedSelectionBeforeSolo.has(id));
+                        document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                      }
+                      setSavedSelectionBeforeSolo(null);
+                      setSoloMode(false);
+                    } else {
+                      // 現在の選択状態を保存して自分だけにする
+                      setSavedSelectionBeforeSolo(new Set(selectedEmployeeIds));
+                      const soloSet = new Set([me.authUid]);
+                      setSelectedEmployeeIds(soloSet);
+                      // cookieも更新
+                      const allIds = employees.map(x => x.authUid).filter(Boolean) as string[];
+                      const unchecked = allIds.filter(id => !soloSet.has(id));
+                      document.cookie = `cal_unchecked=${encodeURIComponent(unchecked.join(","))};path=/;max-age=${60*60*24*30}`;
+                      setSoloMode(true);
+                    }
+                  }}
+                  className={`mx-2 mt-1 flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-bold transition-all ${
+                    soloMode
+                      ? "bg-orange-500 text-white shadow-sm hover:bg-orange-600"
+                      : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
+                  }`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
+                  {soloMode ? "全員に戻す" : "自分だけ表示"}
+                </button>
               </div>
             );
           })()}
