@@ -26,6 +26,7 @@ type Employee = {
   companyCode?: string;
   createdBy?: string;
   isActive?: boolean | null;
+  password?: string;
 };
 
 type Company = {
@@ -177,7 +178,16 @@ export default function MemberDetailPage() {
   }
 
   const roleLabel = membership?.role === "owner" ? "オーナー" : (membership?.role === "admin" || membership?.role === "member") ? "メンバー" : "未設定";
-  const canEdit = true;
+
+  const [showPassword, setShowPassword] = useState(false);
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert("コピーしました");
+    } catch {
+      alert("コピーに失敗しました");
+    }
+  };
 
   return (
     <AppShell
@@ -261,6 +271,59 @@ export default function MemberDetailPage() {
             </div>
           </div>
         </div>
+
+        {/* ログイン情報 */}
+        {employee.authUid && employee.password && (isOwner || employee.createdBy === user.uid) && (
+          <div className="rounded-xl border border-slate-200 bg-white p-5">
+            <div className="text-sm font-extrabold text-slate-900 mb-4">ログイン情報</div>
+            <div className="space-y-3">
+              <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-bold text-slate-500">メールアドレス</div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <div className="text-sm font-bold text-slate-900 font-mono">{employee.email}</div>
+                  <button
+                    onClick={() => void copyToClipboard(employee.email)}
+                    className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                    type="button"
+                  >
+                    コピー
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-bold text-slate-500">初期パスワード</div>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <div className="text-sm font-bold text-slate-900 font-mono break-all">
+                    {showPassword ? employee.password : "••••••••••••"}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                      type="button"
+                    >
+                      {showPassword ? "隠す" : "表示"}
+                    </button>
+                    <button
+                      onClick={() => void copyToClipboard(employee.password!)}
+                      className="rounded-md border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                      type="button"
+                    >
+                      コピー
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => void copyToClipboard(`メール: ${employee.email}\nパスワード: ${employee.password}`)}
+                className="w-full rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-extrabold text-orange-900 hover:bg-orange-100 transition"
+                type="button"
+              >
+                ログイン情報をまとめてコピー
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* メニュー表示権限 */}
         <div className="rounded-xl border border-slate-200 bg-white p-5">

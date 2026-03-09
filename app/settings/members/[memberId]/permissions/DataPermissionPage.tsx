@@ -31,11 +31,15 @@ type Company = {
   ownerUid: string;
 };
 
+type EmploymentType = "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託";
+const EMPLOYMENT_TYPES: EmploymentType[] = ["正社員", "契約社員", "パート", "アルバイト", "業務委託"];
+
 type Employee = {
   id: string;
   name: string;
   authUid?: string;
   isActive?: boolean | null;
+  employmentType?: EmploymentType;
 };
 
 function clsx(...xs: Array<string | false | null | undefined>) {
@@ -119,6 +123,7 @@ export default function DataPermissionPage({ title, icon, fieldName, explanation
                   viewScope: p.viewScope ?? DEFAULT_DATA_VISIBILITY.viewScope,
                   allowedMemberUids: Array.isArray(p.allowedMemberUids) ? p.allowedMemberUids : [],
                   allowedGroupIds: Array.isArray(p.allowedGroupIds) ? p.allowedGroupIds : [],
+                  allowedEmploymentTypes: Array.isArray(p.allowedEmploymentTypes) ? p.allowedEmploymentTypes : [],
                 });
               }
             } catch {
@@ -162,6 +167,15 @@ export default function DataPermissionPage({ title, icon, fieldName, explanation
       allowedMemberUids: prev.allowedMemberUids.includes(uid)
         ? prev.allowedMemberUids.filter((u: string) => u !== uid)
         : [...prev.allowedMemberUids, uid],
+    }));
+  };
+
+  const toggleEmploymentType = (type: string) => {
+    setPerms((prev: DataVisibilityPermissions) => ({
+      ...prev,
+      allowedEmploymentTypes: prev.allowedEmploymentTypes.includes(type)
+        ? prev.allowedEmploymentTypes.filter((t: string) => t !== type)
+        : [...prev.allowedEmploymentTypes, type],
     }));
   };
 
@@ -272,6 +286,7 @@ export default function DataPermissionPage({ title, icon, fieldName, explanation
                       { value: "all", label: "全員" },
                       { value: "specific_members", label: "特定メンバー" },
                       { value: "specific_groups", label: "特定グループ" },
+                      { value: "specific_employment_types", label: "特定の雇用形態" },
                     ] as const
                   ).map((opt) => (
                     <button
@@ -358,6 +373,33 @@ export default function DataPermissionPage({ title, icon, fieldName, explanation
                         ))}
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* 雇用形態ピッカー */}
+                {perms.viewScope === "specific_employment_types" && (
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-500 mb-2">閲覧可能な雇用形態</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {EMPLOYMENT_TYPES.map((type) => {
+                        const selected = perms.allowedEmploymentTypes.includes(type);
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => toggleEmploymentType(type)}
+                            className={clsx(
+                              "rounded-md border px-3 py-1.5 text-xs font-bold transition",
+                              selected
+                                ? "border-orange-400 bg-orange-100 text-orange-700"
+                                : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                            )}
+                          >
+                            {type}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

@@ -65,6 +65,8 @@ export default function MemberCreatePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<null | { email: string; password: string }>(null);
+  const [allowedCreateEmploymentTypes, setAllowedCreateEmploymentTypes] = useState<string[]>([]);
+  const [canCreateMembers, setCanCreateMembers] = useState<boolean | null>(null); // null=未読み込み
 
   const [form, setForm] = useState<Employee>({
     name: "",
@@ -87,11 +89,39 @@ export default function MemberCreatePage() {
         if (!p) return;
         setProfile(p);
         if (p.companyCode) {
+          let ownerFlag = false;
           try {
             const compSnap = await getDoc(doc(db, "companies", p.companyCode));
-            setCompany(compSnap.exists() ? (compSnap.data() as Company) : null);
+            const comp = compSnap.exists() ? (compSnap.data() as Company) : null;
+            setCompany(comp);
+            ownerFlag = !!comp && comp.ownerUid === u.uid;
           } catch {
             setCompany(null);
+          }
+          if (ownerFlag) {
+            // オーナーは全権限
+            setCanCreateMembers(true);
+            setAllowedCreateEmploymentTypes([]);
+          } else {
+            // メンバー権限を読み込み
+            try {
+              const msSnap = await getDoc(doc(db, "workspaceMemberships", `${p.companyCode}_${u.uid}`));
+              if (msSnap.exists()) {
+                const mp = (msSnap.data() as any).memberPermissions || {};
+                const allowed = mp.canCreateMembers ?? true;
+                setCanCreateMembers(allowed);
+                const types = Array.isArray(mp.allowedCreateEmploymentTypes) ? mp.allowedCreateEmploymentTypes : [];
+                setAllowedCreateEmploymentTypes(types);
+                if (types.length > 0) {
+                  setForm(prev => ({ ...prev, employmentType: types[0] as EmploymentType }));
+                }
+              } else {
+                // workspaceMemberships未作成 → デフォルト権限
+                setCanCreateMembers(true);
+              }
+            } catch {
+              setCanCreateMembers(true);
+            }
           }
         } else {
           setCompany(null);
@@ -104,8 +134,10 @@ export default function MemberCreatePage() {
   }, [router]);
 
   const canSubmit = useMemo(() => {
+    if (canCreateMembers === false) return false;
+    if (allowedCreateEmploymentTypes.length > 0 && !allowedCreateEmploymentTypes.includes(form.employmentType)) return false;
     return !!form.name.trim() && !!form.email.trim();
-  }, [form.email, form.name]);
+  }, [form.email, form.name, form.employmentType, canCreateMembers, allowedCreateEmploymentTypes]);
 
   const isOwner = useMemo(() => {
     return !!user && !!company && company.ownerUid === user.uid;
@@ -129,6 +161,10 @@ export default function MemberCreatePage() {
     if (!name) return setError("名前を入力してください");
     if (!email) return setError("メールアドレスを入力してください");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("メールアドレスの形式が正しくありません");
+    if (canCreateMembers === false) return setError("メンバー作成の権限がありません");
+    if (allowedCreateEmploymentTypes.length > 0 && !allowedCreateEmploymentTypes.includes(form.employmentType)) {
+      return setError(`${form.employmentType}の雇用形態でメンバーを作成する権限がありません`);
+    }
 
     setSaving(true);
     try {
@@ -203,6 +239,21 @@ export default function MemberCreatePage() {
   }
 
   if (!user) return null;
+
+  if (canCreateMembers === false) {
+    return (
+      <AppShell title="メンバー作成" subtitle="権限がありません">
+        <div className="mx-auto w-full max-w-3xl space-y-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-6 text-center">
+            <div className="text-sm font-bold text-red-700">メンバーを作成する権限がありません</div>
+            <Link href="/members" className="mt-3 inline-block rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+              ← メンバー一覧に戻る
+            </Link>
+          </div>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell
@@ -292,7 +343,9 @@ export default function MemberCreatePage() {
                   onChange={(e) => setForm((p) => ({ ...p, employmentType: e.target.value as EmploymentType }))}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-900 outline-none"
                 >
-                  {(["正社員", "契約社員", "パート", "アルバイト", "業務委託"] as const).map((t) => (
+                  {(["正社員", "契約社員", "パート", "アルバイト", "業務委託"] as const)
+                    .filter((t) => allowedCreateEmploymentTypes.length === 0 || allowedCreateEmploymentTypes.includes(t))
+                    .map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>

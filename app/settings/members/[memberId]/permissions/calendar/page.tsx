@@ -15,12 +15,17 @@ type MemberProfile = {
   displayName?: string | null;
 };
 
+type EmploymentType = "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託";
+
+const EMPLOYMENT_TYPES: EmploymentType[] = ["正社員", "契約社員", "パート", "アルバイト", "業務委託"];
+
 type EmployeeItem = {
   id: string;
   name: string;
   email: string;
   authUid?: string;
   isActive?: boolean | null;
+  employmentType?: EmploymentType;
 };
 
 type Company = {
@@ -33,9 +38,14 @@ type CalendarPermissions = {
   editOthersEvents: boolean;
   createEvents: boolean;
   deleteOthersEvents: boolean;
-  viewScope: "all" | "specific_members" | "specific_groups";
+  viewScope: "all" | "specific_members" | "specific_groups" | "specific_employment_types";
   allowedMemberUids: string[];
   allowedGroupIds: string[];
+  allowedEmploymentTypes: string[];
+  viewEmploymentTypes: string[];
+  editEmploymentTypes: string[];
+  deleteEmploymentTypes: string[];
+  createEmploymentTypes: string[];
   canSendInvitations: boolean;
   canReceiveInvitations: boolean;
 };
@@ -48,31 +58,53 @@ const DEFAULT_CALENDAR_PERMISSIONS: CalendarPermissions = {
   viewScope: "all",
   allowedMemberUids: [],
   allowedGroupIds: [],
+  allowedEmploymentTypes: [],
+  viewEmploymentTypes: [],
+  editEmploymentTypes: [],
+  deleteEmploymentTypes: [],
+  createEmploymentTypes: [],
   canSendInvitations: true,
   canReceiveInvitations: true,
 };
 
-const CALENDAR_PERMISSION_LABELS: Record<
-  "viewOthersCalendar" | "createEvents" | "editOthersEvents" | "deleteOthersEvents",
-  { label: string; description: string }
-> = {
-  viewOthersCalendar: {
+type PermKeyWithEmpType = {
+  key: "viewOthersCalendar" | "createEvents" | "editOthersEvents" | "deleteOthersEvents";
+  label: string;
+  description: string;
+  empTypeField: "viewEmploymentTypes" | "editEmploymentTypes" | "deleteEmploymentTypes" | "createEmploymentTypes";
+  empTypeLabel: string;
+};
+
+const CALENDAR_PERMISSION_ITEMS: PermKeyWithEmpType[] = [
+  {
+    key: "viewOthersCalendar",
     label: "他メンバーのカレンダーを閲覧",
     description: "他のメンバーの予定を見ることができます",
+    empTypeField: "viewEmploymentTypes",
+    empTypeLabel: "閲覧可能な雇用形態",
   },
-  createEvents: {
-    label: "予定を作成",
-    description: "新しい予定を作成できます",
-  },
-  editOthersEvents: {
+  {
+    key: "editOthersEvents",
     label: "他メンバーの予定を編集",
     description: "他のメンバーが作成した予定を編集できます",
+    empTypeField: "editEmploymentTypes",
+    empTypeLabel: "編集可能な雇用形態",
   },
-  deleteOthersEvents: {
+  {
+    key: "deleteOthersEvents",
     label: "他メンバーの予定を削除",
     description: "他のメンバーが作成した予定を削除できます",
+    empTypeField: "deleteEmploymentTypes",
+    empTypeLabel: "削除可能な雇用形態",
   },
-};
+  {
+    key: "createEvents",
+    label: "予定を作成",
+    description: "新しい予定を作成できます（自分の予定）",
+    empTypeField: "createEmploymentTypes",
+    empTypeLabel: "",
+  },
+];
 
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -155,6 +187,11 @@ export default function CalendarPermissionsPage() {
                 viewScope: cp.viewScope ?? DEFAULT_CALENDAR_PERMISSIONS.viewScope,
                 allowedMemberUids: Array.isArray(cp.allowedMemberUids) ? cp.allowedMemberUids : [],
                 allowedGroupIds: Array.isArray(cp.allowedGroupIds) ? cp.allowedGroupIds : [],
+                allowedEmploymentTypes: Array.isArray(cp.allowedEmploymentTypes) ? cp.allowedEmploymentTypes : [],
+                viewEmploymentTypes: Array.isArray(cp.viewEmploymentTypes) ? cp.viewEmploymentTypes : [],
+                editEmploymentTypes: Array.isArray(cp.editEmploymentTypes) ? cp.editEmploymentTypes : [],
+                deleteEmploymentTypes: Array.isArray(cp.deleteEmploymentTypes) ? cp.deleteEmploymentTypes : [],
+                createEmploymentTypes: Array.isArray(cp.createEmploymentTypes) ? cp.createEmploymentTypes : [],
                 canSendInvitations: cp.canSendInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canSendInvitations,
                 canReceiveInvitations: cp.canReceiveInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canReceiveInvitations,
               });
@@ -200,6 +237,15 @@ export default function CalendarPermissionsPage() {
       allowedMemberUids: prev.allowedMemberUids.includes(uid)
         ? prev.allowedMemberUids.filter((u) => u !== uid)
         : [...prev.allowedMemberUids, uid],
+    }));
+  };
+
+  const toggleEmploymentType = (field: "allowedEmploymentTypes" | "viewEmploymentTypes" | "editEmploymentTypes" | "deleteEmploymentTypes" | "createEmploymentTypes", type: string) => {
+    setCalendarPermissions((prev) => ({
+      ...prev,
+      [field]: prev[field].includes(type)
+        ? prev[field].filter((t: string) => t !== type)
+        : [...prev[field], type],
     }));
   };
 
@@ -277,29 +323,58 @@ export default function CalendarPermissionsPage() {
           </div>
 
           <div className="border-t border-slate-200 pt-4 space-y-3">
-            {(Object.keys(CALENDAR_PERMISSION_LABELS) as (keyof typeof CALENDAR_PERMISSION_LABELS)[]).map((key) => {
-              const { label, description } = CALENDAR_PERMISSION_LABELS[key];
+            {CALENDAR_PERMISSION_ITEMS.map((item) => {
+              const isOn = calendarPermissions[item.key];
+              const showEmpTypes = isOn && item.key !== "createEvents";
               return (
-                <label
-                  key={key}
-                  className={clsx(
-                    "flex items-start gap-3 rounded-lg border p-4 transition cursor-pointer",
-                    calendarPermissions[key] ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                <div key={item.key} className="space-y-2">
+                  <label
+                    className={clsx(
+                      "flex items-start gap-3 rounded-lg border p-4 transition cursor-pointer",
+                      isOn ? "border-orange-200 bg-orange-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isOn}
+                      onChange={(e) =>
+                        setCalendarPermissions((prev) => ({ ...prev, [item.key]: e.target.checked }))
+                      }
+                      className="mt-1 h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-bold text-slate-800">{item.label}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{item.description}</div>
+                    </div>
+                  </label>
+                  {showEmpTypes && (
+                    <div className="ml-8 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                      <div className="text-[11px] font-extrabold text-slate-500 mb-2">
+                        {item.empTypeLabel}（未選択 = 全雇用形態）
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {EMPLOYMENT_TYPES.map((type) => {
+                          const selected = calendarPermissions[item.empTypeField].includes(type);
+                          return (
+                            <button
+                              key={type}
+                              type="button"
+                              onClick={() => toggleEmploymentType(item.empTypeField, type)}
+                              className={clsx(
+                                "rounded-md border px-3 py-1.5 text-xs font-bold transition",
+                                selected
+                                  ? "border-orange-400 bg-orange-100 text-orange-700"
+                                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                              )}
+                            >
+                              {type}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={calendarPermissions[key]}
-                    onChange={(e) =>
-                      setCalendarPermissions((prev) => ({ ...prev, [key]: e.target.checked }))
-                    }
-                    className="mt-1 h-5 w-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-bold text-slate-800">{label}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{description}</div>
-                  </div>
-                </label>
+                </div>
               );
             })}
           </div>
@@ -315,6 +390,7 @@ export default function CalendarPermissionsPage() {
                   { value: "all", label: "全員" },
                   { value: "specific_members", label: "特定メンバー" },
                   { value: "specific_groups", label: "特定グループ" },
+                  { value: "specific_employment_types", label: "特定の雇用形態" },
                 ] as const
               ).map((opt) => (
                 <button
@@ -399,6 +475,32 @@ export default function CalendarPermissionsPage() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {calendarPermissions.viewScope === "specific_employment_types" && (
+              <div>
+                <div className="text-xs font-extrabold text-slate-500 mb-2">閲覧可能な雇用形態</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {EMPLOYMENT_TYPES.map((type) => {
+                    const selected = calendarPermissions.allowedEmploymentTypes.includes(type);
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => toggleEmploymentType("allowedEmploymentTypes", type)}
+                        className={clsx(
+                          "rounded-md border px-3 py-1.5 text-xs font-bold transition",
+                          selected
+                            ? "border-orange-400 bg-orange-100 text-orange-700"
+                            : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                        )}
+                      >
+                        {type}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>

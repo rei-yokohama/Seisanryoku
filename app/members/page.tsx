@@ -60,6 +60,9 @@ export default function MembersPage() {
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<EmploymentType | "ALL">("ALL");
   const [isOwner, setIsOwner] = useState(false);
+  const [canCreateMembers, setCanCreateMembers] = useState(false);
+  const [canEditMembers, setCanEditMembers] = useState(false);
+  const [allowedViewEmploymentTypes, setAllowedViewEmploymentTypes] = useState<string[]>([]);
 
   const loadEmployees = async (uid: string, companyCode?: string) => {
     const merged: Employee[] = [];
@@ -119,6 +122,23 @@ export default function MembersPage() {
               setIsOwner(ownerFlag);
 
               await loadMemberships(u.uid, p.companyCode, ownerFlag);
+
+              // メンバー権限を読み込み
+              if (!ownerFlag) {
+                try {
+                  const msSnap = await getDoc(doc(db, "workspaceMemberships", `${p.companyCode}_${u.uid}`));
+                  if (msSnap.exists()) {
+                    const msData = msSnap.data() as any;
+                    const mp = msData.memberPermissions || {};
+                    setCanCreateMembers(mp.canCreateMembers ?? true);
+                    setCanEditMembers(mp.canEditMembers ?? true);
+                    setAllowedViewEmploymentTypes(Array.isArray(mp.allowedViewEmploymentTypes) ? mp.allowedViewEmploymentTypes : []);
+                  }
+                } catch {}
+              } else {
+                setCanCreateMembers(true);
+                setCanEditMembers(true);
+              }
             } catch {
               setIsOwner(false);
               await loadMemberships(u.uid, p.companyCode, false);
@@ -144,8 +164,11 @@ export default function MembersPage() {
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
+
+    // オーナーがemployeesに存在しない場合のみadminRowを追加
+    const hasEmployeeRecord = user ? employees.some((e) => e.authUid === user.uid) : false;
     const adminRow: Employee[] =
-      user
+      user && isOwner && !hasEmployeeRecord
         ? [
             {
               id: `__admin__${user.uid}`,
@@ -172,12 +195,16 @@ export default function MembersPage() {
     return uniq
       .filter((e) => {
         if (typeFilter !== "ALL" && e.employmentType !== typeFilter) return false;
+        // 雇用形態別の閲覧制限（自分とオーナーは除外）
+        if (!isOwner && allowedViewEmploymentTypes.length > 0 && !e.id.startsWith("__admin__") && e.authUid !== user?.uid) {
+          if (!allowedViewEmploymentTypes.includes(e.employmentType)) return false;
+        }
         if (!qq) return true;
         const hay = `${e.name || ""} ${e.email || ""}`.toLowerCase();
         return hay.includes(qq);
       })
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  }, [employees, q, typeFilter, isOwner, user, profile]);
+  }, [employees, q, typeFilter, isOwner, user, profile, allowedViewEmploymentTypes]);
 
   if (loading) {
     return (
@@ -219,10 +246,18 @@ export default function MembersPage() {
                 ))}
               </select>
             </div>
-            {isOwner && (
+            {(isOwner || canCreateMembers) && (
+              <Link
+                href="/settings/members/new"
+                className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700 transition"
+              >
+                ＋ メンバーを追加
+              </Link>
+            )}
+            {(isOwner || canEditMembers) && (
               <Link
                 href="/settings/members"
-                className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700 transition"
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition"
               >
                 メンバー設定
               </Link>
@@ -240,8 +275,7 @@ export default function MembersPage() {
             filtered.map((e) => {
               const isAdminRow = e.id.startsWith("__admin__");
               const uidForRole = e.authUid || "";
-              const role = isAdminRow ? "owner" : uidForRole ? membershipByUid[uidForRole]?.role : undefined;
-              const canSeeRole = true;
+              const role = uidForRole ? membershipByUid[uidForRole]?.role : undefined;
 
               return (
                 <Link
@@ -268,7 +302,7 @@ export default function MembersPage() {
                     <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-extrabold text-slate-600">
                       {e.employmentType}
                     </span>
-                    {canSeeRole && role && (
+                    {role && (
                       <span
                         className={clsx(
                           "inline-flex rounded-full px-2 py-1 text-[10px] font-extrabold",

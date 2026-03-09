@@ -25,12 +25,15 @@ type MemberProfile = {
   displayName?: string | null;
 };
 
+type EmploymentType = "正社員" | "契約社員" | "パート" | "アルバイト" | "業務委託";
+
 type Employee = {
   id: string;
   name: string;
   authUid?: string;
   color?: string;
   isActive?: boolean | null;
+  employmentType?: EmploymentType;
 };
 
 type Customer = {
@@ -291,19 +294,22 @@ export default function CustomersPage() {
     );
   };
 
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+
   const assigneeList = useMemo(() => {
-    const list: { uid: string; name: string; color?: string }[] = [];
+    const list: { uid: string; name: string; color?: string; employmentType?: string }[] = [];
     list.push({ uid: "__unassigned__", name: "担当者未設定", color: "#94A3B8" });
     if (user) {
       const myName = profile?.displayName || user.email?.split("@")[0] || "ユーザー";
-      list.push({ uid: user.uid, name: myName, color: "#F97316" });
+      const myEmp = employees.find(e => e.authUid === user.uid);
+      list.push({ uid: user.uid, name: myName, color: "#F97316", employmentType: myEmp?.employmentType });
     }
     const activeEmps = employees.filter((e) => e.isActive !== false);
     for (const emp of activeEmps) {
       if (emp.authUid && emp.authUid !== user?.uid) {
         // 権限でフィルタ（visibleUids が空 = 全員表示、非空 = 含まれるもののみ）
         if (!isOwner && visibleUids.size > 0 && !visibleUids.has(emp.authUid)) continue;
-        list.push({ uid: emp.authUid, name: emp.name, color: emp.color });
+        list.push({ uid: emp.authUid, name: emp.name, color: emp.color, employmentType: emp.employmentType });
       }
     }
     return list;
@@ -480,7 +486,7 @@ export default function CustomersPage() {
               </button>
               <div className="relative" ref={assigneeDropdownRef}>
                 <button
-                  onClick={() => setAssigneeDropdownOpen((v) => !v)}
+                  onClick={() => { setAssigneeDropdownOpen((v) => !v); setAssigneeSearch(""); }}
                   className={clsx(
                     "rounded-md px-3 py-1.5 text-xs font-extrabold transition flex items-center gap-1.5",
                     selectedAssignees.length > 0
@@ -494,15 +500,36 @@ export default function CustomersPage() {
                   )}
                 </button>
                 {assigneeDropdownOpen && (
-                  <div className="absolute left-0 top-full mt-1 z-50 w-48 rounded-lg border border-slate-200 bg-white shadow-lg">
+                  <div className="absolute left-0 top-full mt-1 z-50 w-56 rounded-lg border border-slate-200 bg-white shadow-lg">
                     <div className="p-2 border-b border-slate-100">
-                      <div className="text-[10px] font-bold text-slate-500">担当者を選択</div>
+                      <input
+                        type="text"
+                        value={assigneeSearch}
+                        onChange={(e) => setAssigneeSearch(e.target.value)}
+                        placeholder="担当者を検索..."
+                        autoFocus
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-800 outline-none focus:border-orange-300"
+                      />
                     </div>
-                    <div className="max-h-64 overflow-y-auto p-1">
-                      {assigneeList.length === 0 ? (
-                        <div className="px-3 py-2 text-xs text-slate-500">社員データを読み込み中...</div>
-                      ) : (
-                        assigneeList.map((a) => (
+                    <div className="max-h-72 overflow-y-auto p-1">
+                      {(() => {
+                        const q = assigneeSearch.toLowerCase();
+                        const filteredList = assigneeList.filter(a =>
+                          !q || a.name.toLowerCase().includes(q) || (a.employmentType || "").toLowerCase().includes(q)
+                        );
+                        // グループ化: 未設定 → 雇用形態別
+                        const unassigned = filteredList.filter(a => a.uid === "__unassigned__");
+                        const rest = filteredList.filter(a => a.uid !== "__unassigned__");
+                        const groups: Record<string, typeof rest> = {};
+                        for (const a of rest) {
+                          const key = a.employmentType || "その他";
+                          if (!groups[key]) groups[key] = [];
+                          groups[key].push(a);
+                        }
+                        const empTypeOrder = ["正社員", "契約社員", "パート", "アルバイト", "業務委託", "その他"];
+                        const sortedKeys = Object.keys(groups).sort((a, b) => empTypeOrder.indexOf(a) - empTypeOrder.indexOf(b));
+
+                        const renderItem = (a: typeof assigneeList[0]) => (
                           <label
                             key={a.uid}
                             className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 cursor-pointer"
@@ -521,8 +548,24 @@ export default function CustomersPage() {
                             </div>
                             <span className="text-xs font-bold text-slate-700 truncate">{a.name}</span>
                           </label>
-                        ))
-                      )}
+                        );
+
+                        if (filteredList.length === 0) {
+                          return <div className="px-3 py-2 text-xs text-slate-500">該当なし</div>;
+                        }
+
+                        return (
+                          <>
+                            {unassigned.map(renderItem)}
+                            {sortedKeys.map(key => (
+                              <div key={key}>
+                                <div className="px-2 pt-2 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">{key}</div>
+                                {groups[key].map(renderItem)}
+                              </div>
+                            ))}
+                          </>
+                        );
+                      })()}
                     </div>
                     {selectedAssignees.length > 0 && (
                       <div className="p-2 border-t border-slate-100">

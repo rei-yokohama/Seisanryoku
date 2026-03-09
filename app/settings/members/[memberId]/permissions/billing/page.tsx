@@ -110,6 +110,7 @@ export default function BillingPermissionsPage() {
                   viewScope: p.viewScope ?? DEFAULT_BILLING_PERMISSIONS.viewScope,
                   allowedMemberUids: Array.isArray(p.allowedMemberUids) ? p.allowedMemberUids : [],
                   allowedGroupIds: Array.isArray(p.allowedGroupIds) ? p.allowedGroupIds : [],
+                  allowedEmploymentTypes: Array.isArray(p.allowedEmploymentTypes) ? p.allowedEmploymentTypes : [],
                   canEdit: p.canEdit ?? DEFAULT_BILLING_PERMISSIONS.canEdit,
                   canGeneratePdf: p.canGeneratePdf ?? DEFAULT_BILLING_PERMISSIONS.canGeneratePdf,
                 });

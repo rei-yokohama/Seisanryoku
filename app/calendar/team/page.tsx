@@ -15,7 +15,7 @@ import {
   getDoc,
 } from "firebase/firestore";
 import { auth, db } from "../../../lib/firebase";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AppShell } from "../../AppShell";
 import { logActivity } from "../../../lib/activity";
@@ -410,9 +410,14 @@ type CalendarPermissions = {
   editOthersEvents: boolean;
   createEvents: boolean;
   deleteOthersEvents: boolean;
-  viewScope: "all" | "specific_members" | "specific_groups";
+  viewScope: "all" | "specific_members" | "specific_groups" | "specific_employment_types";
   allowedMemberUids: string[];
   allowedGroupIds: string[];
+  allowedEmploymentTypes: string[];
+  viewEmploymentTypes: string[];
+  editEmploymentTypes: string[];
+  deleteEmploymentTypes: string[];
+  createEmploymentTypes: string[];
   canSendInvitations: boolean;
   canReceiveInvitations: boolean;
 };
@@ -425,6 +430,11 @@ const DEFAULT_CALENDAR_PERMISSIONS: CalendarPermissions = {
   viewScope: "all",
   allowedMemberUids: [],
   allowedGroupIds: [],
+  allowedEmploymentTypes: [],
+  viewEmploymentTypes: [],
+  editEmploymentTypes: [],
+  deleteEmploymentTypes: [],
+  createEmploymentTypes: [],
   canSendInvitations: true,
   canReceiveInvitations: true,
 };
@@ -444,6 +454,7 @@ export default function TeamCalendarPage() {
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
   const [soloMode, setSoloMode] = useState(false);
   const [savedSelectionBeforeSolo, setSavedSelectionBeforeSolo] = useState<Set<string> | null>(null);
+  const [scheduleFilter, setScheduleFilter] = useState<"all" | "shift" | "work">("all");
   const [memberOrder, setMemberOrder] = useState<string[]>([]);
   const [memberDragIdx, setMemberDragIdx] = useState<number | null>(null);
   const [memberDragOverIdx, setMemberDragOverIdx] = useState<number | null>(null);
@@ -556,6 +567,7 @@ export default function TeamCalendarPage() {
   const [editGuestUids, setEditGuestUids] = useState<string[]>([]);
 
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const customersById = useMemo(() => {
     const m: Record<string, Customer> = {};
@@ -570,27 +582,82 @@ export default function TeamCalendarPage() {
   }, [deals]);
 
   // 権限に基づいてエントリをフィルタ（招待済みイベントは常に表示）
+  // 雇用形態フィルタ（viewEmploymentTypes）を適用するヘルパー
+  const passesEmploymentTypeFilter = useCallback((uid: string): boolean => {
+    if (calendarPermissions.viewEmploymentTypes.length === 0) return true;
+    const emp = employees.find(e => e.authUid === uid);
+    const empType = (emp as any)?.employmentType;
+    return empType ? calendarPermissions.viewEmploymentTypes.includes(empType) : false;
+  }, [calendarPermissions.viewEmploymentTypes, employees]);
+
   const filteredEntries = useMemo(() => {
-    // オーナーまたはフィルタなし（全員閲覧可）
-    if (user?.uid === companyOwnerUid || calendarVisibleUids.size === 0) return entries;
     return entries.filter((e) => {
       // 自分の予定は常に表示
       if (e.uid === user?.uid) return true;
       // ゲストとして招待されている場合は表示
       if (user && (e.guestUids || []).includes(user.uid)) return true;
-      // 閲覧可能な UID のエントリ
-      return calendarVisibleUids.has(e.uid);
+      // オーナーはUID制限なし
+      if (user?.uid !== companyOwnerUid) {
+        // calendarVisibleUids が空 = フィルタなし（全員閲覧可）、それ以外はUID制限
+        if (calendarVisibleUids.size > 0 && !calendarVisibleUids.has(e.uid)) return false;
+      }
+      // viewEmploymentTypes による雇用形態フィルタ（オーナー以外）
+      if (user?.uid !== companyOwnerUid && !passesEmploymentTypeFilter(e.uid)) return false;
+      return true;
     });
-  }, [entries, calendarVisibleUids, user, companyOwnerUid]);
+  }, [entries, calendarVisibleUids, user, companyOwnerUid, passesEmploymentTypeFilter]);
+
+  // シフト/稼働フィルタ適用
+  const displayEntries = useMemo(() => {
+    if (scheduleFilter === "all") return filteredEntries;
+    if (scheduleFilter === "shift") return filteredEntries.filter(e => e.shift);
+    return filteredEntries.filter(e => !e.shift);
+  }, [filteredEntries, scheduleFilter]);
+
+  // 雇用形態ベースの権限チェック
+  const getEmployeeEmploymentType = useCallback((uid: string): string | undefined => {
+    const emp = employees.find(e => e.authUid === uid);
+    return (emp as any)?.employmentType;
+  }, [employees]);
+
+  const canEditEntry = useCallback((entry: TimeEntry): boolean => {
+    if (entry.uid === user?.uid) return true;
+    if (user?.uid === companyOwnerUid) return true;
+    if (!calendarPermissions.editOthersEvents) return false;
+    if (calendarPermissions.editEmploymentTypes.length === 0) return true;
+    const empType = getEmployeeEmploymentType(entry.uid);
+    return empType ? calendarPermissions.editEmploymentTypes.includes(empType) : false;
+  }, [user, companyOwnerUid, calendarPermissions, getEmployeeEmploymentType]);
+
+  const canDeleteEntry = useCallback((entry: TimeEntry): boolean => {
+    if (entry.uid === user?.uid) return true;
+    if (user?.uid === companyOwnerUid) return true;
+    if (!calendarPermissions.deleteOthersEvents) return false;
+    if (calendarPermissions.deleteEmploymentTypes.length === 0) return true;
+    const empType = getEmployeeEmploymentType(entry.uid);
+    return empType ? calendarPermissions.deleteEmploymentTypes.includes(empType) : false;
+  }, [user, companyOwnerUid, calendarPermissions, getEmployeeEmploymentType]);
 
   // 権限に基づいて社員リストをフィルタ（サイドバー用）
   const filteredEmployeesRaw = useMemo(() => {
-    if (user?.uid === companyOwnerUid || calendarVisibleUids.size === 0) return employees;
-    return employees.filter((e) => {
-      if (e.authUid === user?.uid) return true;
-      return e.authUid ? calendarVisibleUids.has(e.authUid) : false;
-    });
-  }, [employees, calendarVisibleUids, user, companyOwnerUid]);
+    let result = employees;
+    // UID制限
+    if (user?.uid !== companyOwnerUid && calendarVisibleUids.size > 0) {
+      result = result.filter((e) => {
+        if (e.authUid === user?.uid) return true;
+        return e.authUid ? calendarVisibleUids.has(e.authUid) : false;
+      });
+    }
+    // viewEmploymentTypes制限（オーナー以外）
+    if (user?.uid !== companyOwnerUid && calendarPermissions.viewEmploymentTypes.length > 0) {
+      result = result.filter((e) => {
+        if (e.authUid === user?.uid) return true;
+        const empType = (e as any)?.employmentType;
+        return empType ? calendarPermissions.viewEmploymentTypes.includes(empType) : false;
+      });
+    }
+    return result;
+  }, [employees, calendarVisibleUids, user, companyOwnerUid, calendarPermissions.viewEmploymentTypes]);
 
   // メンバー並び順を適用
   const filteredEmployees = useMemo(() => {
@@ -874,13 +941,12 @@ export default function TeamCalendarPage() {
             // オーナーは全権限、メンバーは workspaceMemberships から取得
             if (companyData.ownerUid === u.uid) {
               setCalendarPermissions({
+                ...DEFAULT_CALENDAR_PERMISSIONS,
                 viewOthersCalendar: true,
                 editOthersEvents: true,
                 createEvents: true,
                 deleteOthersEvents: true,
                 viewScope: "all",
-                allowedMemberUids: [],
-                allowedGroupIds: [],
                 canSendInvitations: true,
                 canReceiveInvitations: true,
               });
@@ -899,19 +965,41 @@ export default function TeamCalendarPage() {
                     viewScope: cp.viewScope ?? DEFAULT_CALENDAR_PERMISSIONS.viewScope,
                     allowedMemberUids: Array.isArray(cp.allowedMemberUids) ? cp.allowedMemberUids : [],
                     allowedGroupIds: Array.isArray(cp.allowedGroupIds) ? cp.allowedGroupIds : [],
+                    allowedEmploymentTypes: Array.isArray(cp.allowedEmploymentTypes) ? cp.allowedEmploymentTypes : [],
+                    viewEmploymentTypes: Array.isArray(cp.viewEmploymentTypes) ? cp.viewEmploymentTypes : [],
+                    editEmploymentTypes: Array.isArray(cp.editEmploymentTypes) ? cp.editEmploymentTypes : [],
+                    deleteEmploymentTypes: Array.isArray(cp.deleteEmploymentTypes) ? cp.deleteEmploymentTypes : [],
+                    createEmploymentTypes: Array.isArray(cp.createEmploymentTypes) ? cp.createEmploymentTypes : [],
                     canSendInvitations: cp.canSendInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canSendInvitations,
                     canReceiveInvitations: cp.canReceiveInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canReceiveInvitations,
                   };
                   setCalendarPermissions(perms);
                   // viewScope に基づいて visibleUids を解決
                   if (perms.viewOthersCalendar) {
+                    if (perms.viewScope === "specific_employment_types") {
+                      // 雇用形態ベースの閲覧制限：該当雇用形態の社員UIDを取得
+                      const allowedTypes = perms.allowedEmploymentTypes;
+                      const eSnap = await getDocs(
+                        query(collection(db, "employees"), where("companyCode", "==", data.companyCode)),
+                      );
+                      const allowed = new Set<string>([u.uid]);
+                      for (const d of eSnap.docs) {
+                        const emp = d.data() as any;
+                        if (emp.authUid && allowedTypes.includes(emp.employmentType)) {
+                          allowed.add(emp.authUid);
+                        }
+                      }
+                      setCalendarVisibleUids(allowed);
+                    } else {
                     const visUids = await resolveVisibleUids(u.uid, data.companyCode, {
                       viewOthersData: true,
-                      viewScope: perms.viewScope,
+                      viewScope: perms.viewScope as "all" | "specific_members" | "specific_groups",
                       allowedMemberUids: perms.allowedMemberUids,
                       allowedGroupIds: perms.allowedGroupIds,
+                      allowedEmploymentTypes: perms.allowedEmploymentTypes || [],
                     });
                     setCalendarVisibleUids(visUids);
+                    }
                   } else {
                     setCalendarVisibleUids(new Set([u.uid]));
                   }
@@ -1091,7 +1179,7 @@ export default function TeamCalendarPage() {
       }
     }
 
-    setCreateOpen(false);
+    closeCreateModal();
     setIsBreakMode(false);
     setIsMtgConfirmMode(false);
     setIsMtgCandidateMode(false);
@@ -1133,6 +1221,37 @@ export default function TeamCalendarPage() {
     return () => window.clearTimeout(t);
   }, [loading, scrollToBusinessHours, viewMode, currentDate]);
 
+  const closeEntryDetail = useCallback(() => {
+    setDetailOpen(false);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("entryId");
+    url.searchParams.delete("date");
+    window.history.replaceState({}, "", url.pathname + url.search);
+  }, []);
+
+  const openCreateModal = useCallback((date: string, startTime?: string, endTime?: string) => {
+    setNewDate(date);
+    if (startTime) setNewStartTime(startTime);
+    if (endTime) setNewEndTime(endTime);
+    setCreateOpen(true);
+    const url = new URL(window.location.href);
+    url.searchParams.set("newEntry", "1");
+    url.searchParams.set("date", date);
+    if (startTime) url.searchParams.set("start", startTime);
+    if (endTime) url.searchParams.set("end", endTime);
+    window.history.replaceState({}, "", url.pathname + url.search);
+  }, []);
+
+  const closeCreateModal = useCallback(() => {
+    setCreateOpen(false);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("newEntry");
+    url.searchParams.delete("date");
+    url.searchParams.delete("start");
+    url.searchParams.delete("end");
+    window.history.replaceState({}, "", url.pathname + url.search);
+  }, []);
+
   const openEntryDetail = (entry: TimeEntry) => {
     // 繰り返しの各回は baseId を持つ。保存先は baseId（シリーズの元）に寄せる
     const base = entry.baseId ? ({ ...entry, id: entry.baseId } as TimeEntry) : entry;
@@ -1141,6 +1260,12 @@ export default function TeamCalendarPage() {
     setDetailOpen(true);
     setDetailEdit(false);
     setRecurringDeleteOpen(false);
+
+    // URLパラメータにentryIdとdateを付与
+    const url = new URL(window.location.href);
+    url.searchParams.set("entryId", base.id);
+    url.searchParams.set("date", toDateKey(new Date(entry.start)));
+    window.history.replaceState({}, "", url.pathname + url.search);
 
     const start = new Date(entry.start);
     const end = new Date(entry.end);
@@ -1161,6 +1286,32 @@ export default function TeamCalendarPage() {
     setEditRepeatUntil(r?.end?.type === "UNTIL" ? r.end.until : "");
     setEditRepeatCount(r?.end?.type === "COUNT" ? r.end.count : 13);
   };
+
+  // URLパラメータからモーダルを復元
+  useEffect(() => {
+    if (loading || entries.length === 0) return;
+    const entryId = searchParams.get("entryId");
+    const date = searchParams.get("date");
+    if (!entryId || detailOpen) return;
+
+    const found = entries.find(e => (e.baseId || e.id) === entryId || e.id === entryId);
+    if (found) {
+      openEntryDetail(found);
+    }
+  }, [loading, entries, searchParams]);
+
+  // URLパラメータから工数登録モーダルを復元
+  useEffect(() => {
+    if (loading) return;
+    const newEntry = searchParams.get("newEntry");
+    if (!newEntry || createOpen) return;
+    const date = searchParams.get("date");
+    const start = searchParams.get("start");
+    const end = searchParams.get("end");
+    if (date) {
+      openCreateModal(date, start || undefined, end || undefined);
+    }
+  }, [loading, searchParams]);
 
   const saveEntryEdit = async () => {
     if (!activeEntry) return;
@@ -1257,7 +1408,7 @@ export default function TeamCalendarPage() {
     setIsDeleting(true);
     try {
       await deleteDoc(doc(db, "timeEntries", activeEntry.id));
-      setDetailOpen(false);
+      closeEntryDetail();
       setActiveEntry(null);
       setDetailEdit(false);
 
@@ -1700,7 +1851,7 @@ export default function TeamCalendarPage() {
             if (!me) return null;
             return (
               <div className="mb-4">
-                <h3 className="mb-2 px-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">自分</h3>
+                <h3 className="mb-2 px-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-400">自分の予定だけ表示</h3>
                 <label className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-slate-50 cursor-pointer transition-colors group">
                   <div className="relative flex items-center">
                     <input
@@ -1980,7 +2131,7 @@ export default function TeamCalendarPage() {
 
   const renderTeamDayView = () => {
     const getEmployeeEntries = (uid: string) => {
-      return filteredEntries.filter((entry) => {
+      return displayEntries.filter((entry) => {
         const isParticipant = entry.uid === uid || (entry.guestUids || []).includes(uid);
         if (!isParticipant) return false;
         const entryDate = new Date(entry.start);
@@ -2084,10 +2235,8 @@ export default function TeamCalendarPage() {
                               className="border-b border-slate-50 transition-colors hover:bg-slate-50/50 cursor-pointer"
                               style={{ height: HOUR_PX }}
                               onClick={() => {
-                                setNewDate(`${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`);
-                                setNewStartTime(`${String(hour).padStart(2, "0")}:00`);
-                                setNewEndTime(`${String(hour + 1).padStart(2, "0")}:00`);
-                                setCreateOpen(true);
+                                const d = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`;
+                                openCreateModal(d, `${String(hour).padStart(2, "0")}:00`, `${String(hour + 1).padStart(2, "0")}:00`);
                               }}
                             ></div>
                           ))}
@@ -2225,7 +2374,7 @@ export default function TeamCalendarPage() {
     });
 
     const getDayEntries = (date: Date) => {
-      return filteredEntries.filter((entry) => {
+      return displayEntries.filter((entry) => {
         const entryDate = new Date(entry.start);
         const isSelectedParticipant =
           selectedEmployeeIds.has(entry.uid) || (entry.guestUids || []).some((u) => selectedEmployeeIds.has(u));
@@ -2305,10 +2454,8 @@ export default function TeamCalendarPage() {
                           className="border-b border-slate-50 transition-colors hover:bg-slate-50/50 cursor-pointer"
                           style={{ height: HOUR_PX }}
                           onClick={() => {
-                            setNewDate(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`);
-                            setNewStartTime(`${String(hour).padStart(2, "0")}:00`);
-                            setNewEndTime(`${String(hour + 1).padStart(2, "0")}:00`);
-                            setCreateOpen(true);
+                            const d = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+                            openCreateModal(d, `${String(hour).padStart(2, "0")}:00`, `${String(hour + 1).padStart(2, "0")}:00`);
                           }}
                         ></div>
                       ))}
@@ -2448,7 +2595,7 @@ export default function TeamCalendarPage() {
     for (let i = 1; i <= numDays; i++) days.push(new Date(year, month, i));
 
     const getDayEntries = (date: Date) => {
-      return filteredEntries.filter((entry) => {
+      return displayEntries.filter((entry) => {
         const entryDate = new Date(entry.start);
         const isSelectedParticipant =
           selectedEmployeeIds.has(entry.uid) || (entry.guestUids || []).some((u) => selectedEmployeeIds.has(u));
@@ -2492,8 +2639,8 @@ export default function TeamCalendarPage() {
                 className="group/day min-h-[100px] p-1 transition hover:bg-slate-50/50 cursor-pointer"
                 onClick={(e) => {
                   if (e.target === e.currentTarget) {
-                    setNewDate(`${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`);
-                    setCreateOpen(true);
+                    const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+                    openCreateModal(d);
                   }
                 }}
               >
@@ -2617,8 +2764,7 @@ export default function TeamCalendarPage() {
             <button
               onClick={() => {
                 const d = currentDate;
-                setNewDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
-                setCreateOpen(true);
+                openCreateModal(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
               }}
               className="rounded-lg bg-orange-600 px-4 py-1.5 text-xs font-extrabold text-white hover:bg-orange-700 transition-all shadow-md active:scale-95"
               type="button"
@@ -2631,6 +2777,25 @@ export default function TeamCalendarPage() {
             >
               MTG候補
             </Link>
+            <div className="flex rounded-lg border border-slate-200 bg-white shadow-sm p-0.5">
+              {([
+                { value: "all" as const, label: "すべて" },
+                { value: "shift" as const, label: "シフト" },
+                { value: "work" as const, label: "稼働" },
+              ]).map((v) => (
+                <button
+                  key={v.value}
+                  type="button"
+                  onClick={() => setScheduleFilter(v.value)}
+                  className={clsx(
+                    "px-3 py-1 text-[11px] font-extrabold transition-all rounded-md",
+                    scheduleFilter === v.value ? "bg-slate-100 text-slate-900 shadow-inner" : "text-slate-500 hover:bg-slate-50",
+                  )}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
             <div className="flex rounded-lg border border-slate-200 bg-white shadow-sm p-0.5">
               {[
                 { mode: "day" as const, label: "日" },
@@ -2664,13 +2829,13 @@ export default function TeamCalendarPage() {
 
       {createOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setCreateOpen(false)} />
+          <div className="absolute inset-0 bg-black/40" onClick={() => closeCreateModal()} />
           <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl bg-white shadow-xl">
             {/* ヘッダー（固定） */}
             <div className="flex items-center justify-between p-5 pb-0 flex-shrink-0">
               <div className="text-sm font-extrabold text-slate-900">工数を登録</div>
               <button
-                onClick={() => setCreateOpen(false)}
+                onClick={() => closeCreateModal()}
                 className="rounded-md px-2 py-1 text-sm font-bold text-slate-500 hover:bg-slate-50"
                 type="button"
               >
@@ -2954,12 +3119,12 @@ export default function TeamCalendarPage() {
                 </div>
               </div>
 
-              {/* 通常モード: 顧客+案件 */}
-              {!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && !isShiftMode && (
+              {/* 通常モード・シフトモード: 顧客+案件 */}
+              {!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && (
               <>
               <div ref={customerDropdownRef} className="relative">
                 <div className="text-xs font-extrabold text-slate-500">
-                  顧客 <span className="text-rose-600">*</span>
+                  顧客 {!isShiftMode && <span className="text-rose-600">*</span>}
                 </div>
                 <button
                   type="button"
@@ -3021,7 +3186,7 @@ export default function TeamCalendarPage() {
 
               <div ref={dealDropdownRef} className="relative">
                 <div className="text-xs font-extrabold text-slate-500">
-                  案件 <span className="text-rose-600">*</span>
+                  案件 {!isShiftMode && <span className="text-rose-600">*</span>}
                 </div>
                 <button
                   type="button"
@@ -3405,7 +3570,7 @@ export default function TeamCalendarPage() {
             {/* フッター（固定） */}
             <div className="p-5 pt-3 flex items-center justify-end gap-2 flex-shrink-0 border-t border-slate-100">
               <button
-                onClick={() => setCreateOpen(false)}
+                onClick={() => closeCreateModal()}
                 className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
                 type="button"
               >
@@ -3432,7 +3597,7 @@ export default function TeamCalendarPage() {
           <div
             className="absolute inset-0 bg-black/40"
             onClick={() => {
-              setDetailOpen(false);
+              closeEntryDetail();
               setDetailEdit(false);
               setActiveEntry(null);
             }}
@@ -3493,11 +3658,34 @@ export default function TeamCalendarPage() {
                     )}
                   </div>
                 )}
+                {/* シフトステータス */}
+                {activeEntry.shift && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-cyan-300">
+                      <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      シフト
+                    </span>
+                    {canEditEntry(activeEntry) && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const entryId = activeEntry.baseId || activeEntry.id;
+                          await updateDoc(doc(db, "timeEntries", entryId), { shift: false });
+                          setActiveEntry({ ...activeEntry, shift: false });
+                          const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
+                          await loadEntries(profile?.companyCode || "", employeeUids);
+                        }}
+                        className="rounded-full bg-blue-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-blue-300 hover:bg-blue-500/30 transition-all"
+                      >
+                        稼働に変更
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
-                {(activeEntry.uid === user?.uid || user?.uid === companyOwnerUid) && (
-                  <>
+                {canEditEntry(activeEntry) && (
                     <button
                       onClick={() => setDetailEdit((v) => !v)}
                       className={clsx(
@@ -3511,6 +3699,8 @@ export default function TeamCalendarPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
                       </svg>
                     </button>
+                )}
+                {canDeleteEntry(activeEntry) && (
                     <button
                       onClick={() => void deleteEntry()}
                       disabled={isDeleting}
@@ -3533,11 +3723,10 @@ export default function TeamCalendarPage() {
                         </svg>
                       )}
                     </button>
-                  </>
                 )}
                 <button
                   onClick={() => {
-                    setDetailOpen(false);
+                    closeEntryDetail();
                     setDetailEdit(false);
                     setRecurringDeleteOpen(false);
                     setActiveEntry(null);
@@ -3963,7 +4152,7 @@ export default function TeamCalendarPage() {
                         if (!confirm("この回だけ削除しますか？")) return;
                         await deleteRecurringOne();
                         setRecurringDeleteOpen(false);
-                        setDetailOpen(false);
+                        closeEntryDetail();
                         setActiveEntry(null);
                         const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
                         await loadEntries(profile?.companyCode || "", employeeUids);
@@ -3980,7 +4169,7 @@ export default function TeamCalendarPage() {
                         if (!confirm("この日以降の繰り返しを全て削除しますか？")) return;
                         await deleteRecurringFromThisDay();
                         setRecurringDeleteOpen(false);
-                        setDetailOpen(false);
+                        closeEntryDetail();
                         setActiveEntry(null);
                         const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
                         await loadEntries(profile?.companyCode || "", employeeUids);
@@ -3997,7 +4186,7 @@ export default function TeamCalendarPage() {
                         if (!confirm("過去も含めて全て削除しますか？")) return;
                         await deleteRecurringAll();
                         setRecurringDeleteOpen(false);
-                        setDetailOpen(false);
+                        closeEntryDetail();
                         setActiveEntry(null);
                         const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
                         await loadEntries(profile?.companyCode || "", employeeUids);

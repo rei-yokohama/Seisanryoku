@@ -122,6 +122,7 @@ export default function MemberEditPage() {
   const [error, setError] = useState("");
 
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [employmentType, setEmploymentType] = useState<EmploymentType>("正社員");
   const [joinDate, setJoinDate] = useState(new Date().toISOString().slice(0, 10));
   const [color, setColor] = useState<string>(EMPLOYEE_COLORS[0].value);
@@ -175,6 +176,7 @@ export default function MemberEditPage() {
         const emp = { id: empSnap.id, ...(empSnap.data() as any) } as Employee;
         setEmployee(emp);
         setName(emp.name || "");
+        setEmail(emp.email || "");
         setEmploymentType(emp.employmentType || "正社員");
         setJoinDate(emp.joinDate || new Date().toISOString().slice(0, 10));
         setColor(emp.color || EMPLOYEE_COLORS[0].value);
@@ -225,8 +227,13 @@ export default function MemberEditPage() {
   const handleSave = async () => {
     if (!user || !profile || !employee) return;
     const n = name.trim();
+    const em = email.trim().toLowerCase();
     if (!n) {
       setError("名前を入力してください");
+      return;
+    }
+    if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+      setError("有効なメールアドレスを入力してください");
       return;
     }
     setSaving(true);
@@ -234,6 +241,7 @@ export default function MemberEditPage() {
     try {
       await updateDoc(doc(db, "employees", employee.id), {
         name: n,
+        email: em,
         employmentType,
         joinDate,
         color,
@@ -346,15 +354,12 @@ export default function MemberEditPage() {
             </div>
 
             <div className="md:col-span-12">
-              <div className="text-xs font-extrabold text-slate-500">メール</div>
+              <div className="text-xs font-extrabold text-slate-500">メールアドレス</div>
               <input
-                value={employee.email}
-                readOnly
-                className="mt-1 w-full rounded-md border border-slate-200 bg-slate-100 px-3 py-2 text-sm font-bold text-slate-700"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:ring-1 focus:ring-orange-500"
               />
-              <div className="mt-1 text-[11px] font-bold text-slate-500">
-                ※ 認証用メールは別管理のため、ここでは変更しません
-              </div>
             </div>
 
             <div className="md:col-span-6">
@@ -556,6 +561,15 @@ export default function MemberEditPage() {
                       >
                         <span>→</span>
                         <span>課題権限をさらに制御する</span>
+                      </Link>
+                    )}
+                    {key === "members" && permissions[key] && (
+                      <Link
+                        href={`/settings/members/${memberId}/permissions/members`}
+                        className="ml-3 inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 hover:underline"
+                      >
+                        <span>→</span>
+                        <span>メンバー権限をさらに制御する</span>
                       </Link>
                     )}
                     {key === "invoicing" && permissions[key] && (

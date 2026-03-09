@@ -3,9 +3,10 @@ import { db } from "./firebase";
 
 export type DataVisibilityPermissions = {
   viewOthersData: boolean;
-  viewScope: "all" | "specific_members" | "specific_groups";
+  viewScope: "all" | "specific_members" | "specific_groups" | "specific_employment_types";
   allowedMemberUids: string[];
   allowedGroupIds: string[];
+  allowedEmploymentTypes: string[];
 };
 
 /** 権限未設定時のデフォルト（自分のデータのみ閲覧可能） */
@@ -14,6 +15,7 @@ export const DEFAULT_DATA_VISIBILITY: DataVisibilityPermissions = {
   viewScope: "all",
   allowedMemberUids: [],
   allowedGroupIds: [],
+  allowedEmploymentTypes: [],
 };
 
 export type Group = {
@@ -50,6 +52,23 @@ export async function resolveVisibleUids(
   if (perms.viewScope === "specific_members") {
     for (const uid of perms.allowedMemberUids) {
       allowed.add(uid);
+    }
+  }
+
+  if (perms.viewScope === "specific_employment_types") {
+    // 雇用形態ベースの閲覧制限
+    try {
+      const snap = await getDocs(
+        query(collection(db, "employees"), where("companyCode", "==", companyCode)),
+      );
+      for (const d of snap.docs) {
+        const emp = d.data() as any;
+        if (emp.authUid && perms.allowedEmploymentTypes.includes(emp.employmentType)) {
+          allowed.add(emp.authUid);
+        }
+      }
+    } catch {
+      // 取得失敗時は無視
     }
   }
 
@@ -114,5 +133,6 @@ export function parseDataVisibility(
     viewScope: p.viewScope ?? DEFAULT_DATA_VISIBILITY.viewScope,
     allowedMemberUids: Array.isArray(p.allowedMemberUids) ? p.allowedMemberUids : [],
     allowedGroupIds: Array.isArray(p.allowedGroupIds) ? p.allowedGroupIds : [],
+    allowedEmploymentTypes: Array.isArray(p.allowedEmploymentTypes) ? p.allowedEmploymentTypes : [],
   };
 }

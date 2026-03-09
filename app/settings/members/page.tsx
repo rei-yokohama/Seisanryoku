@@ -86,9 +86,16 @@ export default function MembersPage() {
   const [authFilter, setAuthFilter] = useState<"ALL" | "VERIFIED" | "UNVERIFIED">("ALL");
   const [sortColumn, setSortColumn] = useState<"name" | "email" | "employmentType" | "auth" | "joinDate" | null>(null);
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"table" | "card">("table");
+  const [canViewMembers, setCanViewMembers] = useState(false);
+  const [canEditMembers, setCanEditMembers] = useState(false);
+  const [canDeleteMembers, setCanDeleteMembers] = useState(false);
+  const [canCreateMembers, setCanCreateMembers] = useState(false);
+  const [allowedViewEmploymentTypes, setAllowedViewEmploymentTypes] = useState<string[]>([]);
+  const [allowedEditEmploymentTypes, setAllowedEditEmploymentTypes] = useState<string[]>([]);
+  const [allowedDeleteEmploymentTypes, setAllowedDeleteEmploymentTypes] = useState<string[]>([]);
 
   const loadEmployees = async (uid: string, companyCode?: string) => {
     const merged: Employee[] = [];
@@ -160,23 +167,57 @@ export default function MembersPage() {
           setProfile(p);
           await loadEmployees(u.uid, p.companyCode);
 
-          // スーパーユーザー判定: companies/{companyCode}.ownerUid === uid
           if (p.companyCode) {
             try {
               const compSnap = await getDoc(doc(db, "companies", p.companyCode));
               const ownerUid = compSnap.exists() ? String((compSnap.data() as any).ownerUid || "") : "";
-              const isOwner = !!ownerUid && ownerUid === u.uid;
-              setIsSuperAdmin(true);
-              await loadMemberships(u.uid, p.companyCode, true);
+              const ownerFlag = !!ownerUid && ownerUid === u.uid;
+              setIsOwner(ownerFlag);
+
+              if (ownerFlag) {
+                // オーナーは全権限
+                setCanViewMembers(true);
+                setCanEditMembers(true);
+                setCanDeleteMembers(true);
+                setCanCreateMembers(true);
+                setAllowedViewEmploymentTypes([]);
+                setAllowedEditEmploymentTypes([]);
+                setAllowedDeleteEmploymentTypes([]);
+                await loadMemberships(u.uid, p.companyCode, true);
+              } else {
+                // メンバー権限を読み込み
+                try {
+                  const msSnap = await getDoc(doc(db, "workspaceMemberships", `${p.companyCode}_${u.uid}`));
+                  if (msSnap.exists()) {
+                    const mp = (msSnap.data() as any).memberPermissions || {};
+                    setCanViewMembers(mp.canViewMembers ?? true);
+                    setCanEditMembers(mp.canEditMembers ?? true);
+                    setCanDeleteMembers(mp.canDeleteMembers ?? false);
+                    setCanCreateMembers(mp.canCreateMembers ?? true);
+                    setAllowedViewEmploymentTypes(Array.isArray(mp.allowedViewEmploymentTypes) ? mp.allowedViewEmploymentTypes : []);
+                    setAllowedEditEmploymentTypes(Array.isArray(mp.allowedEditEmploymentTypes) ? mp.allowedEditEmploymentTypes : []);
+                    setAllowedDeleteEmploymentTypes(Array.isArray(mp.allowedDeleteEmploymentTypes) ? mp.allowedDeleteEmploymentTypes : []);
+                  } else {
+                    setCanViewMembers(true);
+                    setCanEditMembers(true);
+                    setCanCreateMembers(true);
+                  }
+                } catch {
+                  setCanViewMembers(true);
+                  setCanEditMembers(true);
+                  setCanCreateMembers(true);
+                }
+                await loadMemberships(u.uid, p.companyCode, false);
+              }
             } catch {
-              setIsSuperAdmin(true);
-              await loadMemberships(u.uid, p.companyCode, true);
+              setIsOwner(false);
+              await loadMemberships(u.uid, p.companyCode, false);
             }
           } else {
-            setIsSuperAdmin(true);
+            setIsOwner(false);
           }
         } else {
-          setIsSuperAdmin(true);
+          setIsOwner(false);
         }
       } finally {
         setLoading(false);
@@ -202,8 +243,11 @@ export default function MembersPage() {
 
   const filtered = useMemo(() => {
     const qq = q.trim().toLowerCase();
+
+    // オーナーがemployeesに存在しない場合のみadminRowを追加
+    const hasEmployeeRecord = user ? employees.some((e) => e.authUid === user.uid) : false;
     const adminRow: Employee[] =
-      isSuperAdmin && user
+      user && isOwner && !hasEmployeeRecord
         ? [
             {
               id: `__admin__${user.uid}`,
@@ -231,6 +275,10 @@ export default function MembersPage() {
       if (typeFilter !== "ALL" && e.employmentType !== typeFilter) return false;
       if (authFilter === "VERIFIED" && !e.authUid) return false;
       if (authFilter === "UNVERIFIED" && !!e.authUid) return false;
+      // 雇用形態別の閲覧制限（自分とオーナーは除外）
+      if (!isOwner && allowedViewEmploymentTypes.length > 0 && !e.id.startsWith("__admin__") && e.authUid !== user?.uid) {
+        if (!allowedViewEmploymentTypes.includes(e.employmentType)) return false;
+      }
       if (!qq) return true;
       const hay = `${e.name || ""} ${e.email || ""}`.toLowerCase();
       return hay.includes(qq);
@@ -270,11 +318,27 @@ export default function MembersPage() {
     });
 
     return result;
-  }, [employees, q, typeFilter, authFilter, sortColumn, sortDirection, isSuperAdmin, user, profile]);
+  }, [employees, q, typeFilter, authFilter, sortColumn, sortDirection, isOwner, user, profile, allowedViewEmploymentTypes]);
+
+  const canDeleteEmployee = (emp: Employee) => {
+    if (isOwner) return true;
+    if (!canDeleteMembers) return false;
+    if (allowedDeleteEmploymentTypes.length > 0 && !allowedDeleteEmploymentTypes.includes(emp.employmentType)) return false;
+    return true;
+  };
+
+  const canEditEmployee = (emp: Employee) => {
+    if (isOwner) return true;
+    if (emp.authUid === user?.uid) return true;
+    if (!canEditMembers) return false;
+    if (allowedEditEmploymentTypes.length > 0 && !allowedEditEmploymentTypes.includes(emp.employmentType)) return false;
+    return true;
+  };
 
   const handleDelete = async (id: string) => {
-    if (!isSuperAdmin) {
-      alert("メンバーの削除はオーナーのみ可能です。");
+    const emp = employees.find((e) => e.id === id);
+    if (emp && !canDeleteEmployee(emp)) {
+      alert("このメンバーを削除する権限がありません。");
       return;
     }
     if (!confirm("このメンバーを削除してもよろしいですか？")) return;
@@ -316,12 +380,14 @@ export default function MembersPage() {
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-extrabold text-slate-900">メンバー</h1>
           <div className="flex items-center gap-2">
+            {(isOwner || canCreateMembers) && (
             <Link
               href="/settings/members/new"
               className="rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700"
             >
               ＋ メンバー作成
             </Link>
+            )}
           </div>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white px-4 py-2.5">
@@ -331,7 +397,7 @@ export default function MembersPage() {
               {profile?.companyCode && (
                 <span className="text-[10px] font-bold text-slate-400">{profile.companyCode}</span>
               )}
-              {isSuperAdmin && (
+              {isOwner && (
                 <span className="rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-extrabold text-orange-700">管理者</span>
               )}
             </div>
@@ -401,8 +467,8 @@ export default function MembersPage() {
               filtered.map((e) => {
                 const isAdminRow = e.id.startsWith("__admin__");
                 const uidForRole = e.authUid || "";
-                const role = isAdminRow ? "owner" : uidForRole ? membershipByUid[uidForRole]?.role : undefined;
-                const canSeeRole = isSuperAdmin || uidForRole === user?.uid || isAdminRow;
+                const role = uidForRole ? membershipByUid[uidForRole]?.role : undefined;
+                const canSeeRole = isOwner || uidForRole === user?.uid || isAdminRow;
                 return (
                   <div
                     key={e.id}
@@ -455,7 +521,7 @@ export default function MembersPage() {
                           >
                             詳細
                           </Link>
-                          {(isSuperAdmin || e.authUid === user.uid) && (
+                          {canEditEmployee(e) && (
                             <Link
                               href={`/settings/members/${encodeURIComponent(e.id)}/edit`}
                               className="rounded-md border border-orange-200 bg-white px-2.5 py-1 text-[10px] font-extrabold text-orange-700 hover:bg-orange-50"
@@ -470,7 +536,7 @@ export default function MembersPage() {
                           >
                             リセット
                           </button>
-                          {isSuperAdmin && (
+                          {canDeleteEmployee(e) && (
                             <button
                               onClick={() => handleDelete(e.id)}
                               className="rounded-md border border-rose-200 bg-white px-2.5 py-1 text-[10px] font-extrabold text-rose-700 hover:bg-rose-50"
@@ -499,8 +565,7 @@ export default function MembersPage() {
                   <th className="px-4 py-3 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("email")}>
                     <div className="flex items-center gap-1">メール{sortColumn === "email" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
                   </th>
-                  {isSuperAdmin ? <th className="px-4 py-3 text-left whitespace-nowrap">初期パスワード</th> : null}
-                  <th className="px-4 py-3 text-left whitespace-nowrap">権限</th>
+                  <th className="px-4 py-3 text-left whitespace-nowrap">パスワード</th>
                   <th className="px-4 py-3 text-left whitespace-nowrap cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort("employmentType")}>
                     <div className="flex items-center gap-1">雇用形態{sortColumn === "employmentType" && <span className="text-slate-400">{sortDirection === "asc" ? "↑" : "↓"}</span>}</div>
                   </th>
@@ -516,17 +581,13 @@ export default function MembersPage() {
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={isSuperAdmin ? 8 : 7} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={7} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       メンバーがいません
                     </td>
                   </tr>
                 ) : (
                   filtered.map((e) => {
                     const isAdminRow = e.id.startsWith("__admin__");
-                    const uidForRole = e.authUid || "";
-                    const role =
-                      isAdminRow ? "owner" : uidForRole ? membershipByUid[uidForRole]?.role : undefined;
-                    const canSeeRole = isSuperAdmin || uidForRole === user?.uid || isAdminRow;
                     return (
                     <tr key={e.id} className={clsx("hover:bg-slate-50", isAdminRow && "bg-orange-50/30")}>
                       <td className="px-4 py-3 font-extrabold text-slate-900 whitespace-nowrap">
@@ -540,37 +601,30 @@ export default function MembersPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-slate-700 whitespace-nowrap">{e.email}</td>
-                      {isSuperAdmin ? (
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          {e.password ? (
-                            <div className="flex items-center gap-2">
-                              <code className="rounded bg-slate-100 px-2 py-1 text-xs font-mono text-slate-900">
-                                {visiblePasswords.has(e.id) ? e.password : "••••••••"}
-                              </code>
-                              <button
-                                onClick={() => togglePasswordVisibility(e.id)}
-                                className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-extrabold text-slate-700 hover:bg-slate-50"
-                                type="button"
-                              >
-                                {visiblePasswords.has(e.id) ? "非表示" : "表示"}
-                              </button>
-                              <button
-                                onClick={() => void copyToClipboard(e.password!)}
-                                className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-extrabold text-slate-700 hover:bg-slate-50"
-                                type="button"
-                              >
-                                コピー
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-xs font-bold text-slate-400">-</span>
-                          )}
-                        </td>
-                      ) : null}
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
-                          {canSeeRole ? roleLabel(role as any) : "-"}
-                        </span>
+                        {e.password && (isOwner || canEditEmployee(e)) ? (
+                          <div className="flex items-center gap-2">
+                            <code className="rounded bg-slate-100 px-2 py-1 text-xs font-mono text-slate-900">
+                              {visiblePasswords.has(e.id) ? e.password : "••••••••"}
+                            </code>
+                            <button
+                              onClick={() => togglePasswordVisibility(e.id)}
+                              className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-extrabold text-slate-700 hover:bg-slate-50"
+                              type="button"
+                            >
+                              {visiblePasswords.has(e.id) ? "非表示" : "表示"}
+                            </button>
+                            <button
+                              onClick={() => void copyToClipboard(e.password!)}
+                              className="rounded border border-slate-200 bg-white px-2 py-1 text-[10px] font-extrabold text-slate-700 hover:bg-slate-50"
+                              type="button"
+                            >
+                              コピー
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-xs font-bold text-slate-400">-</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-slate-700">
                         <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
@@ -614,7 +668,7 @@ export default function MembersPage() {
                               >
                                 詳細
                               </Link>
-                              {(isSuperAdmin || e.authUid === user.uid) ? (
+                              {canEditEmployee(e) ? (
                                 <Link
                                   href={`/settings/members/${encodeURIComponent(e.id)}/edit`}
                                   className={clsx(
@@ -637,7 +691,7 @@ export default function MembersPage() {
                               >
                                 🔑 リセット
                               </button>
-                              {isSuperAdmin ? (
+                              {canDeleteEmployee(e) ? (
                                 <button
                                   onClick={() => handleDelete(e.id)}
                                   className={clsx(
