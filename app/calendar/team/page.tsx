@@ -4080,11 +4080,14 @@ function TeamCalendarPageInner() {
                     </div>
 
                     <div>
-                      <div className="text-xs font-extrabold text-slate-500">メモ（任意）</div>
-                      <input
+                      <div className="text-xs font-extrabold text-slate-500">作業内容（任意）</div>
+                      <textarea
                         value={editSummary}
                         onChange={(e) => setEditSummary(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        placeholder="議事録作成、対応内容など"
+                        rows={3}
+                        className="mt-1 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        style={{ minHeight: "4rem" }}
                       />
                     </div>
 
