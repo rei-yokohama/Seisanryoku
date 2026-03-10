@@ -704,16 +704,27 @@ function TeamCalendarPageInner() {
     return result;
   }, [employees, calendarVisibleUids, user, companyOwnerUid, calendarPermissions.viewEmploymentTypes, calendarPermissions.viewMemberUids]);
 
-  // メンバー並び順を適用
+  // メンバー並び順を適用（自分を常に一番左に）
   const filteredEmployees = useMemo(() => {
-    if (memberOrder.length === 0) return filteredEmployeesRaw;
-    const orderMap = new Map(memberOrder.map((id, i) => [id, i]));
-    return [...filteredEmployeesRaw].sort((a, b) => {
-      const ai = orderMap.get(a.id) ?? 9999;
-      const bi = orderMap.get(b.id) ?? 9999;
-      return ai - bi;
-    });
-  }, [filteredEmployeesRaw, memberOrder]);
+    let sorted = [...filteredEmployeesRaw];
+    if (memberOrder.length > 0) {
+      const orderMap = new Map(memberOrder.map((id, i) => [id, i]));
+      sorted.sort((a, b) => {
+        const ai = orderMap.get(a.id) ?? 9999;
+        const bi = orderMap.get(b.id) ?? 9999;
+        return ai - bi;
+      });
+    }
+    // 自分を常に先頭に配置
+    if (user?.uid) {
+      const myIdx = sorted.findIndex(e => e.authUid === user.uid);
+      if (myIdx > 0) {
+        const [me] = sorted.splice(myIdx, 1);
+        sorted.unshift(me);
+      }
+    }
+    return sorted;
+  }, [filteredEmployeesRaw, memberOrder, user?.uid]);
 
   // 案件の担当者リストを取得（新旧フィールド互換）
   const getDealAssignees = (d: Deal): string[] => {
@@ -1287,8 +1298,8 @@ function TeamCalendarPageInner() {
 
   const createEntry = async () => {
     if (!user) return;
-    if (!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && !isShiftMode && (!newCustomerId || !newDealId)) {
-      alert("顧客と案件は必ず選択してください");
+    if (!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && !isShiftMode && !newCustomerId) {
+      alert("顧客を選択してください");
       return;
     }
     if (isInternalMode && !newDealId) {
@@ -2924,7 +2935,7 @@ function TeamCalendarPageInner() {
   console.log("employees:", employees);
   console.log("showSidebar:", showSidebar);
 
-  const canCreateNewEntry = isBreakMode || isMtgConfirmMode || isMtgCandidateMode || isShiftMode || (isInternalMode && !!newDealId) || (!!newCustomerId && !!newDealId);
+  const canCreateNewEntry = isBreakMode || isMtgConfirmMode || isMtgCandidateMode || isShiftMode || (isInternalMode && !!newDealId) || !!newCustomerId;
 
   return (
     <AppShell title="カレンダー" subtitle={getDateRangeText()} initialSidebarCollapsed>
@@ -3039,23 +3050,25 @@ function TeamCalendarPageInner() {
         </div>
 
       {createOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4">
           <div className="absolute inset-0 bg-black/40" onClick={() => closeCreateModal()} />
-          <div className="relative w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl bg-white shadow-xl">
+          <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl">
             {/* ヘッダー（固定） */}
-            <div className="flex items-center justify-between p-5 pb-0 flex-shrink-0">
-              <div className="text-sm font-extrabold text-slate-900">工数を登録</div>
+            <div className="flex items-center justify-between px-5 sm:px-6 pt-5 pb-2 flex-shrink-0 border-b border-slate-100">
+              <div className="text-base font-extrabold text-slate-900">工数を登録</div>
               <button
                 onClick={() => closeCreateModal()}
-                className="rounded-md px-2 py-1 text-sm font-bold text-slate-500 hover:bg-slate-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                 type="button"
               >
-                ×
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
             {/* スクロール可能なコンテンツ */}
-            <div className="flex-1 overflow-y-auto px-5">
+            <div className="flex-1 overflow-y-auto px-5 sm:px-6">
               {/* 休憩・MTG確定ボタン */}
               <div className="mt-4 flex items-center gap-2">
                 <button
@@ -3216,15 +3229,16 @@ function TeamCalendarPageInner() {
 
               {!canCreateNewEntry ? (
                 <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800">
-                  顧客と案件を選択すると登録できます。
+                  顧客を選択すると登録できます。
                 </div>
               ) : (
                 <div className="mt-3" />
               )}
 
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <div className="text-xs font-extrabold text-slate-500">日付</div>
+                <div className="text-xs font-extrabold text-slate-500 mb-1">日付</div>
                 <input
                   type="date"
                   value={newDate}
@@ -3237,14 +3251,14 @@ function TeamCalendarPageInner() {
                       setNewRepeatByWeekday([d.getDay()]);
                     }
                   }}
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 sm:col-span-2">
                 <div>
-                  <div className="text-xs font-extrabold text-slate-500">開始</div>
-                  <div className="mt-1 flex items-center gap-1">
+                  <div className="text-xs font-extrabold text-slate-500 mb-1">開始</div>
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -3254,7 +3268,7 @@ function TeamCalendarPageInner() {
                         const newM = (totalMinutes + 1440) % 60;
                         setNewStartTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
                       }}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
                       title="30分早める"
                     >
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3265,7 +3279,7 @@ function TeamCalendarPageInner() {
                       type="time"
                       value={newStartTime}
                       onChange={(e) => setNewStartTime(e.target.value)}
-                      className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                      className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                     />
                     <button
                       type="button"
@@ -3276,7 +3290,7 @@ function TeamCalendarPageInner() {
                         const newM = totalMinutes % 60;
                         setNewStartTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
                       }}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
                       title="30分遅める"
                     >
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3286,8 +3300,8 @@ function TeamCalendarPageInner() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs font-extrabold text-slate-500">終了</div>
-                  <div className="mt-1 flex items-center gap-1">
+                  <div className="text-xs font-extrabold text-slate-500 mb-1">終了</div>
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -3297,7 +3311,7 @@ function TeamCalendarPageInner() {
                         const newM = (totalMinutes + 1440) % 60;
                         setNewEndTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
                       }}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
                       title="30分早める"
                     >
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3308,7 +3322,7 @@ function TeamCalendarPageInner() {
                       type="time"
                       value={newEndTime}
                       onChange={(e) => setNewEndTime(e.target.value)}
-                      className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                      className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                     />
                     <button
                       type="button"
@@ -3319,7 +3333,7 @@ function TeamCalendarPageInner() {
                         const newM = totalMinutes % 60;
                         setNewEndTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
                       }}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                      className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
                       title="30分遅める"
                     >
                       <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3329,19 +3343,19 @@ function TeamCalendarPageInner() {
                   </div>
                 </div>
               </div>
+              </div>
 
-              {/* 通常モード・シフトモード: 顧客+案件 */}
+              {/* 通常モード・シフトモード: 顧客 */}
               {!isBreakMode && !isMtgConfirmMode && !isMtgCandidateMode && !isInternalMode && (
-              <>
               <div ref={customerDropdownRef} className="relative">
-                <div className="text-xs font-extrabold text-slate-500">
+                <div className="text-xs font-extrabold text-slate-500 mb-1">
                   顧客 {!isShiftMode && <span className="text-rose-600">*</span>}
                 </div>
                 <button
                   type="button"
                   onClick={() => { setCustomerDropdownOpen(!customerDropdownOpen); setCustomerSearch(""); }}
                   className={clsx(
-                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-left text-sm font-bold",
+                    "w-full rounded-lg border bg-white px-3 py-2.5 text-left text-sm font-bold",
                     newCustomerId ? "border-slate-200 text-slate-800" : "border-rose-200 text-slate-400",
                   )}
                 >
@@ -3390,77 +3404,10 @@ function TeamCalendarPageInner() {
                 )}
                 {user?.uid !== companyOwnerUid && (
                   <div className="mt-1 text-[10px] font-bold text-slate-500">
-                    ※ 自分が担当の案件に関連する顧客のみ表示されます
+                    ※ 自分が担当の顧客のみ表示されます
                   </div>
                 )}
               </div>
-
-              <div ref={dealDropdownRef} className="relative">
-                <div className="text-xs font-extrabold text-slate-500">
-                  案件 {!isShiftMode && <span className="text-rose-600">*</span>}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { setDealDropdownOpen(!dealDropdownOpen); setDealSearch(""); }}
-                  className={clsx(
-                    "mt-1 w-full rounded-md border bg-white px-3 py-2 text-left text-sm font-bold",
-                    newDealId ? "border-slate-200 text-slate-800" : "border-rose-200 text-slate-400",
-                  )}
-                >
-                  {newDealId ? myDeals.find((d) => d.id === newDealId)?.title || "（未選択）" : "（未選択）"}
-                  <svg className="absolute right-3 top-[50%] h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {dealDropdownOpen && (
-                  <div className="absolute z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-                    <div className="p-2">
-                      <input
-                        type="text"
-                        value={dealSearch}
-                        onChange={(e) => setDealSearch(e.target.value)}
-                        placeholder="案件を検索..."
-                        autoFocus
-                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-indigo-300"
-                      />
-                    </div>
-                    <div className="max-h-48 overflow-y-auto">
-                      <button
-                        type="button"
-                        onClick={() => { setNewDealId(""); setDealDropdownOpen(false); }}
-                        className="w-full px-3 py-1.5 text-left text-xs font-bold text-slate-400 hover:bg-slate-50"
-                      >
-                        （未選択）
-                      </button>
-                      {myDeals
-                        .filter((d) => {
-                          if (newCustomerId && d.customerId && d.customerId !== newCustomerId) return false;
-                          if (dealSearch && !d.title.toLowerCase().includes(dealSearch.toLowerCase())) return false;
-                          return true;
-                        })
-                        .map((d) => (
-                          <button
-                            key={d.id}
-                            type="button"
-                            onClick={() => { setNewDealId(d.id); setDealDropdownOpen(false); }}
-                            className={clsx(
-                              "w-full px-3 py-1.5 text-left text-xs font-bold hover:bg-slate-50",
-                              newDealId === d.id ? "bg-indigo-50 text-indigo-700" : "text-slate-700",
-                            )}
-                          >
-                            {d.title}
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
-                {user?.uid !== companyOwnerUid && (
-                  <div className="mt-1 text-[10px] font-bold text-slate-500">
-                    ※ 自分が担当の案件のみ表示されます
-                  </div>
-                )}
-              </div>
-              </>
               )}
 
               {/* 社内モード: 自社案件のみ */}
@@ -3533,22 +3480,22 @@ function TeamCalendarPageInner() {
               )}
 
               <div>
-                <div className="text-xs font-extrabold text-slate-500">タイトル</div>
+                <div className="text-xs font-extrabold text-slate-500 mb-1">タイトル</div>
                 <input
                   value={newProject}
                   onChange={(e) => setNewProject(e.target.value)}
                   placeholder="例）A社 定例MTG / バグ修正"
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                 />
               </div>
               <div>
-                <div className="text-xs font-extrabold text-slate-500">作業内容（任意）</div>
+                <div className="text-xs font-extrabold text-slate-500 mb-1">作業内容（任意）</div>
                 <textarea
                   value={newSummary}
                   onChange={(e) => setNewSummary(e.target.value)}
                   placeholder="議事録作成、対応内容など"
                   rows={3}
-                  className="mt-1 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                  className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                   style={{ minHeight: "4rem" }}
                 />
               </div>
@@ -3726,7 +3673,7 @@ function TeamCalendarPageInner() {
                 )}
               </div>
 
-              {(user?.uid === companyOwnerUid || calendarPermissions.canSendInvitations) && (
+              {!isBreakMode && (user?.uid === companyOwnerUid || calendarPermissions.canSendInvitations) && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
@@ -3780,10 +3727,10 @@ function TeamCalendarPageInner() {
             </div>
 
             {/* フッター（固定） */}
-            <div className="p-5 pt-3 flex items-center justify-end gap-2 flex-shrink-0 border-t border-slate-100">
+            <div className="px-5 sm:px-6 py-4 flex items-center justify-end gap-3 flex-shrink-0 border-t border-slate-200 bg-slate-50/50">
               <button
                 onClick={() => closeCreateModal()}
-                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition-colors"
                 type="button"
               >
                 キャンセル
@@ -3792,12 +3739,12 @@ function TeamCalendarPageInner() {
                 onClick={() => void createEntry()}
                 disabled={!canCreateNewEntry}
                 className={clsx(
-                  "rounded-md px-4 py-2 text-sm font-extrabold text-white",
-                  canCreateNewEntry ? "bg-orange-600 hover:bg-orange-700" : "bg-orange-300 cursor-not-allowed",
+                  "rounded-lg px-6 py-2.5 text-sm font-extrabold text-white transition-colors",
+                  canCreateNewEntry ? "bg-orange-600 hover:bg-orange-700 shadow-sm" : "bg-orange-300 cursor-not-allowed",
                 )}
                 type="button"
               >
-                登録
+                登録する
               </button>
             </div>
           </div>
@@ -3805,7 +3752,7 @@ function TeamCalendarPageInner() {
       )}
 
       {detailOpen && activeEntry && (
-        <div className="fixed inset-0 z-[70]">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4">
           <div
             className="absolute inset-0 bg-black/40"
             onClick={() => {
@@ -3814,17 +3761,19 @@ function TeamCalendarPageInner() {
               setActiveEntry(null);
             }}
           />
-          <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-2xl max-h-[90vh] overflow-y-auto -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-slate-900 p-6 text-white shadow-2xl">
+          <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl bg-white shadow-2xl overflow-hidden">
+            {/* ヘッダー */}
+            <div className="px-5 sm:px-6 pt-5 pb-3 flex-shrink-0 border-b border-slate-200">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-3">
                   <div
-                    className="h-4 w-4 rounded"
+                    className="h-4 w-4 rounded flex-shrink-0"
                     style={{ backgroundColor: getEmployeeColors(activeEntry.color || employees.find((e) => e.authUid === activeEntry.uid)?.color || "#3B82F6").base }}
                   />
-                  <div className="truncate text-2xl font-extrabold">{entryTitle(activeEntry)}</div>
+                  <div className="truncate text-lg font-extrabold text-slate-900">{entryTitle(activeEntry)}</div>
                 </div>
-                <div className="mt-2 text-sm text-white/70">
+                <div className="mt-1.5 text-sm font-bold text-slate-500">
                   {(() => {
                     const s = new Date(activeEntry.start);
                     const e = new Date(activeEntry.end);
@@ -3836,14 +3785,14 @@ function TeamCalendarPageInner() {
                 {(activeEntry.mtgCandidate || activeEntry.mtgConfirmed) && (
                   <div className="mt-2 flex items-center gap-2">
                     {activeEntry.mtgConfirmed && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-300">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-700">
                         <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4" /></svg>
                         MTG確定
                       </span>
                     )}
                     {activeEntry.mtgCandidate && !activeEntry.mtgConfirmed && (
                       <>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-violet-300">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 border border-violet-200 px-2.5 py-0.5 text-[11px] font-extrabold text-violet-700">
                           <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                           MTG候補
                         </span>
@@ -3857,11 +3806,10 @@ function TeamCalendarPageInner() {
                                 mtgCandidate: false,
                               });
                               setActiveEntry({ ...activeEntry, mtgConfirmed: true, mtgCandidate: false });
-                              // 再ロード
                               const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
                               await loadEntries(profile?.companyCode || "", employeeUids);
                             }}
-                            className="rounded-full bg-emerald-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-300 hover:bg-emerald-500/30 transition-all"
+                            className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-extrabold text-emerald-700 hover:bg-emerald-100 transition-all"
                           >
                             MTG確定にする
                           </button>
@@ -3873,7 +3821,7 @@ function TeamCalendarPageInner() {
                 {/* シフトステータス */}
                 {activeEntry.shift && (
                   <div className="mt-2 flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-cyan-300">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-cyan-50 border border-cyan-200 px-2.5 py-0.5 text-[11px] font-extrabold text-cyan-700">
                       <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       シフト
                     </span>
@@ -3887,7 +3835,7 @@ function TeamCalendarPageInner() {
                           const employeeUids = employees.map((e) => e.authUid).filter((id): id is string => !!id);
                           await loadEntries(profile?.companyCode || "", employeeUids);
                         }}
-                        className="rounded-full bg-blue-500/20 px-2.5 py-0.5 text-[11px] font-extrabold text-blue-300 hover:bg-blue-500/30 transition-all"
+                        className="rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-[11px] font-extrabold text-blue-700 hover:bg-blue-100 transition-all"
                       >
                         稼働に変更
                       </button>
@@ -3896,13 +3844,13 @@ function TeamCalendarPageInner() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 flex-shrink-0">
                 {canEditEntry(activeEntry) && (
                     <button
                       onClick={() => setDetailEdit((v) => !v)}
                       className={clsx(
                         "rounded-lg p-2 transition-all",
-                        detailEdit ? "bg-orange-600 text-white" : "bg-white/10 hover:bg-white/15 text-white/70"
+                        detailEdit ? "bg-orange-600 text-white" : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                       )}
                       title="編集"
                       type="button"
@@ -3918,7 +3866,7 @@ function TeamCalendarPageInner() {
                       disabled={isDeleting}
                       className={clsx(
                         "rounded-lg p-2 transition-all",
-                        recurringDeleteOpen ? "bg-rose-600 text-white" : "bg-white/10 hover:bg-white/15 text-white/70",
+                        recurringDeleteOpen ? "bg-rose-600 text-white" : "text-slate-400 hover:bg-rose-50 hover:text-rose-600",
                         isDeleting && "opacity-50 cursor-not-allowed"
                       )}
                       title="削除"
@@ -3943,7 +3891,7 @@ function TeamCalendarPageInner() {
                     setRecurringDeleteOpen(false);
                     setActiveEntry(null);
                   }}
-                  className="rounded-lg bg-white/10 p-2 hover:bg-white/15 text-white/70"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
                   title="閉じる"
                   type="button"
                 >
@@ -3953,27 +3901,30 @@ function TeamCalendarPageInner() {
                 </button>
               </div>
             </div>
+            </div>
 
-            <div className="mt-6 space-y-4">
+            {/* スクロール可能なコンテンツ */}
+            <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4">
+            <div className="space-y-4">
               {!detailEdit ? (
                 <>
                   {activeEntry.summary ? (
-                    <div className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">{activeEntry.summary}</div>
+                    <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{activeEntry.summary}</div>
                   ) : (
-                    <div className="text-sm text-white/50">メモはありません</div>
+                    <div className="text-sm text-slate-400">メモはありません</div>
                   )}
 
-                  <div className="flex items-center gap-3 text-sm text-white/70">
+                  <div className="flex items-center gap-3 text-sm">
                     <div className="inline-flex items-center gap-2">
-                      <span className="text-white/50">担当</span>
-                      <span className="font-extrabold text-white">{actorNameFor(activeEntry.uid)}</span>
+                      <span className="text-slate-400">担当</span>
+                      <span className="font-extrabold text-slate-800">{actorNameFor(activeEntry.uid)}</span>
                     </div>
                   </div>
 
-                  <div className="mt-2 rounded-xl bg-white/5 p-4">
+                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-4">
                     <div className="flex items-center justify-between">
-                      <div className="text-sm font-extrabold text-white">ゲスト</div>
-                      <div className="text-xs font-bold text-white/60">
+                      <div className="text-sm font-extrabold text-slate-700">ゲスト</div>
+                      <div className="text-xs font-bold text-slate-500">
                         {(activeEntry.guestUids?.length || 0) + 1} 人
                       </div>
                     </div>
@@ -3987,8 +3938,8 @@ function TeamCalendarPageInner() {
                           {avatarLetterFor(activeEntry.uid)}
                         </div>
                         <div className="min-w-0">
-                          <div className="text-sm font-extrabold text-white truncate">{actorNameFor(activeEntry.uid)}</div>
-                          <div className="text-xs font-bold text-white/50">主催者</div>
+                          <div className="text-sm font-extrabold text-slate-800 truncate">{actorNameFor(activeEntry.uid)}</div>
+                          <div className="text-xs font-bold text-slate-400">主催者</div>
                         </div>
                       </div>
                       {/* ゲスト */}
@@ -4001,12 +3952,12 @@ function TeamCalendarPageInner() {
                             {avatarLetterFor(uid)}
                           </div>
                           <div className="min-w-0">
-                            <div className="text-sm font-bold text-white/90 truncate">{actorNameFor(uid)}</div>
+                            <div className="text-sm font-bold text-slate-700 truncate">{actorNameFor(uid)}</div>
                           </div>
                         </div>
                       ))}
                       {(!activeEntry.guestUids || activeEntry.guestUids.length === 0) ? (
-                        <div className="text-xs font-bold text-white/50">ゲストはいません</div>
+                        <div className="text-xs font-bold text-slate-400">ゲストはいません</div>
                       ) : null}
                     </div>
                   </div>
@@ -4020,73 +3971,141 @@ function TeamCalendarPageInner() {
                           href={url}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-2 rounded-full bg-blue-500/20 px-5 py-2 text-sm font-extrabold text-blue-100 hover:bg-blue-500/30"
+                          className="inline-flex items-center gap-2 rounded-full bg-blue-50 border border-blue-200 px-5 py-2 text-sm font-extrabold text-blue-700 hover:bg-blue-100 transition-colors"
                         >
                           リンクを開く →
                         </a>
-                        <div className="mt-2 text-xs text-white/50 break-all">{url}</div>
+                        <div className="mt-2 text-xs text-slate-400 break-all">{url}</div>
                       </div>
                     );
                   })()}
                 </>
               ) : (
-                <div className="rounded-xl bg-white p-4 text-slate-900">
-                  <div className="grid grid-cols-1 gap-3">
-                    <div className="grid grid-cols-2 gap-3">
+                <div className="text-slate-900">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <div className="text-xs font-extrabold text-slate-500">日付</div>
+                        <div className="text-xs font-extrabold text-slate-500 mb-1">日付</div>
                         <input
                           type="date"
                           value={editDate}
                           onChange={(e) => setEditDate(e.target.value)}
                           disabled={!!activeEntry.repeat}
-                          className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all disabled:bg-slate-50 disabled:text-slate-400"
                         />
                         {activeEntry.repeat ? (
                           <div className="mt-1 text-[10px] font-bold text-slate-500">
-                            ※ 繰り返しの予定は「日付の個別変更」は未対応です（現状はシリーズ全体の編集になります）
+                            ※ 繰り返しの予定は日付の個別変更は未対応です
                           </div>
                         ) : null}
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-3 sm:col-span-2">
                         <div>
-                          <div className="text-xs font-extrabold text-slate-500">開始</div>
-                          <input
-                            type="time"
-                            value={editStartTime}
-                            onChange={(e) => setEditStartTime(e.target.value)}
-                            className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                          />
+                          <div className="text-xs font-extrabold text-slate-500 mb-1">開始</div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const [h, m] = editStartTime.split(":").map(Number);
+                                const totalMinutes = h * 60 + m - 30;
+                                const newH = Math.floor((totalMinutes + 1440) % 1440 / 60);
+                                const newM = (totalMinutes + 1440) % 60;
+                                setEditStartTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                              }}
+                              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                              title="30分早める"
+                            >
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                              </svg>
+                            </button>
+                            <input
+                              type="time"
+                              value={editStartTime}
+                              onChange={(e) => setEditStartTime(e.target.value)}
+                              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const [h, m] = editStartTime.split(":").map(Number);
+                                const totalMinutes = h * 60 + m + 30;
+                                const newH = Math.floor(totalMinutes % 1440 / 60);
+                                const newM = totalMinutes % 60;
+                                setEditStartTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                              }}
+                              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                              title="30分遅める"
+                            >
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                         <div>
-                          <div className="text-xs font-extrabold text-slate-500">終了</div>
-                          <input
-                            type="time"
-                            value={editEndTime}
-                            onChange={(e) => setEditEndTime(e.target.value)}
-                            className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                          />
+                          <div className="text-xs font-extrabold text-slate-500 mb-1">終了</div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const [h, m] = editEndTime.split(":").map(Number);
+                                const totalMinutes = h * 60 + m - 30;
+                                const newH = Math.floor((totalMinutes + 1440) % 1440 / 60);
+                                const newM = (totalMinutes + 1440) % 60;
+                                setEditEndTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                              }}
+                              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                              title="30分早める"
+                            >
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                              </svg>
+                            </button>
+                            <input
+                              type="time"
+                              value={editEndTime}
+                              onChange={(e) => setEditEndTime(e.target.value)}
+                              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const [h, m] = editEndTime.split(":").map(Number);
+                                const totalMinutes = h * 60 + m + 30;
+                                const newH = Math.floor(totalMinutes % 1440 / 60);
+                                const newM = totalMinutes % 60;
+                                setEditEndTime(`${String(newH).padStart(2, "0")}:${String(newM).padStart(2, "0")}`);
+                              }}
+                              className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 active:bg-slate-100 transition-all"
+                              title="30分遅める"
+                            >
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
 
                     <div>
-                      <div className="text-xs font-extrabold text-slate-500">案件/作業名</div>
+                      <div className="text-xs font-extrabold text-slate-500 mb-1">タイトル</div>
                       <input
                         value={editProject}
                         onChange={(e) => setEditProject(e.target.value)}
-                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                       />
                     </div>
 
                     <div>
-                      <div className="text-xs font-extrabold text-slate-500">作業内容（任意）</div>
+                      <div className="text-xs font-extrabold text-slate-500 mb-1">作業内容（任意）</div>
                       <textarea
                         value={editSummary}
                         onChange={(e) => setEditSummary(e.target.value)}
                         placeholder="議事録作成、対応内容など"
                         rows={3}
-                        className="mt-1 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
+                        className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-800 focus:border-orange-300 focus:ring-2 focus:ring-orange-100 outline-none transition-all"
                         style={{ minHeight: "4rem" }}
                       />
                     </div>
@@ -4262,7 +4281,7 @@ function TeamCalendarPageInner() {
                       )}
                     </div>
 
-                    {(user?.uid === companyOwnerUid || calendarPermissions.canSendInvitations) && (
+                    {editProject !== "休憩" && (user?.uid === companyOwnerUid || calendarPermissions.canSendInvitations) && (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                         <div className="flex items-center justify-between">
                           <div className="text-xs font-extrabold text-slate-700">ゲスト（チームメンバー）</div>
@@ -4314,28 +4333,32 @@ function TeamCalendarPageInner() {
                       </div>
                     )}
                   </div>
-
-                  <div className="mt-4 flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => setDetailEdit(false)}
-                      className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 hover:bg-slate-50"
-                      type="button"
-                    >
-                      戻る
-                    </button>
-                    <button
-                      onClick={() => void saveEntryEdit()}
-                      disabled={isDeleting}
-                      className="flex items-center gap-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-extrabold text-white hover:bg-orange-700 disabled:opacity-50"
-                      type="button"
-                    >
-                      {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
-                      保存
-                    </button>
-                  </div>
                 </div>
               )}
             </div>
+            </div>
+
+            {/* 編集モードのフッター（固定） */}
+            {detailEdit && (
+              <div className="px-5 sm:px-6 py-4 flex items-center justify-end gap-3 flex-shrink-0 border-t border-slate-200 bg-slate-50/50">
+                <button
+                  onClick={() => setDetailEdit(false)}
+                  className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-extrabold text-slate-700 hover:bg-slate-50 transition-colors"
+                  type="button"
+                >
+                  キャンセル
+                </button>
+                <button
+                  onClick={() => void saveEntryEdit()}
+                  disabled={isDeleting}
+                  className="flex items-center gap-2 rounded-lg bg-orange-600 px-6 py-2.5 text-sm font-extrabold text-white hover:bg-orange-700 disabled:opacity-50 shadow-sm transition-colors"
+                  type="button"
+                >
+                  {isDeleting && <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />}
+                  保存する
+                </button>
+              </div>
+            )}
 
             {recurringDeleteOpen && activeEntry.repeat && (
               <div className="fixed inset-0 z-[80]">

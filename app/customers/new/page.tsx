@@ -49,15 +49,15 @@ export default function CustomerNewPage() {
   const [name, setName] = useState("");
   const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
   const [type, setType] = useState("CORPORATION");
-  const [contactName, setContactName] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [tagsText, setTagsText] = useState("");
-  const [dealStartDate, setDealStartDate] = useState("");
+  const [contactName] = useState("");
+  const [contactEmail] = useState("");
+  const [phone] = useState("");
+  const [address] = useState("");
+  const [industry] = useState("");
+  const [tagsText] = useState("");
+  const [dealStartDate] = useState("");
   const [contractAmount, setContractAmount] = useState("");
-  const [assigneeSales, setAssigneeSales] = useState<Record<string, string>>({});
+  const [assigneeSales] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
 
   const [showPreview, setShowPreview] = useState(false);
@@ -333,6 +333,18 @@ export default function CustomerNewPage() {
               />
             </div>
 
+            <div className="md:col-span-6">
+              <div className="text-xs font-extrabold text-slate-600">売上（円/月）</div>
+              <input
+                type="number"
+                value={contractAmount}
+                onChange={(e) => setContractAmount(e.target.value)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                placeholder="例：500000"
+                inputMode="numeric"
+              />
+            </div>
+
             <div className="md:col-span-12 border-t border-slate-100 pt-4">
               <div className="text-xs font-extrabold text-slate-600 mb-2">詳細情報・メモ</div>
               <div className="rounded-md border border-slate-200">
@@ -385,146 +397,6 @@ export default function CustomerNewPage() {
               </div>
             </div>
 
-            <div className="md:col-span-12 border-t border-slate-100 pt-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">業種</div>
-                  <select
-                    value={industry}
-                    onChange={(e) => setIndustry(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  >
-                    <option value="">選択してください</option>
-                    {INDUSTRIES.map((ind) => (
-                      <option key={ind} value={ind}>
-                        {ind}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">担当者名</div>
-                  <input
-                    value={contactName}
-                    onChange={(e) => setContactName(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                    placeholder="例：山田太郎"
-                  />
-                </div>
-
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">メールアドレス</div>
-                  <input
-                    type="email"
-                    value={contactEmail}
-                    onChange={(e) => setContactEmail(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                    placeholder="例：yamada@example.com"
-                  />
-                </div>
-
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">電話番号</div>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                    placeholder="例：03-1234-5678"
-                  />
-                </div>
-
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">取引開始日</div>
-                  <input
-                    type="date"
-                    value={dealStartDate}
-                    onChange={(e) => setDealStartDate(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  />
-                </div>
-
-                <div className="md:col-span-12">
-                  <div className="text-xs font-extrabold text-slate-600">住所</div>
-                  <input
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                    placeholder="例：東京都渋谷区〇〇1-2-3"
-                  />
-                </div>
-
-                {hasMultipleAssignees ? (
-                  <div className="md:col-span-12">
-                    <div className="text-xs font-extrabold text-slate-600">担当別売上</div>
-                    <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-3">
-                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        {assigneeUids.map((uid) => {
-                          const emp = employees.find((e) => e.authUid === uid);
-                          const empName = uid === user?.uid ? myDisplayName : (emp?.name || "不明");
-                          return (
-                            <div key={uid} className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-bold text-orange-800 min-w-[80px]">
-                                {empName}
-                              </span>
-                              <div className="relative flex-1">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">¥</span>
-                                <input
-                                  value={assigneeSales[uid] || ""}
-                                  onChange={(e) => {
-                                    setAssigneeSales((prev) => ({ ...prev, [uid]: e.target.value }));
-                                  }}
-                                  className="w-full rounded-md border border-slate-200 bg-white pl-7 pr-3 py-2 text-sm font-bold text-slate-900"
-                                  placeholder="0"
-                                  inputMode="numeric"
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      <div className="mt-3 flex items-center justify-end gap-2 border-t border-slate-200 pt-2">
-                        <span className="text-xs font-extrabold text-slate-600">合計</span>
-                        <span className="text-sm font-extrabold text-orange-700">
-                          ¥{assigneeSalesTotal.toLocaleString("ja-JP")}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="md:col-span-6">
-                    <div className="text-xs font-extrabold text-slate-600">契約金額（円/月）</div>
-                    <input
-                      type="number"
-                      value={contractAmount}
-                      onChange={(e) => setContractAmount(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                      placeholder="例：100000"
-                    />
-                  </div>
-                )}
-
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">タグ（カンマ区切り）</div>
-                  <input
-                    value={tagsText}
-                    onChange={(e) => setTagsText(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                    placeholder="例：VIP,リピーター,要フォロー"
-                  />
-                  {tagList.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {tagList.map((t) => (
-                        <span key={t} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
