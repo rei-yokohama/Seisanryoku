@@ -52,9 +52,16 @@ service cloud.firestore {
     // ============================================
     // プロフィール
     // ============================================
-    // 認証済みユーザーが自分のプロフィールのみ読み書き可能
+    // 読み取り: 自分のプロフィール or 所属会社のオーナーのプロフィール（メンバー一覧の表示名用）
+    // 書き込み: 自分のプロフィールのみ
     match /profiles/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && (
+        request.auth.uid == uid
+        || (myCompanyCode() != null
+            && exists(/databases/$(database)/documents/companies/$(myCompanyCode()))
+            && get(/databases/$(database)/documents/companies/$(myCompanyCode())).data.ownerUid == uid)
+      );
+      allow write: if request.auth != null && request.auth.uid == uid;
     }
     
     // ============================================
