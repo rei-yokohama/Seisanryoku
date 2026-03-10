@@ -167,24 +167,30 @@ export default function EmployeesPage() {
         // ランダムパスワードを生成
         const password = generateRandomPassword(12);
         
-        // Firebase Authenticationにユーザーを作成
-        const authResponse = await fetch("/api/create-user", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: formData.email,
-            password: password,
-            displayName: formData.name,
-          }),
-        });
-
-        const authData = await authResponse.json();
-
+        // Firebase Authenticationにユーザーを作成（REST API直接呼び出し）
+        const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+        if (!apiKey) throw new Error("Firebase APIキーが設定されていません");
+        const authResponse = await fetch(
+          `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: formData.email, password, displayName: formData.name, returnSecureToken: true }),
+          }
+        );
+        const authResult = await authResponse.json();
         if (!authResponse.ok) {
-          throw new Error(authData.error || "認証アカウントの作成に失敗しました");
+          let errorMessage = "認証アカウントの作成に失敗しました";
+          if (authResult.error?.message === "EMAIL_EXISTS") {
+            errorMessage = "このメールアドレスは既に使用されています";
+          } else if (authResult.error?.message?.includes("WEAK_PASSWORD")) {
+            errorMessage = "パスワードが弱すぎます（6文字以上必要）";
+          } else if (authResult.error?.message) {
+            errorMessage = authResult.error.message;
+          }
+          throw new Error(errorMessage);
         }
+        const authData = { uid: authResult.localId, email: authResult.email };
 
         // 社員情報を保存（Firebase AuthenticationのUIDとパスワードも保存）
         const employeeData = {
