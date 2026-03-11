@@ -782,7 +782,7 @@ export default function CustomersPage() {
                               <div>{formatYen(c.contractAmount)}</div>
                               {c.assigneeSales && Object.keys(c.assigneeSales).length > 0 && (
                                 <div className="mt-1 space-y-0.5">
-                                  {Object.entries(c.assigneeSales).map(([uid, amount]) => (
+                                  {(isOwner ? Object.entries(c.assigneeSales) : (user ? [[user.uid, c.assigneeSales[user.uid]]] as [string, number][] : [])).filter(([, amount]) => amount != null).map(([uid, amount]) => (
                                     <div key={uid} className="flex items-center justify-end gap-1.5">
                                       <span className="text-[10px] text-slate-500">{assigneeDisplayName(uid)}</span>
                                       <span className="text-[10px] font-extrabold text-orange-600">{formatYen(amount)}</span>

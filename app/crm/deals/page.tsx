@@ -352,16 +352,11 @@ function DealsInner() {
     return legacy;
   };
 
-  // 権限によるフィルタ済みリスト
+  // 権限によるフィルタ済みリスト（一般ユーザーは担当者に自分が含まれる案件のみ表示）
   const visibleDeals = useMemo(() => {
     if (isOwner) return deals;
-    return filterByVisibleUids(deals, (d) => {
-      const assignees = getDealAssignees(d);
-      // 自分が作成した案件は常に表示
-      if (user && d.createdBy === user.uid) return [user.uid];
-      return assignees;
-    }, visibleUids);
-  }, [deals, visibleUids, isOwner, user]);
+    return filterByVisibleUids(deals, (d) => getDealAssignees(d), visibleUids);
+  }, [deals, visibleUids, isOwner]);
 
   const filtered = useMemo(() => {
     const q = qText.trim().toLowerCase();
