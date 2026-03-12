@@ -66,7 +66,7 @@ const PERMISSION_LABELS: Record<keyof Permissions, string> = {
 type WorkspaceMembership = {
   uid: string;
   companyCode: string;
-  role: "owner" | "admin" | "member";
+  role: "owner" | "admin" | "member" | "manager";
   permissions?: Permissions;
 };
 
@@ -177,7 +177,7 @@ export default function MemberDetailPage() {
     );
   }
 
-  const roleLabel = membership?.role === "owner" ? "オーナー" : (membership?.role === "admin" || membership?.role === "member") ? "メンバー" : "未設定";
+  const roleLabel = membership?.role === "owner" ? "オーナー" : membership?.role === "manager" ? "マネージャー" : (membership?.role === "admin" || membership?.role === "member") ? "メンバー" : "未設定";
 
   return (
     <AppShell
@@ -260,7 +260,7 @@ export default function MemberDetailPage() {
                       membership.permissions?.[key] ? "text-green-700" : "text-slate-400"
                     }`}
                   >
-                    {membership.permissions?.[key] ? "許可" : "不可"}
+                    {membership.permissions?.[key] ? "✓" : "−"}
                   </div>
                 </div>
               ))}

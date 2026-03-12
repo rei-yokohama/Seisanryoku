@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc, setDoc, Timestamp, updateDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, Timestamp, updateDoc, where } from "firebase/firestore";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "../../../../../lib/firebase";
@@ -36,18 +36,35 @@ type Permissions = {
   calendar: boolean;  // カレンダー
 };
 
+/** メンバーロール用デフォルト（新規作成メンバーと同様: ホーム・案件・顧客・カレンダー） */
 const DEFAULT_PERMISSIONS: Permissions = {
   dashboard: true,
   members: false,
   projects: true,
-  issues: true,
-  customers: false,
-  files: true,
+  issues: false,
+  customers: true,
+  files: false,
   billing: false,
   invoicing: false,
   settings: false,
-  wiki: true,
-  effort: true,
+  wiki: false,
+  effort: false,
+  calendar: true,
+};
+
+/** マネージャーロール用プリセット（スクショ仕様: ホーム・案件・顧客・カレンダー・メンバーのみ） */
+const MANAGER_PERMISSIONS: Permissions = {
+  dashboard: true,
+  members: true,
+  projects: true,
+  issues: false,
+  customers: true,
+  files: false,
+  billing: false,
+  invoicing: false,
+  settings: false,
+  wiki: false,
+  effort: false,
   calendar: true,
 };
 
@@ -69,7 +86,7 @@ const PERMISSION_LABELS: Record<keyof Permissions, string> = {
 type WorkspaceMembership = {
   uid: string;
   companyCode: string;
-  role: "owner" | "admin" | "member"; // admin は後方互換のため残す
+  role: "owner" | "admin" | "member" | "manager"; // admin は後方互換のため残す
   permissions?: Permissions;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
@@ -257,19 +274,84 @@ export default function MemberEditPage() {
         // 会社の ownerUid の人は owner 固定（誤操作でオーナー不在になるのを防ぐ）
         const nextRole: WorkspaceMembership["role"] = targetIsCompanyOwner ? "owner" : role;
 
-        // 未作成の場合もあるので setDoc(merge) で確実に反映
-        await setDoc(
-          membershipRef,
-          {
-            uid: employee.authUid,
-            companyCode: profile.companyCode,
-            role: nextRole,
-            // オーナーは全権限持つので permissions は保存しない（member のみ）
-            ...(nextRole === "member" ? { permissions } : {}),
-            updatedAt: Timestamp.now(),
-          },
-          { merge: true },
-        );
+        const basePayload: Record<string, unknown> = {
+          uid: employee.authUid,
+          companyCode: profile.companyCode,
+          role: nextRole,
+          updatedAt: Timestamp.now(),
+        };
+
+        if (nextRole === "member" || nextRole === "manager") {
+          basePayload.permissions = permissions;
+        }
+
+        // マネージャー: ロール変更時のみ顧客・案件・カレンダー権限を業務委託向けにプリセット適用（既存のカスタマイズを上書きしない）
+        const wasManager = membership?.role === "manager";
+        const isNewlyManager = nextRole === "manager" && !wasManager;
+        if (isNewlyManager) {
+          const contractorDataVisibility = {
+            viewOthersData: true,
+            viewScope: "specific_employment_types" as const,
+            allowedMemberUids: [] as string[],
+            allowedGroupIds: [] as string[],
+            allowedEmploymentTypes: ["業務委託"],
+          };
+          basePayload.customerPermissions = contractorDataVisibility;
+          basePayload.projectPermissions = contractorDataVisibility;
+
+          // 業務委託者の authUid を取得（招待送受信対象）
+          let contractorAuthUids: string[] = [];
+          try {
+            const empSnap = await getDocs(
+              query(
+                collection(db, "employees"),
+                where("companyCode", "==", profile.companyCode),
+                where("employmentType", "==", "業務委託"),
+              ),
+            );
+            contractorAuthUids = empSnap.docs
+              .map((d) => (d.data() as { authUid?: string }).authUid)
+              .filter((uid): uid is string => !!uid);
+          } catch {
+            // 取得失敗時は空のまま
+          }
+
+          basePayload.calendarPermissions = {
+            viewOthersCalendar: true,
+            editOthersEvents: true,
+            createEvents: true,
+            deleteOthersEvents: true,
+            viewScope: "specific_employment_types",
+            allowedMemberUids: [],
+            allowedGroupIds: [],
+            allowedEmploymentTypes: ["業務委託"],
+            viewEmploymentTypes: ["業務委託"],
+            editEmploymentTypes: ["業務委託"],
+            deleteEmploymentTypes: ["業務委託"],
+            createEmploymentTypes: ["業務委託"],
+            viewMemberUids: [],
+            editMemberUids: [],
+            deleteMemberUids: [],
+            sendInvitationMemberUids: contractorAuthUids,
+            receiveInvitationMemberUids: contractorAuthUids,
+            canSendInvitations: true,
+            canReceiveInvitations: true,
+          };
+
+          // メンバー権限: 業務委託者の作成・編集を許可
+          basePayload.memberPermissions = {
+            canViewMembers: true,
+            allowedViewEmploymentTypes: ["業務委託"],
+            canCreateMembers: true,
+            allowedCreateEmploymentTypes: ["業務委託"],
+            canEditMembers: true,
+            allowedEditEmploymentTypes: ["業務委託"],
+            canDeleteMembers: false,
+            allowedDeleteEmploymentTypes: [],
+          };
+        }
+
+        await setDoc(membershipRef, basePayload, { merge: true });
       }
 
       router.push(`/settings/members/${encodeURIComponent(employee.id)}`);
@@ -473,7 +555,32 @@ export default function MemberEditPage() {
               </button>
               <button
                 type="button"
-                onClick={() => !targetIsCompanyOwner && setRole("member")}
+                onClick={() => {
+                  if (!targetIsCompanyOwner) {
+                    setRole("manager");
+                    setPermissions(MANAGER_PERMISSIONS);
+                  }
+                }}
+                disabled={targetIsCompanyOwner}
+                className={clsx(
+                  "flex-1 rounded-lg border p-3 text-center transition",
+                  !targetIsCompanyOwner && role === "manager"
+                    ? "border-orange-500 bg-orange-50"
+                    : "border-slate-200 bg-white hover:bg-slate-50",
+                  targetIsCompanyOwner && "cursor-not-allowed opacity-60",
+                )}
+              >
+                <div className="text-sm font-extrabold text-slate-900">マネージャー</div>
+                <div className="mt-1 text-[11px] font-bold text-slate-500">メニュー表示権限を設定</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!targetIsCompanyOwner) {
+                    setRole("member");
+                    setPermissions(DEFAULT_PERMISSIONS);
+                  }
+                }}
                 disabled={targetIsCompanyOwner}
                 className={clsx(
                   "flex-1 rounded-lg border p-3 text-center transition",
@@ -492,8 +599,8 @@ export default function MemberEditPage() {
             ) : null}
           </div>
 
-          {/* メンバーの場合のみメニュー表示権限を表示 */}
-          {!targetIsCompanyOwner && role === "member" ? (
+          {/* メンバー・マネージャーの場合のみメニュー表示権限を表示 */}
+          {!targetIsCompanyOwner && (role === "member" || role === "manager") ? (
             <div className="mt-4">
               <div className="text-xs font-extrabold text-slate-500">メニュー表示権限</div>
               <div className="mt-1 text-[11px] text-slate-400">チェックした項目がグローバルメニューに表示されます</div>

@@ -48,6 +48,32 @@ service cloud.firestore {
         && isWorkspaceMember(companyCode)
         && get(/databases/$(database)/documents/workspaceMemberships/$(companyCode + "_" + request.auth.uid)).data.memberPermissions.canEditMembers == true;
     }
+
+    // マネージャーが他メンバーのカレンダー予定を編集・削除できるか（calendarPermissions + editMemberUids/deleteMemberUids）
+    function canEditTimeEntryAsManager(companyCode, entryOwnerUid) {
+      let membershipPath = companyCode + "_" + request.auth.uid;
+      let m = get(/databases/$(database)/documents/workspaceMemberships/$(membershipPath)).data;
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/workspaceMemberships/$(membershipPath))
+        && request.auth.uid != entryOwnerUid
+        && m.calendarPermissions != null
+        && m.calendarPermissions.editOthersEvents == true
+        && m.calendarPermissions.editMemberUids != null
+        && m.calendarPermissions.editMemberUids.size() > 0
+        && entryOwnerUid in m.calendarPermissions.editMemberUids;
+    }
+    function canDeleteTimeEntryAsManager(companyCode, entryOwnerUid) {
+      let membershipPath = companyCode + "_" + request.auth.uid;
+      let m = get(/databases/$(database)/documents/workspaceMemberships/$(membershipPath)).data;
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/workspaceMemberships/$(membershipPath))
+        && request.auth.uid != entryOwnerUid
+        && m.calendarPermissions != null
+        && m.calendarPermissions.deleteOthersEvents == true
+        && m.calendarPermissions.deleteMemberUids != null
+        && m.calendarPermissions.deleteMemberUids.size() > 0
+        && entryOwnerUid in m.calendarPermissions.deleteMemberUids;
+    }
     
     // ============================================
     // プロフィール
@@ -150,18 +176,30 @@ service cloud.firestore {
     }
     
     // ============================================
-    // 工数エントリ
+    // 工数エントリ（カレンダー予定）
     // ============================================
     // 自分のエントリは読み書き可能
-    // 同じ会社の管理者も読み取り可能（チームカレンダー用）
+    // オーナーは全件編集・削除可能
+    // マネージャーは calendarPermissions で許可されたメンバーの予定を編集・削除可能
     match /timeEntries/{entryId} {
       allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
       allow create: if isSignedIn()
         && isInMyCompany(request.resource.data.companyCode)
         && request.auth.uid == request.resource.data.uid;
-      allow update, delete: if isSignedIn()
+      allow update: if isSignedIn()
         && isInMyCompany(resource.data.companyCode)
-        && (request.auth.uid == resource.data.uid || isCompanyOwner(resource.data.companyCode));
+        && (
+          request.auth.uid == resource.data.uid
+          || isCompanyOwner(resource.data.companyCode)
+          || canEditTimeEntryAsManager(resource.data.companyCode, resource.data.uid)
+        );
+      allow delete: if isSignedIn()
+        && isInMyCompany(resource.data.companyCode)
+        && (
+          request.auth.uid == resource.data.uid
+          || isCompanyOwner(resource.data.companyCode)
+          || canDeleteTimeEntryAsManager(resource.data.companyCode, resource.data.uid)
+        );
     }
     
     // ============================================

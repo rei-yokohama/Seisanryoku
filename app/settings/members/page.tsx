@@ -45,7 +45,7 @@ type WorkspaceMembership = {
   id: string;
   companyCode: string;
   uid: string;
-  role: "owner" | "admin" | "member"; // admin は後方互換のため残す
+  role: "owner" | "admin" | "member" | "manager"; // admin は後方互換のため残す
   permissions?: Permissions;
 };
 
@@ -56,6 +56,7 @@ function clsx(...xs: Array<string | false | null | undefined>) {
 function roleLabel(role?: WorkspaceMembership["role"] | null) {
   if (role === "owner") return "オーナー";
   if (role === "admin") return "メンバー"; // admin は member 扱い（後方互換）
+  if (role === "manager") return "マネージャー";
   if (role === "member") return "メンバー";
   return "-";
 }

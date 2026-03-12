@@ -101,6 +101,7 @@ function DealsInner() {
   const [loading, setLoading] = useState(true);
   const [isOwner, setIsOwner] = useState(false);
   const [visibleUids, setVisibleUids] = useState<Set<string>>(new Set());
+  const [includeUnassignedForManager, setIncludeUnassignedForManager] = useState(false);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -290,6 +291,7 @@ function DealsInner() {
             if (compSnap.exists() && (compSnap.data() as any).ownerUid === u.uid) {
               setIsOwner(true);
               setVisibleUids(new Set()); // オーナーはフィルタなし
+              setIncludeUnassignedForManager(false);
             } else {
               const msSnap = await getDoc(doc(db, "workspaceMemberships", `${prof.companyCode}_${u.uid}`));
               const perms = msSnap.exists()
@@ -297,10 +299,15 @@ function DealsInner() {
                 : DEFAULT_DATA_VISIBILITY;
               const uids = await resolveVisibleUids(u.uid, prof.companyCode, perms);
               setVisibleUids(uids);
+              // マネージャー（雇用形態ベース閲覧）の場合、担当者未設定も表示（業務委託者アサイン用）
+              setIncludeUnassignedForManager(
+                perms.viewOthersData && perms.viewScope === "specific_employment_types",
+              );
             }
           } catch {
             // エラー時は自分のみ表示
             setVisibleUids(new Set([u.uid]));
+            setIncludeUnassignedForManager(false);
           }
         }
 
@@ -352,11 +359,16 @@ function DealsInner() {
     return legacy;
   };
 
-  // 権限によるフィルタ済みリスト（一般ユーザーは担当者に自分が含まれる案件のみ表示）
+  // 権限によるフィルタ済みリスト（マネージャーは担当者未設定も表示）
   const visibleDeals = useMemo(() => {
     if (isOwner) return deals;
-    return filterByVisibleUids(deals, (d) => getDealAssignees(d), visibleUids);
-  }, [deals, visibleUids, isOwner]);
+    return filterByVisibleUids(
+      deals,
+      (d) => getDealAssignees(d),
+      visibleUids,
+      includeUnassignedForManager,
+    );
+  }, [deals, visibleUids, isOwner, includeUnassignedForManager]);
 
   const filtered = useMemo(() => {
     const q = qText.trim().toLowerCase();

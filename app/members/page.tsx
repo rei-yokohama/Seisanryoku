@@ -35,7 +35,7 @@ type WorkspaceMembership = {
   id: string;
   companyCode: string;
   uid: string;
-  role: "owner" | "admin" | "member";
+  role: "owner" | "admin" | "member" | "manager";
 };
 
 function clsx(...xs: Array<string | false | null | undefined>) {
@@ -45,6 +45,7 @@ function clsx(...xs: Array<string | false | null | undefined>) {
 function roleLabel(role?: WorkspaceMembership["role"] | null) {
   if (role === "owner") return "オーナー";
   if (role === "admin") return "メンバー";
+  if (role === "manager") return "マネージャー";
   if (role === "member") return "メンバー";
   return "-";
 }

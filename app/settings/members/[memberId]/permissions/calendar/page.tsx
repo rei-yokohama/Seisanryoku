@@ -165,6 +165,7 @@ export default function CalendarPermissionsPage() {
         const prof = profSnap.data() as MemberProfile;
         setProfile(prof);
 
+        let loadedEmployees: EmployeeItem[] = [];
         if (prof.companyCode) {
           const compSnap = await getDoc(doc(db, "companies", prof.companyCode));
           if (compSnap.exists()) {
@@ -188,7 +189,8 @@ export default function CalendarPermissionsPage() {
           const eSnap = await getDocs(
             query(collection(db, "employees"), where("companyCode", "==", prof.companyCode)),
           );
-          setEmployees(eSnap.docs.map((d) => ({ id: d.id, ...d.data() } as EmployeeItem)));
+          loadedEmployees = eSnap.docs.map((d) => ({ id: d.id, ...d.data() } as EmployeeItem));
+          setEmployees(loadedEmployees);
 
           // グループ一覧
           const gSnap = await getDocs(
@@ -212,6 +214,19 @@ export default function CalendarPermissionsPage() {
             if (msSnap.exists()) {
               const msData = msSnap.data() as any;
               const cp = msData.calendarPermissions || {};
+              const otherEmps = loadedEmployees.filter(
+                (e) => e.isActive !== false && !!e.authUid && e.authUid !== emp.authUid,
+              );
+              const viewMemberUids = Array.isArray(cp.viewMemberUids) ? cp.viewMemberUids : [];
+              const editMemberUids = Array.isArray(cp.editMemberUids) ? cp.editMemberUids : [];
+              const deleteMemberUids = Array.isArray(cp.deleteMemberUids) ? cp.deleteMemberUids : [];
+              const viewEmpTypes = Array.isArray(cp.viewEmploymentTypes) ? cp.viewEmploymentTypes : [];
+              const editEmpTypes = Array.isArray(cp.editEmploymentTypes) ? cp.editEmploymentTypes : [];
+              const deleteEmpTypes = Array.isArray(cp.deleteEmploymentTypes) ? cp.deleteEmploymentTypes : [];
+              const syncMemberUids = (empTypes: string[]) =>
+                empTypes.length > 0
+                  ? [...new Set(otherEmps.filter((e) => (e as EmployeeItem).employmentType && empTypes.includes((e as EmployeeItem).employmentType!)).map((e) => e.authUid!))]
+                  : [];
               setCalendarPermissions({
                 viewOthersCalendar: cp.viewOthersCalendar ?? DEFAULT_CALENDAR_PERMISSIONS.viewOthersCalendar,
                 editOthersEvents: cp.editOthersEvents ?? DEFAULT_CALENDAR_PERMISSIONS.editOthersEvents,
@@ -221,13 +236,13 @@ export default function CalendarPermissionsPage() {
                 allowedMemberUids: Array.isArray(cp.allowedMemberUids) ? cp.allowedMemberUids : [],
                 allowedGroupIds: Array.isArray(cp.allowedGroupIds) ? cp.allowedGroupIds : [],
                 allowedEmploymentTypes: Array.isArray(cp.allowedEmploymentTypes) ? cp.allowedEmploymentTypes : [],
-                viewEmploymentTypes: Array.isArray(cp.viewEmploymentTypes) ? cp.viewEmploymentTypes : [],
-                editEmploymentTypes: Array.isArray(cp.editEmploymentTypes) ? cp.editEmploymentTypes : [],
-                deleteEmploymentTypes: Array.isArray(cp.deleteEmploymentTypes) ? cp.deleteEmploymentTypes : [],
+                viewEmploymentTypes: viewEmpTypes,
+                editEmploymentTypes: editEmpTypes,
+                deleteEmploymentTypes: deleteEmpTypes,
                 createEmploymentTypes: Array.isArray(cp.createEmploymentTypes) ? cp.createEmploymentTypes : [],
-                viewMemberUids: Array.isArray(cp.viewMemberUids) ? cp.viewMemberUids : [],
-                editMemberUids: Array.isArray(cp.editMemberUids) ? cp.editMemberUids : [],
-                deleteMemberUids: Array.isArray(cp.deleteMemberUids) ? cp.deleteMemberUids : [],
+                viewMemberUids: viewMemberUids.length > 0 ? viewMemberUids : syncMemberUids(viewEmpTypes),
+                editMemberUids: editMemberUids.length > 0 ? editMemberUids : syncMemberUids(editEmpTypes),
+                deleteMemberUids: deleteMemberUids.length > 0 ? deleteMemberUids : syncMemberUids(deleteEmpTypes),
                 sendInvitationMemberUids: Array.isArray(cp.sendInvitationMemberUids) ? cp.sendInvitationMemberUids : [],
                 receiveInvitationMemberUids: Array.isArray(cp.receiveInvitationMemberUids) ? cp.receiveInvitationMemberUids : [],
                 canSendInvitations: cp.canSendInvitations ?? DEFAULT_CALENDAR_PERMISSIONS.canSendInvitations,
@@ -278,13 +293,43 @@ export default function CalendarPermissionsPage() {
     }));
   };
 
-  const toggleEmploymentType = (field: "allowedEmploymentTypes" | "viewEmploymentTypes" | "editEmploymentTypes" | "deleteEmploymentTypes" | "createEmploymentTypes", type: string) => {
-    setCalendarPermissions((prev) => ({
-      ...prev,
-      [field]: prev[field].includes(type)
-        ? prev[field].filter((t: string) => t !== type)
-        : [...prev[field], type],
-    }));
+  /** 雇用形態選択時、該当するメンバーを個別指定にも連動させる */
+  const toggleEmploymentType = (
+    field: "allowedEmploymentTypes" | "viewEmploymentTypes" | "editEmploymentTypes" | "deleteEmploymentTypes" | "createEmploymentTypes",
+    type: string,
+    memberUidField?: MemberUidField,
+  ) => {
+    setCalendarPermissions((prev) => {
+      const isAdding = !prev[field].includes(type);
+      const newEmpTypes = isAdding
+        ? [...prev[field], type]
+        : prev[field].filter((t: string) => t !== type);
+
+      const next = { ...prev, [field]: newEmpTypes };
+
+      if (memberUidField) {
+        const otherEmps = employees.filter(
+          (e) => e.isActive !== false && !!e.authUid && e.authUid !== employee?.authUid,
+        );
+        const uidsForType = otherEmps
+          .filter((e) => (e as EmployeeItem).employmentType === type)
+          .map((e) => e.authUid!);
+
+        const currentUids = (prev[memberUidField] as string[]) || [];
+        let newUids: string[];
+        if (isAdding) {
+          newUids = [...new Set([...currentUids, ...uidsForType])];
+        } else {
+          newUids = currentUids.filter((uid) => {
+            const emp = otherEmps.find((e) => e.authUid === uid);
+            return !emp || (emp as EmployeeItem).employmentType !== type;
+          });
+        }
+        next[memberUidField] = newUids;
+      }
+
+      return next;
+    });
   };
 
   const togglePermMemberUid = (field: MemberUidField | "sendInvitationMemberUids" | "receiveInvitationMemberUids", uid: string) => {
@@ -424,7 +469,7 @@ export default function CalendarPermissionsPage() {
                               <button
                                 key={type}
                                 type="button"
-                                onClick={() => toggleEmploymentType(item.empTypeField, type)}
+                                onClick={() => toggleEmploymentType(item.empTypeField, type, item.memberUidField)}
                                 className={clsx(
                                   "rounded-md border px-3 py-1.5 text-xs font-bold transition",
                                   selected

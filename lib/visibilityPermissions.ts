@@ -102,19 +102,21 @@ export async function resolveVisibleUids(
 /**
  * アイテム配列を閲覧可能 UID でフィルタする。
  * visibleUids が空セットの場合は「全員閲覧可」としてフィルタなし。
+ * @param includeUnassigned マネージャー（雇用形態ベース閲覧）の場合 true。担当者未設定のものも表示する。
  */
 export function filterByVisibleUids<T>(
   items: T[],
   getAssigneeUids: (item: T) => string[],
   visibleUids: Set<string>,
+  includeUnassigned = false,
 ): T[] {
   // 空セット = フィルタなし（全員閲覧可）
   if (visibleUids.size === 0) return items;
 
   return items.filter((item) => {
     const uids = getAssigneeUids(item);
-    // 担当者が未設定の場合は非表示（権限制限中は自分のデータのみ）
-    if (uids.length === 0) return false;
+    // 担当者未設定: マネージャーの場合は表示、それ以外は非表示
+    if (uids.length === 0) return includeUnassigned;
     // 担当者のいずれかが閲覧可能なら表示
     return uids.some((uid) => visibleUids.has(uid));
   });
