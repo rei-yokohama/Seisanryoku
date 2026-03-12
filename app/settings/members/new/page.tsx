@@ -212,14 +212,20 @@ export default function MemberCreatePage() {
       if (profile?.companyCode && authData.uid) {
         const membershipId = `${profile.companyCode}_${authData.uid}`;
         const nextRole: "owner" | "member" = "member"; // 作成時は member 固定
+        // オーナー以外の基本: ダッシュボード、案件、顧客、カレンダーのみ。自分担当の顧客・案件、自分のみ操作編集可能なカレンダー
         const defaultPermissions = {
+          dashboard: true,
           members: false,
           projects: true,
-          issues: true,
-          customers: false,
-          files: true,
+          issues: false,
+          customers: true,
+          files: false,
           billing: false,
+          invoicing: false,
           settings: false,
+          wiki: false,
+          effort: false,
+          calendar: true,
         };
         await setDoc(
           doc(db, "workspaceMemberships", membershipId),
