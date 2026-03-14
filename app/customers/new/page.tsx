@@ -57,7 +57,7 @@ export default function CustomerNewPage() {
   const [tagsText] = useState("");
   const [dealStartDate] = useState("");
   const [contractAmount, setContractAmount] = useState("");
-  const [assigneeSales] = useState<Record<string, string>>({});
+  const [assigneeSales, setAssigneeSales] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
 
   const [showPreview, setShowPreview] = useState(false);
@@ -333,17 +333,46 @@ export default function CustomerNewPage() {
               />
             </div>
 
-            <div className="md:col-span-6">
-              <div className="text-xs font-extrabold text-slate-600">売上（円/月）</div>
-              <input
-                type="number"
-                value={contractAmount}
-                onChange={(e) => setContractAmount(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                placeholder="例：500000"
-                inputMode="numeric"
-              />
-            </div>
+            {hasMultipleAssignees ? (
+              <div className="md:col-span-6">
+                <div className="text-xs font-extrabold text-slate-600">担当別売上（円/月）</div>
+                <div className="mt-1 space-y-2">
+                  {assigneeUids.map((uid) => {
+                    const emp = employees.find((e) => e.authUid === uid);
+                    const aName = uid === user?.uid ? myDisplayName : (emp?.name || "不明");
+                    return (
+                      <div key={uid} className="flex items-center gap-2">
+                        <span className="w-20 truncate text-xs font-bold text-slate-700">{aName}</span>
+                        <input
+                          type="number"
+                          value={assigneeSales[uid] || ""}
+                          onChange={(e) => setAssigneeSales((prev) => ({ ...prev, [uid]: e.target.value }))}
+                          className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                          placeholder="0"
+                          inputMode="numeric"
+                        />
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center justify-end gap-2 text-xs font-extrabold text-slate-600 border-t border-slate-100 pt-2">
+                    <span>合計:</span>
+                    <span className="text-orange-600">¥{assigneeSalesTotal.toLocaleString("ja-JP")}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="md:col-span-6">
+                <div className="text-xs font-extrabold text-slate-600">売上（円/月）</div>
+                <input
+                  type="number"
+                  value={contractAmount}
+                  onChange={(e) => setContractAmount(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
+                  placeholder="例：500000"
+                  inputMode="numeric"
+                />
+              </div>
+            )}
 
             <div className="md:col-span-12 border-t border-slate-100 pt-4">
               <div className="text-xs font-extrabold text-slate-600 mb-2">詳細情報・メモ</div>

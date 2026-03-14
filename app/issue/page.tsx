@@ -19,6 +19,7 @@ import {
   resolveVisibleUids,
   filterByVisibleUids,
 } from "../../lib/visibilityPermissions";
+import { FilterSearchSelect } from "../../lib/FilterSearchSelect";
 
 type MemberProfile = {
   uid: string;
@@ -148,21 +149,38 @@ export default function IssueHomePage() {
     if (saved === "kanban" || saved === "gantt") setViewMode(saved);
   }, []);
 
-  // localStorage -> state (初回のみ)
+  // localStorage -> state (初回のみ、URLパラメータがあればそちらを優先)
   useEffect(() => {
     if (!filterStorage.loaded) return;
-    const s = filterStorage.state;
-    setProjectFilter(s.projectFilter ?? "ALL");
-    setStatusFilter((s.statusFilter as any) ?? "NOT_DONE");
-    setAssigneeFilter(s.assigneeFilter ?? "");
-    setPriorityFilter(s.priorityFilter ?? "");
-    setCategoryFilter(s.categoryFilter ?? "");
-    setKeyword(s.keyword ?? "");
-    setShowArchived(!!s.showArchived);
+    const params = new URLSearchParams(window.location.search);
+    const hasUrlParams = params.get("status") || params.get("project") || params.get("assignee") || params.get("priority") || params.get("q") || params.get("archived");
+
+    if (hasUrlParams) {
+      const pStatus = params.get("status") || "";
+      if (pStatus) setStatusFilter(pStatus);
+      const pProject = params.get("project") || "";
+      if (pProject) setProjectFilter(pProject);
+      const pAssignee = params.get("assignee") || "";
+      if (pAssignee) setAssigneeFilter(pAssignee);
+      const pPriority = params.get("priority") || "";
+      if (pPriority) setPriorityFilter(pPriority);
+      const pQ = params.get("q") || "";
+      if (pQ) setKeyword(pQ);
+      if (params.get("archived") === "1") setShowArchived(true);
+    } else {
+      const s = filterStorage.state;
+      setProjectFilter(s.projectFilter ?? "ALL");
+      setStatusFilter((s.statusFilter as any) ?? "NOT_DONE");
+      setAssigneeFilter(s.assigneeFilter ?? "");
+      setPriorityFilter(s.priorityFilter ?? "");
+      setCategoryFilter(s.categoryFilter ?? "");
+      setKeyword(s.keyword ?? "");
+      setShowArchived(!!s.showArchived);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterStorage.loaded]);
 
-  // state -> localStorage（ユーザーが変えた条件を保持）
+  // state -> localStorage + URLパラメータ同期
   useEffect(() => {
     if (!filterStorage.loaded) return;
     filterStorage.setState({
@@ -174,6 +192,22 @@ export default function IssueHomePage() {
       keyword,
       showArchived,
     });
+
+    // URLパラメータ同期（デフォルト値と異なる場合のみパラメータ付与）
+    const params = new URLSearchParams();
+    // statusFilter: デフォルト "NOT_DONE"。それ以外のときパラメータ付与
+    if (statusFilter !== "NOT_DONE") params.set("status", statusFilter);
+    if (projectFilter !== "ALL") params.set("project", projectFilter);
+    if (assigneeFilter) params.set("assignee", assigneeFilter);
+    if (priorityFilter) params.set("priority", priorityFilter);
+    if (keyword.trim()) params.set("q", keyword.trim());
+    // showArchived: デフォルト false。trueのときだけパラメータ付与
+    if (showArchived) params.set("archived", "1");
+    const qs = params.toString();
+    const newUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    if (newUrl !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, "", newUrl);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectFilter, statusFilter, assigneeFilter, priorityFilter, categoryFilter, keyword, showArchived, filterStorage.loaded]);
 
@@ -877,53 +911,31 @@ export default function IssueHomePage() {
 
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-12">
                 <div className="md:col-span-3">
-                  <div className="text-xs font-extrabold text-slate-500">プロジェクト</div>
-                  <select
+                  <div className="text-xs font-extrabold text-slate-500">案件</div>
+                  <FilterSearchSelect
                     value={projectFilter}
-                    onChange={(e) => setProjectFilter(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  >
-                    <option value="ALL">すべて</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.key} {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="md:col-span-3">
-                  <div className="text-xs font-extrabold text-slate-500">カテゴリ</div>
-                  <select
-                    value={categoryFilter}
-                    onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  >
-                    <option value="">すべて</option>
-                    {categories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setProjectFilter}
+                    allValue="ALL"
+                    options={projects.map((p) => ({ value: p.id, label: `${p.key} ${p.name}` }))}
+                    className="mt-1"
+                  />
                 </div>
 
                 <div className="md:col-span-3">
                   <div className="text-xs font-extrabold text-slate-500">担当者</div>
-                  <select
+                  <FilterSearchSelect
                     value={assigneeFilter}
-                    onChange={(e) => setAssigneeFilter(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  >
-                    <option value="">すべて</option>
-                    <option value={user.uid}>私</option>
-                    {employees.filter((e) => !!e.authUid && e.authUid !== user.uid
-                      && (isOwner || visibleUids.size === 0 || visibleUids.has(e.authUid!))).map((e) => (
-                      <option key={e.id} value={e.authUid}>
-                        {e.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setAssigneeFilter}
+                    allValue=""
+                    options={[
+                      { value: user.uid, label: "私" },
+                      ...employees
+                        .filter((e) => !!e.authUid && e.authUid !== user.uid
+                          && (isOwner || visibleUids.size === 0 || visibleUids.has(e.authUid!)))
+                        .map((e) => ({ value: e.authUid!, label: e.name })),
+                    ]}
+                    className="mt-1"
+                  />
                 </div>
 
                 <div className="md:col-span-3">

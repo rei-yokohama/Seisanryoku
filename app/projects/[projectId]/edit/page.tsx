@@ -55,6 +55,7 @@ type DealDoc = {
   leaderUid?: string | null; // 旧: 互換用
   subLeaderUid?: string | null; // 旧: 互換用
   revenue?: number | null;
+  assigneeSales?: Record<string, number> | null;
   // status tracking (for LTV)
   firstActivatedAt?: any | null;
   activeStartedAt?: any | null;
@@ -81,9 +82,21 @@ export default function ProjectEditPage() {
   const [status, setStatus] = useState<DealStatus>("ACTIVE");
   const [assigneeUids, setAssigneeUids] = useState<string[]>([]);
   const [revenue, setRevenue] = useState("");
+  const [assigneeSales, setAssigneeSales] = useState<Record<string, string>>({});
   const [genreOptions, setGenreOptions] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const hasMultipleAssignees = assigneeUids.length >= 2;
+
+  const assigneeSalesTotal = useMemo(() => {
+    let sum = 0;
+    for (const uid of assigneeUids) {
+      const v = Number(assigneeSales[uid] || 0);
+      if (!Number.isNaN(v)) sum += v;
+    }
+    return sum;
+  }, [assigneeSales, assigneeUids]);
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [originalAssigneeUids, setOriginalAssigneeUids] = useState<string[]>([]);
   const [originalRevenue, setOriginalRevenue] = useState<number | null>(null);
@@ -167,6 +180,14 @@ export default function ProjectEditPage() {
           const initialRevenue = d.revenue === null || d.revenue === undefined ? null : Number(d.revenue);
           setRevenue(initialRevenue === null ? "" : String(initialRevenue));
           setOriginalRevenue(initialRevenue);
+          // 担当別売上を読み込み
+          if (d.assigneeSales && typeof d.assigneeSales === "object") {
+            const loaded: Record<string, string> = {};
+            for (const [uid, val] of Object.entries(d.assigneeSales)) {
+              loaded[uid] = val === null || val === undefined ? "" : String(val);
+            }
+            setAssigneeSales(loaded);
+          }
           setLoadedOnce(true);
         }
       } catch (e: any) {
@@ -222,6 +243,20 @@ export default function ProjectEditPage() {
       const prevStatus = (before?.status as DealStatus) || "ACTIVE";
       const now = Timestamp.now();
 
+      const finalRevenue = hasMultipleAssignees
+        ? (assigneeSalesTotal > 0 ? assigneeSalesTotal : revenueValue)
+        : revenueValue;
+      const finalAssigneeSales = hasMultipleAssignees
+        ? (() => {
+            const m: Record<string, number> = {};
+            for (const uid of assigneeUids) {
+              const v = Number(assigneeSales[uid] || 0);
+              if (!Number.isNaN(v) && v > 0) m[uid] = v;
+            }
+            return Object.keys(m).length > 0 ? m : null;
+          })()
+        : null;
+
       const updatePayload: Record<string, any> = {
         customerId,
         title: t,
@@ -232,7 +267,8 @@ export default function ProjectEditPage() {
         // 旧フィールドはクリア（互換性のため null に）
         leaderUid: null,
         subLeaderUid: null,
-        revenue: revenueValue,
+        revenue: finalRevenue,
+        assigneeSales: finalAssigneeSales,
         updatedAt: now,
       };
 
@@ -533,16 +569,45 @@ export default function ProjectEditPage() {
               </select>
             </div>
 
-            <div>
-              <div className="mb-1 text-sm font-bold text-slate-700">売上（数値）</div>
-              <input
-                value={revenue}
-                onChange={(e) => setRevenue(e.target.value)}
-                inputMode="numeric"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-                placeholder="例：500000"
-              />
-            </div>
+            {hasMultipleAssignees ? (
+              <div>
+                <div className="mb-1 text-sm font-bold text-slate-700">担当別売上（円/月）</div>
+                <div className="space-y-2">
+                  {assigneeUids.map((uid) => {
+                    const emp = employees.find((e) => e.authUid === uid);
+                    const aName = uid === user.uid ? currentUserDisplayName : (emp?.name || "不明");
+                    return (
+                      <div key={uid} className="flex items-center gap-2">
+                        <span className="w-20 truncate text-xs font-bold text-slate-700">{aName}</span>
+                        <input
+                          type="number"
+                          value={assigneeSales[uid] || ""}
+                          onChange={(e) => setAssigneeSales((prev) => ({ ...prev, [uid]: e.target.value }))}
+                          className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                          placeholder="0"
+                          inputMode="numeric"
+                        />
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center justify-end gap-2 text-xs font-extrabold text-slate-600 border-t border-slate-100 pt-2">
+                    <span>合計:</span>
+                    <span className="text-orange-600">¥{assigneeSalesTotal.toLocaleString("ja-JP")}</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="mb-1 text-sm font-bold text-slate-700">売上（数値）</div>
+                <input
+                  value={revenue}
+                  onChange={(e) => setRevenue(e.target.value)}
+                  inputMode="numeric"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  placeholder="例：500000"
+                />
+              </div>
+            )}
 
             <div>
               <div className="mb-1 text-sm font-bold text-slate-700">概要</div>

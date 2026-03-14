@@ -200,6 +200,87 @@ function SearchableSelect({
   );
 }
 
+/* ── 担当者検索付きドロップダウン ── */
+function AssigneeSearch({
+  user,
+  myDisplayName,
+  employees,
+  assigneeUids,
+  onAdd,
+}: {
+  user: User;
+  myDisplayName: string;
+  employees: Employee[];
+  assigneeUids: string[];
+  onAdd: (uid: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const candidates = useMemo(() => {
+    const list: { uid: string; name: string }[] = [];
+    if (!assigneeUids.includes(user.uid)) {
+      list.push({ uid: user.uid, name: myDisplayName });
+    }
+    for (const e of employees) {
+      if (e.authUid && e.authUid !== user.uid && !assigneeUids.includes(e.authUid)) {
+        list.push({ uid: e.authUid, name: e.name });
+      }
+    }
+    const q = search.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((c) => c.name.toLowerCase().includes(q));
+  }, [user, myDisplayName, employees, assigneeUids, search]);
+
+  return (
+    <div ref={containerRef} className="relative mt-2">
+      <input
+        ref={inputRef}
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="+ 担当を検索して追加..."
+        className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-500"
+      />
+      {open && candidates.length > 0 && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-48 overflow-y-auto">
+          {candidates.map((c) => (
+            <button
+              key={c.uid}
+              type="button"
+              onClick={() => {
+                onAdd(c.uid);
+                setSearch("");
+                setOpen(false);
+              }}
+              className="w-full px-3 py-2 text-left text-sm font-bold text-slate-800 hover:bg-orange-50 transition"
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && candidates.length === 0 && search.trim() && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg px-3 py-3 text-center text-xs font-bold text-slate-400">
+          該当なし
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NewIssueInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -304,7 +385,9 @@ function NewIssueInner() {
       }
       const custById = new Map<string, Customer>();
       for (const c of mergedCustomers) custById.set(c.id, c);
-      const customerItems = Array.from(custById.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      const customerItems = Array.from(custById.values())
+        .filter((c) => (c as any).isActive !== false)
+        .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setCustomers(customerItems);
 
       // deals (案件) を取得: /projects に表示される案件一覧
@@ -318,8 +401,9 @@ function NewIssueInner() {
       }
       const byId = new Map<string, any>();
       for (const p of mergedDeals) byId.set(p.id, p);
-      // deal を project として扱えるように name/key を生成
-      const projItems = Array.from(byId.values()).map((d) => ({
+      // 停止中の顧客の案件を除外し、deal を project として扱えるように name/key を生成
+      const activeCustomerIds = new Set(customerItems.map((c) => c.id));
+      const projItems = Array.from(byId.values()).filter((d) => !d.customerId || activeCustomerIds.has(d.customerId)).map((d) => ({
         ...d,
         name: d.title || "無題",
         key: d.key || d.title?.slice(0, 5)?.toUpperCase() || "DEAL",
@@ -706,29 +790,7 @@ function NewIssueInner() {
               </select>
             </div>
 
-            <div className="md:col-span-4">
-              <div className="text-xs font-extrabold text-slate-600">カテゴリ</div>
-              <select
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-              >
-                <option value="">未設定</option>
-                {categoryOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="md:col-span-4 flex items-end justify-end gap-2">
-              <button
-                onClick={() => setParentIssueId("")}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                type="button"
-              >
-                親課題を設定する
-              </button>
-            </div>
+            <div className="md:col-span-8" />
 
             <div className="md:col-span-12">
               <div className="text-xs font-extrabold text-slate-600">件名</div>
@@ -834,28 +896,13 @@ function NewIssueInner() {
                       );
                     })}
                   </div>
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const v = (e.target.value || "").trim();
-                      if (!v) return;
-                      setAssigneeUids((prev) => (prev.includes(v) ? prev : [...prev, v]));
-                      e.target.value = "";
-                    }}
-                    className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  >
-                    <option value="">＋ 担当を追加...</option>
-                    {user && !assigneeUids.includes(user.uid) && (
-                      <option value={user.uid}>{myDisplayName}</option>
-                    )}
-                    {employees
-                      .filter((e) => !!e.authUid && e.authUid !== user?.uid && !assigneeUids.includes(e.authUid!))
-                      .map((e) => (
-                        <option key={e.id} value={e.authUid!}>
-                          {e.name}
-                        </option>
-                      ))}
-                  </select>
+                  <AssigneeSearch
+                    user={user}
+                    myDisplayName={myDisplayName}
+                    employees={employees}
+                    assigneeUids={assigneeUids}
+                    onAdd={(uid) => setAssigneeUids((prev) => (prev.includes(uid) ? prev : [...prev, uid]))}
+                  />
                 </div>
 
                 <div className="md:col-span-6">
@@ -888,40 +935,6 @@ function NewIssueInner() {
                   />
                 </div>
 
-                <div className="md:col-span-6">
-                  <div className="text-xs font-extrabold text-slate-600">ラベル（カンマ区切り）</div>
-                  <input
-                    value={labelsText}
-                    onChange={(e) => setLabelsText(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                    placeholder="例: フロント,急ぎ"
-                  />
-                  {labelList.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {labelList.map((l) => (
-                        <span key={l} className="rounded-full bg-slate-100 px-2 py-1 text-xs font-extrabold text-slate-700">
-                          {l}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="md:col-span-12">
-                  <div className="text-xs font-extrabold text-slate-600">親課題（任意）</div>
-                  <select
-                    value={parentIssueId}
-                    onChange={(e) => setParentIssueId(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900"
-                  >
-                    <option value="">なし</option>
-                    {issuesInProject.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.issueKey} {i.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
             </div>
           </div>

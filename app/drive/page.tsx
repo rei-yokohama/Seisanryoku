@@ -76,6 +76,8 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
   const [busy, setBusy] = useState(false);
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
   const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
+  const [inactiveCustomerIds, setInactiveCustomerIds] = useState<Set<string>>(new Set());
+  const [hideInactiveCustomers, setHideInactiveCustomers] = useState(true);
 
   // アップロード進捗管理
   const [uploadProgress, setUploadProgress] = useState<
@@ -111,15 +113,21 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
     });
     setItems(list);
 
-    // 顧客名を取得
+    // 顧客名を取得 + 停止中の顧客を把握
     const custIds = new Set<string>();
     for (const it of list) if (it.customerId) custIds.add(it.customerId);
     if (custIds.size > 0 && prof.companyCode) {
       try {
         const custSnap = await getDocs(query(collection(db, "customers"), where("companyCode", "==", prof.companyCode)));
         const map: Record<string, string> = {};
-        custSnap.docs.forEach((d) => { map[d.id] = (d.data() as any).name || ""; });
+        const inactive = new Set<string>();
+        custSnap.docs.forEach((d) => {
+          const data = d.data() as any;
+          map[d.id] = data.name || "";
+          if (data.isActive === false) inactive.add(d.id);
+        });
         setCustomerNames(map);
+        setInactiveCustomerIds(inactive);
       } catch { /* ignore */ }
     }
   };
@@ -172,10 +180,12 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
     const q = qText.trim().toLowerCase();
     return items.filter((it) => {
       if ((it.parentId || null) !== currentFolderId) return false;
+      // 停止中の顧客のドライブを除外
+      if (hideInactiveCustomers && it.customerId && inactiveCustomerIds.has(it.customerId)) return false;
       if (!q) return true;
       return (it.name || "").toLowerCase().includes(q);
     });
-  }, [items, currentFolderId, qText]);
+  }, [items, currentFolderId, qText, hideInactiveCustomers, inactiveCustomerIds]);
 
   const breadcrumb = useMemo(() => {
     const out: Array<{ id: string | null; name: string }> = [{ id: null, name: "マイドライブ" }];
@@ -531,6 +541,17 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
                       className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                     />
                   </div>
+                  <div className="md:col-span-6 flex items-end">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={hideInactiveCustomers}
+                        onChange={(e) => setHideInactiveCustomers(e.target.checked)}
+                        className="h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                      />
+                      <span className="text-xs font-bold text-slate-600">停止中の顧客を非表示</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             )}
@@ -548,8 +569,14 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
             <table className="min-w-[900px] w-full text-sm">
               <thead className="bg-slate-50 text-xs font-extrabold text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-left">名前</th>
-                  <th className="px-4 py-3 text-left">顧客</th>
+                  {currentFolderId ? (
+                    <>
+                      <th className="px-4 py-3 text-left">名前</th>
+                      <th className="px-4 py-3 text-left">顧客</th>
+                    </>
+                  ) : (
+                    <th className="px-4 py-3 text-left">顧客</th>
+                  )}
                   <th className="px-4 py-3 text-left">種類</th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>
@@ -557,7 +584,7 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
               <tbody className="divide-y divide-slate-100">
                 {currentChildren.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
+                    <td colSpan={currentFolderId ? 4 : 3} className="px-4 py-10 text-center text-sm font-bold text-slate-500">
                       まだ何もありません。右上から追加してください。
                     </td>
                   </tr>
@@ -567,39 +594,53 @@ export function DrivePage({ folderId: folderIdProp }: { folderId?: string | null
                     const custName = custId ? customerNames[custId] : null;
                     return (
                       <tr key={it.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-slate-900">
-                          {it.kind === "folder" ? (
+                        {currentFolderId ? (
+                          <>
+                            <td className="px-4 py-3 font-bold text-slate-900">
+                              {it.kind === "folder" ? (
+                                <button
+                                  onClick={() => navigateToFolder(it.id)}
+                                  className="flex min-w-0 items-center gap-2 text-left hover:underline"
+                                >
+                                  <span className="text-lg">📁</span>
+                                  <span className="truncate">{it.name}</span>
+                                </button>
+                              ) : it.url ? (
+                                <a className="flex min-w-0 items-center gap-2 hover:underline" href={it.url} target="_blank" rel="noreferrer">
+                                  <span className="text-lg">📄</span>
+                                  <span className="truncate">{it.name}</span>
+                                </a>
+                              ) : (
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="text-lg">📄</span>
+                                  <span className="truncate">{it.name}</span>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {custId && custName ? (
+                                <Link
+                                  href={`/customers/${encodeURIComponent(custId)}`}
+                                  className="text-sm font-bold text-orange-700 hover:underline"
+                                >
+                                  {custName}
+                                </Link>
+                              ) : (
+                                <span className="text-xs text-slate-400">-</span>
+                              )}
+                            </td>
+                          </>
+                        ) : (
+                          <td className="px-4 py-3 font-bold text-slate-900">
                             <button
                               onClick={() => navigateToFolder(it.id)}
                               className="flex min-w-0 items-center gap-2 text-left hover:underline"
                             >
                               <span className="text-lg">📁</span>
-                              <span className="truncate">{it.name}</span>
+                              <span className="truncate">{custName || it.name}</span>
                             </button>
-                          ) : it.url ? (
-                            <a className="flex min-w-0 items-center gap-2 hover:underline" href={it.url} target="_blank" rel="noreferrer">
-                              <span className="text-lg">📄</span>
-                              <span className="truncate">{it.name}</span>
-                            </a>
-                          ) : (
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span className="text-lg">📄</span>
-                              <span className="truncate">{it.name}</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {custId && custName ? (
-                            <Link
-                              href={`/customers/${encodeURIComponent(custId)}`}
-                              className="text-sm font-bold text-orange-700 hover:underline"
-                            >
-                              {custName}
-                            </Link>
-                          ) : (
-                            <span className="text-xs text-slate-400">-</span>
-                          )}
-                        </td>
+                          </td>
+                        )}
                         <td className="px-4 py-3">
                           <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
                             {it.kind === "folder" ? "フォルダ" : "ファイル"}

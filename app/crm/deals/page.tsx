@@ -18,6 +18,7 @@ import {
   resolveVisibleUids,
   filterByVisibleUids,
 } from "../../../lib/visibilityPermissions";
+import { FilterSearchSelect } from "../../../lib/FilterSearchSelect";
 function clsx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -68,6 +69,7 @@ type Deal = {
   leaderUid?: string | null; // 旧: 互換用
   subLeaderUid?: string | null; // 旧: 互換用
   revenue?: number | null;
+  assigneeSales?: Record<string, number> | null;
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 };
@@ -205,22 +207,28 @@ function DealsInner() {
   // localStorage から復元（searchParams がある場合はそちらを優先）
   useEffect(() => {
     if (!filterStorage.loaded) return;
-    const hasSearchParams = searchParams.get("status") || searchParams.get("customerId") || searchParams.get("q");
+    const hasSearchParams = searchParams.get("status") || searchParams.get("customer") || searchParams.get("q") || searchParams.get("tab") || searchParams.get("leader") || searchParams.get("assignees");
 
     if (hasSearchParams) {
       // URL パラメータ優先
       const initialStatus = (searchParams.get("status") || "").toUpperCase();
-      const validStatuses = DEAL_STATUS_OPTIONS.map(o => o.value);
-      if (validStatuses.includes(initialStatus as DealStatus)) {
-        setStatusFilter(initialStatus as DealStatus);
+      const validStatuses = [...DEAL_STATUS_OPTIONS.map(o => o.value), "ALL"];
+      if (validStatuses.includes(initialStatus)) {
+        setStatusFilter(initialStatus as DealStatus | "ALL");
       }
-      const initialCustomerId = searchParams.get("customerId") || "";
+      const initialCustomerId = searchParams.get("customer") || searchParams.get("customerId") || "";
       if (initialCustomerId) setCustomerFilter(initialCustomerId);
       const initialQ = searchParams.get("q") || "";
       if (initialQ) {
         setQText(initialQ);
         setIsFilterExpanded(true);
       }
+      const initialTab = searchParams.get("tab") || "";
+      if (initialTab === "MINE") setTab("MINE");
+      const initialLeader = searchParams.get("leader") || "";
+      if (initialLeader) setLeaderFilter(initialLeader);
+      const initialAssignees = searchParams.get("assignees") || "";
+      if (initialAssignees) setSelectedAssignees(initialAssignees.split(",").filter(Boolean));
     } else {
       // localStorage から復元
       const s = filterStorage.state;
@@ -237,7 +245,7 @@ function DealsInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterStorage.loaded]);
 
-  // フィルタ変更時に localStorage へ保存
+  // フィルタ変更時に localStorage へ保存 + URLパラメータ同期
   useEffect(() => {
     if (!filterStorage.loaded) return;
     filterStorage.setState({
@@ -251,6 +259,21 @@ function DealsInner() {
       sortColumn,
       sortDirection,
     });
+
+    // URLパラメータ同期（デフォルト値と異なる場合のみパラメータ付与）
+    const params = new URLSearchParams();
+    // statusFilter: デフォルト "ACTIVE"。"ACTIVE" 以外のときパラメータ付与
+    if (statusFilter !== "ACTIVE") params.set("status", statusFilter);
+    if (customerFilter !== "ALL") params.set("customer", customerFilter);
+    if (tab !== "ALL") params.set("tab", tab);
+    if (leaderFilter !== "ALL") params.set("leader", leaderFilter);
+    if (selectedAssignees.length > 0) params.set("assignees", selectedAssignees.join(","));
+    if (qText.trim()) params.set("q", qText.trim());
+    const qs = params.toString();
+    const newUrl = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    if (newUrl !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(null, "", newUrl);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, isFilterExpanded, sortColumn, sortDirection]);
 
@@ -463,15 +486,35 @@ function DealsInner() {
     return sorted;
   }, [visibleDeals, qText, tab, statusFilter, customerFilter, leaderFilter, selectedAssignees, customersById, employeesByUid, user, activeLeaderUids, sortColumn, sortDirection]);
 
+  // フィルタ中の担当者UID一覧
+  const activeAssigneeUids = useMemo(() => {
+    const uids: string[] = [];
+    if (leaderFilter && leaderFilter !== "ALL" && leaderFilter !== "__unassigned__") {
+      uids.push(leaderFilter);
+    }
+    for (const a of selectedAssignees) {
+      if (a !== "__unassigned__" && !uids.includes(a)) uids.push(a);
+    }
+    return uids;
+  }, [leaderFilter, selectedAssignees]);
+
   const totalRevenue = useMemo(() => {
     let sum = 0;
     for (const d of filtered) {
-      if (typeof d.revenue === "number" && !Number.isNaN(d.revenue)) {
-        sum += d.revenue;
+      // 担当者フィルタが有効 & assigneeSales がある場合、対象担当者分だけ加算
+      if (activeAssigneeUids.length > 0 && d.assigneeSales && Object.keys(d.assigneeSales).length > 0) {
+        for (const uid of activeAssigneeUids) {
+          const v = d.assigneeSales[uid];
+          if (typeof v === "number" && !Number.isNaN(v)) sum += v;
+        }
+      } else {
+        if (typeof d.revenue === "number" && !Number.isNaN(d.revenue)) {
+          sum += d.revenue;
+        }
       }
     }
     return sum;
-  }, [filtered]);
+  }, [filtered, activeAssigneeUids]);
 
   // 並び替えハンドラー
   const handleSort = (column: SortColumn) => {
@@ -717,38 +760,30 @@ function DealsInner() {
                 </div>
                 <div className="md:col-span-3">
                   <div className="text-xs font-extrabold text-slate-500">顧客</div>
-                  <select
+                  <FilterSearchSelect
                     value={customerFilter}
-                    onChange={(e) => setCustomerFilter(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  >
-                    <option value="ALL">すべて</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setCustomerFilter}
+                    allValue="ALL"
+                    options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                    className="mt-1"
+                  />
                 </div>
                 <div className="md:col-span-4">
                   <div className="text-xs font-extrabold text-slate-500">担当者</div>
-                  <select
+                  <FilterSearchSelect
                     value={leaderFilter}
-                    onChange={(e) => setLeaderFilter(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800"
-                  >
-                    <option value="ALL">すべて</option>
-                    <option value="__unassigned__">担当者未設定</option>
-                    <option value={user.uid}>{profile?.displayName || user.email?.split("@")[0] || "ユーザー"}</option>
-                    {employees
-                      .filter((e) => e.isActive !== false && !!e.authUid && e.authUid !== user.uid
-                        && (isOwner || visibleUids.size === 0 || visibleUids.has(e.authUid!)))
-                      .map((e) => (
-                        <option key={e.id} value={e.authUid}>
-                          {e.name}
-                        </option>
-                      ))}
-                  </select>
+                    onChange={setLeaderFilter}
+                    allValue="ALL"
+                    options={[
+                      { value: "__unassigned__", label: "担当者未設定" },
+                      { value: user.uid, label: profile?.displayName || user.email?.split("@")[0] || "ユーザー" },
+                      ...employees
+                        .filter((e) => e.isActive !== false && !!e.authUid && e.authUid !== user.uid
+                          && (isOwner || visibleUids.size === 0 || visibleUids.has(e.authUid!)))
+                        .map((e) => ({ value: e.authUid!, label: e.name })),
+                    ]}
+                    className="mt-1"
+                  />
                 </div>
               </div>
             </div>
@@ -908,10 +943,36 @@ function DealsInner() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-slate-700 font-bold whitespace-nowrap">
-                          {d.revenue === null || d.revenue === undefined ? (
+                          {activeAssigneeUids.length > 0 && d.assigneeSales && Object.keys(d.assigneeSales).length > 0 ? (
+                            <>
+                              {activeAssigneeUids.map((uid) => {
+                                const amount = d.assigneeSales![uid];
+                                return amount ? (
+                                  <div key={uid} className="flex items-center justify-end gap-1.5">
+                                    {activeAssigneeUids.length > 1 && (
+                                      <span className="text-[10px] text-slate-500">{assigneeDisplayName(uid)}</span>
+                                    )}
+                                    <span>¥{formatYen(amount)}</span>
+                                  </div>
+                                ) : null;
+                              })}
+                            </>
+                          ) : d.revenue === null || d.revenue === undefined ? (
                             <span className="text-slate-400">-</span>
                           ) : (
-                            <span>¥{formatYen(d.revenue)}</span>
+                            <>
+                              <span>¥{formatYen(d.revenue)}</span>
+                              {d.assigneeSales && Object.keys(d.assigneeSales).length > 0 && (
+                                <div className="mt-1 space-y-0.5">
+                                  {Object.entries(d.assigneeSales).map(([uid, amount]) => (
+                                    <div key={uid} className="flex items-center justify-end gap-1.5">
+                                      <span className="text-[10px] text-slate-500">{assigneeDisplayName(uid)}</span>
+                                      <span className="text-[10px] font-extrabold text-orange-600">¥{formatYen(amount)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">

@@ -230,19 +230,23 @@ service cloud.firestore {
     }
 
     match /wikiDocs/{docId} {
-      allow read: if isSignedIn() && isInMyCompany(resource.data.companyCode);
+      allow read: if (isSignedIn() && isInMyCompany(resource.data.companyCode))
+        || resource.data.shareEnabled == true;
       allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
       allow delete: if isSignedIn() && isInMyCompany(resource.data.companyCode);
 
       // タブコンテンツ（サブコレクション）: 親ドキュメントの権限に準ずる
+      // 共有が有効な場合は未ログインでも読み取り可能
       match /tabContents/{tabId} {
-        allow read: if isSignedIn();
+        allow read: if isSignedIn()
+          || get(/databases/$(database)/documents/wikiDocs/$(docId)).data.shareEnabled == true;
         allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
         allow delete: if isSignedIn();
       }
 
       match /tabParts/{partId} {
-        allow read: if isSignedIn();
+        allow read: if isSignedIn()
+          || get(/databases/$(database)/documents/wikiDocs/$(docId)).data.shareEnabled == true;
         allow create, update: if isSignedIn() && isInMyCompany(request.resource.data.companyCode);
         allow delete: if isSignedIn();
       }
